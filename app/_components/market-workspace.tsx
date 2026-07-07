@@ -1,0 +1,60 @@
+"use client"
+
+import * as React from "react"
+
+import { marketCards, type MarketCardData } from "../_constants/dashboard"
+
+import { MarketCard } from "./market-card"
+import { MarketStackPanel } from "./market-stack-panel"
+
+export function MarketWorkspace(): React.ReactElement {
+  const [selectedMarket, setSelectedMarket] =
+    React.useState<MarketCardData | null>(null)
+
+  return (
+    <div
+      className={
+        selectedMarket
+          ? "grid lg:grid-cols-[minmax(0,1fr)_minmax(24rem,30rem)]"
+          : "grid"
+      }
+    >
+      <section className="flex min-w-0 flex-col gap-4 p-4 md:p-6" id="markets">
+        <div>
+          <h1 className="text-xl font-semibold">Markets</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Browse all public markets, then pick one to start a borrow flow.
+          </p>
+        </div>
+        <div
+          className={
+            selectedMarket
+              ? "grid gap-4 sm:grid-cols-2 2xl:grid-cols-3"
+              : "grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4"
+          }
+        >
+          {marketCards.map((market) => (
+            <MarketCard
+              active={selectedMarket?.symbol === market.symbol}
+              key={market.symbol}
+              market={market}
+              onViewMarket={() => {
+                setSelectedMarket(market)
+              }}
+            />
+          ))}
+        </div>
+      </section>
+
+      {selectedMarket ? (
+        <MarketStackPanel
+          key={selectedMarket.symbol}
+          market={selectedMarket}
+          onClose={() => {
+            setSelectedMarket(null)
+          }}
+        />
+      ) : null}
+    </div>
+  )
+}
