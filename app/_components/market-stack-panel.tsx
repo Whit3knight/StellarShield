@@ -1,11 +1,7 @@
 import { ArrowLeftIcon, ArrowRightIcon } from "lucide-react"
 import * as React from "react"
 
-import {
-  borrowOverview,
-  getMarketPair,
-  type MarketCardData,
-} from "../_constants/dashboard"
+import { getMarketPair, type MarketCardData } from "../_constants/dashboard"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -21,21 +17,104 @@ import {
   DrawerTitle,
   DrawerTrigger,
 } from "@/components/ui/drawer"
-import { Field, FieldLabel } from "@/components/ui/field"
+import {
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldLabel,
+} from "@/components/ui/field"
 import { Form } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 
 import { Sparkline } from "./sparkline"
 
-type MarketStep = "detail" | "borrow" | "review"
+type MarketStep =
+  "detail" | "collateral" | "verification" | "review" | "confirmed"
+type VerificationStatus = "Not started" | "Checking" | "Verified"
+type TransactionStatus = "Draft" | "Confirmed"
+type LoanHealth = "Healthy" | "Attention" | "At risk"
+
+type BorrowFlowState = {
+  collateralAmount: string
+  loanAmount: string
+  transactionStatus: TransactionStatus
+  verificationStatus: VerificationStatus
+}
+
+type BorrowFlowMetrics = {
+  borrowingPower: number
+  collateralValue: number
+  isLoanValid: boolean
+  loanHealth: LoanHealth
+  loanValue: number
+  utilization: number
+}
 
 const DESKTOP_MEDIA_QUERY = "(min-width: 1024px)"
-const MARKET_STEPS: MarketStep[] = ["detail", "borrow", "review"]
+const MARKET_STEPS: MarketStep[] = [
+  "detail",
+  "collateral",
+  "verification",
+  "review",
+  "confirmed",
+]
 const DESKTOP_STACK_PEEK_PX = 23
 const DESKTOP_STACK_SCALE_STEP = 0.05
+const MOCK_ACCOUNT_ADDRESS = "GABC...7KQ2"
+const MOCK_ACCOUNT_BALANCE = "3,420.24 XLM"
+const MOCK_TRANSACTION_HASH = "3f6d...91b2"
+const COLLATERAL_FACTOR = 0.625
+const USD_FORMATTER = new Intl.NumberFormat("en-US", {
+  currency: "USD",
+  maximumFractionDigits: 2,
+  style: "currency",
+})
 const DRAWER_PANEL_WIDTH_CLASS = "w-[calc(100%-(--spacing(14)))]"
 const DESKTOP_FOOTER_CLASS =
   "flex w-full flex-row items-center justify-between gap-2 border-t bg-muted/72 px-6 pt-4 pb-[calc(env(safe-area-inset-bottom,0px)+--spacing(4))]"
+const INITIAL_FLOW_STATE: BorrowFlowState = {
+  collateralAmount: "6800",
+  loanAmount: "4250",
+  transactionStatus: "Draft",
+  verificationStatus: "Not started",
+}
+
+function parseAmount(value: string): number {
+  const parsedValue = Number.parseFloat(value.replace(/[^0-9.]/g, ""))
+
+  if (Number.isNaN(parsedValue)) {
+    return 0
+  }
+
+  return parsedValue
+}
+
+function formatUsd(value: number): string {
+  return USD_FORMATTER.format(value)
+}
+
+function getBorrowFlowMetrics(flow: BorrowFlowState): BorrowFlowMetrics {
+  const collateralValue = parseAmount(flow.collateralAmount)
+  const loanValue = parseAmount(flow.loanAmount)
+  const borrowingPower = collateralValue * COLLATERAL_FACTOR
+  const utilization = borrowingPower > 0 ? loanValue / borrowingPower : 0
+  const isLoanValid =
+    collateralValue > 0 && loanValue > 0 && loanValue <= borrowingPower
+  const loanHealth: LoanHealth = !isLoanValid
+    ? "At risk"
+    : utilization > 0.85
+      ? "Attention"
+      : "Healthy"
+
+  return {
+    borrowingPower,
+    collateralValue,
+    isLoanValid,
+    loanHealth,
+    loanValue,
+    utilization,
+  }
+}
 
 function getIsDesktop(): boolean {
   return (
@@ -62,6 +141,76 @@ function useIsDesktop(): boolean {
   }, [])
 
   return isDesktop
+}
+
+function useBorrowFlow(): {
+  flow: BorrowFlowState
+  metrics: BorrowFlowMetrics
+  setFieldValue: (
+    field: "collateralAmount" | "loanAmount",
+    value: string
+  ) => void
+  submitTransaction: () => void
+  verifyEligibility: () => void
+} {
+  const [flow, setFlow] = React.useState<BorrowFlowState>(INITIAL_FLOW_STATE)
+  const verificationTimerRef = React.useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null)
+  const metrics = React.useMemo(() => getBorrowFlowMetrics(flow), [flow])
+
+  React.useEffect(() => {
+    return () => {
+      if (verificationTimerRef.current) {
+        clearTimeout(verificationTimerRef.current)
+      }
+    }
+  }, [])
+
+  const setFieldValue = React.useCallback(
+    (field: "collateralAmount" | "loanAmount", value: string) => {
+      setFlow((currentFlow) => ({
+        ...currentFlow,
+        [field]: value,
+        transactionStatus: "Draft",
+        verificationStatus: "Not started",
+      }))
+    },
+    []
+  )
+
+  const verifyEligibility = React.useCallback(() => {
+    if (verificationTimerRef.current) {
+      clearTimeout(verificationTimerRef.current)
+    }
+
+    setFlow((currentFlow) => ({
+      ...currentFlow,
+      verificationStatus: "Checking",
+    }))
+
+    verificationTimerRef.current = setTimeout(() => {
+      setFlow((currentFlow) => ({
+        ...currentFlow,
+        verificationStatus: "Verified",
+      }))
+    }, 650)
+  }, [])
+
+  const submitTransaction = React.useCallback(() => {
+    setFlow((currentFlow) => ({
+      ...currentFlow,
+      transactionStatus: "Confirmed",
+    }))
+  }, [])
+
+  return {
+    flow,
+    metrics,
+    setFieldValue,
+    submitTransaction,
+    verifyEligibility,
+  }
 }
 
 function DetailRow({
@@ -129,10 +278,19 @@ function MarketDetail({
   )
 }
 
-function BorrowStep({
+function BorrowTermsStep({
+  flow,
   market,
+  metrics,
+  onFieldChange,
 }: {
+  flow: BorrowFlowState
   market: MarketCardData
+  metrics: BorrowFlowMetrics
+  onFieldChange: (
+    field: "collateralAmount" | "loanAmount",
+    value: string
+  ) => void
 }): React.ReactElement {
   return (
     <Form className="flex w-full flex-col gap-4">
@@ -143,43 +301,160 @@ function BorrowStep({
 
       <div className="grid grid-cols-2 gap-3">
         <Field>
-          <FieldLabel>Collateral</FieldLabel>
-          <Input defaultValue={borrowOverview.collateral} type="text" />
+          <FieldLabel>Collateral value</FieldLabel>
+          <Input
+            inputMode="decimal"
+            onChange={(event) => {
+              onFieldChange("collateralAmount", event.currentTarget.value)
+            }}
+            type="text"
+            value={flow.collateralAmount}
+          />
+          <FieldDescription>{MOCK_ACCOUNT_BALANCE} available</FieldDescription>
         </Field>
-        <Field>
+        <Field invalid={!metrics.isLoanValid}>
           <FieldLabel>Loan amount</FieldLabel>
-          <Input defaultValue={borrowOverview.availableToBorrow} type="text" />
+          <Input
+            aria-invalid={!metrics.isLoanValid}
+            inputMode="decimal"
+            onChange={(event) => {
+              onFieldChange("loanAmount", event.currentTarget.value)
+            }}
+            type="text"
+            value={flow.loanAmount}
+          />
+          <FieldDescription>
+            Available to borrow: {formatUsd(metrics.borrowingPower)}
+          </FieldDescription>
+          {!metrics.isLoanValid ? (
+            <FieldError>
+              Loan amount exceeds current borrowing power.
+            </FieldError>
+          ) : null}
         </Field>
       </div>
 
       <div className="grid grid-cols-2 gap-3">
-        <MetricTile label="Available" value={market.availableFunds} />
+        <MetricTile
+          label="Borrowing power"
+          value={formatUsd(metrics.borrowingPower)}
+        />
         <MetricTile label="Borrow APR" value={market.borrowApr} />
-        <MetricTile label="Loan status" value={borrowOverview.loanStatus} />
-        <MetricTile label="Verification" value={borrowOverview.verification} />
+        <MetricTile label="Loan health" value={metrics.loanHealth} />
+        <MetricTile
+          label="Utilization"
+          value={`${Math.round(metrics.utilization * 100)}%`}
+        />
       </div>
     </Form>
   )
 }
 
-function ReviewStep({
+function VerificationStep({
+  flow,
   market,
+  metrics,
 }: {
+  flow: BorrowFlowState
   market: MarketCardData
+  metrics: BorrowFlowMetrics
+}): React.ReactElement {
+  return (
+    <>
+      <Card className="rounded-lg before:rounded-[calc(var(--radius-lg)-1px)]">
+        <CardPanel className="space-y-1">
+          <DetailRow label="Account" value={MOCK_ACCOUNT_ADDRESS} />
+          <DetailRow label="Balance" value={MOCK_ACCOUNT_BALANCE} />
+          <DetailRow label="Market" value={getMarketPair(market)} />
+          <DetailRow
+            label="Borrowing power"
+            value={formatUsd(metrics.borrowingPower)}
+          />
+          <DetailRow label="Loan amount" value={formatUsd(metrics.loanValue)} />
+        </CardPanel>
+      </Card>
+
+      <div className="rounded-md border bg-muted/48 p-3 text-sm">
+        <div className="font-medium">Private verification</div>
+        <p className="mt-1 text-muted-foreground">
+          Eligibility is checked before review without exposing sensitive wallet
+          details.
+        </p>
+        <div className="mt-3 grid grid-cols-2 gap-3">
+          <MetricTile label="Status" value={flow.verificationStatus} />
+          <MetricTile label="Loan health" value={metrics.loanHealth} />
+        </div>
+      </div>
+    </>
+  )
+}
+
+function ReviewStep({
+  flow,
+  market,
+  metrics,
+}: {
+  flow: BorrowFlowState
+  market: MarketCardData
+  metrics: BorrowFlowMetrics
 }): React.ReactElement {
   return (
     <Card className="rounded-lg before:rounded-[calc(var(--radius-lg)-1px)]">
       <CardPanel className="space-y-1">
         <DetailRow label="Market" value={getMarketPair(market)} />
-        <DetailRow label="Collateral" value={borrowOverview.collateral} />
+        <DetailRow label="Account" value={MOCK_ACCOUNT_ADDRESS} />
         <DetailRow
-          label="Loan amount"
-          value={borrowOverview.availableToBorrow}
+          label="Collateral"
+          value={formatUsd(metrics.collateralValue)}
         />
+        <DetailRow label="Loan amount" value={formatUsd(metrics.loanValue)} />
         <DetailRow label="Borrow APR" value={market.borrowApr} />
+        <DetailRow label="Loan health" value={metrics.loanHealth} />
+        <DetailRow label="Verification" value={flow.verificationStatus} />
+        <DetailRow label="Transaction state" value={flow.transactionStatus} />
         <DetailRow label="Estimated fee" value="0.00003 XLM" />
       </CardPanel>
     </Card>
+  )
+}
+
+function PositionSummaryStep({
+  flow,
+  market,
+  metrics,
+}: {
+  flow: BorrowFlowState
+  market: MarketCardData
+  metrics: BorrowFlowMetrics
+}): React.ReactElement {
+  return (
+    <>
+      <Card className="rounded-lg before:rounded-[calc(var(--radius-lg)-1px)]">
+        <CardPanel className="space-y-1">
+          <DetailRow label="Position" value={getMarketPair(market)} />
+          <DetailRow
+            label="Collateral supplied"
+            value={formatUsd(metrics.collateralValue)}
+          />
+          <DetailRow
+            label="Borrowed amount"
+            value={formatUsd(metrics.loanValue)}
+          />
+          <DetailRow label="Borrow APR" value={market.borrowApr} />
+          <DetailRow label="Loan health" value={metrics.loanHealth} />
+          <DetailRow label="Transaction" value={flow.transactionStatus} />
+          <DetailRow label="Receipt" value={MOCK_TRANSACTION_HASH} />
+        </CardPanel>
+      </Card>
+
+      <div className="rounded-md border bg-muted/48 p-3 text-sm">
+        <div className="font-medium">Position is active</div>
+        <p className="mt-1 text-muted-foreground">
+          The borrow receipt is ready for Activity. You can add collateral or
+          repay from the position view next.
+        </p>
+      </div>
+    </>
   )
 }
 
@@ -187,10 +462,17 @@ function getStepCopy(
   market: MarketCardData,
   step: MarketStep
 ): { description: string; title: string } {
-  if (step === "borrow") {
+  if (step === "collateral") {
     return {
-      description: `Enter terms for the ${getMarketPair(market)} market.`,
-      title: `Borrow ${market.symbol}`,
+      description: "Add collateral and choose the loan amount for this market.",
+      title: "Add collateral",
+    }
+  }
+
+  if (step === "verification") {
+    return {
+      description: "Confirm eligibility without exposing wallet details.",
+      title: "Private verification",
     }
   }
 
@@ -202,6 +484,13 @@ function getStepCopy(
     }
   }
 
+  if (step === "confirmed") {
+    return {
+      description: "Your borrow position has been recorded.",
+      title: "Position summary",
+    }
+  }
+
   return {
     description:
       "Public market details are visible before connecting a wallet.",
@@ -210,18 +499,42 @@ function getStepCopy(
 }
 
 function DrawerStepBody({
+  flow,
   market,
+  metrics,
+  onFieldChange,
   step,
 }: {
+  flow: BorrowFlowState
   market: MarketCardData
+  metrics: BorrowFlowMetrics
+  onFieldChange: (
+    field: "collateralAmount" | "loanAmount",
+    value: string
+  ) => void
   step: MarketStep
 }): React.ReactElement {
-  if (step === "borrow") {
-    return <BorrowStep market={market} />
+  if (step === "collateral") {
+    return (
+      <BorrowTermsStep
+        flow={flow}
+        market={market}
+        metrics={metrics}
+        onFieldChange={onFieldChange}
+      />
+    )
+  }
+
+  if (step === "verification") {
+    return <VerificationStep flow={flow} market={market} metrics={metrics} />
   }
 
   if (step === "review") {
-    return <ReviewStep market={market} />
+    return <ReviewStep flow={flow} market={market} metrics={metrics} />
+  }
+
+  if (step === "confirmed") {
+    return <PositionSummaryStep flow={flow} market={market} metrics={metrics} />
   }
 
   return <MarketDetail market={market} />
@@ -244,20 +557,73 @@ function MarketDrawerFooter({
 }
 
 function DesktopMarketFooter({
+  flow,
+  metrics,
   onClose,
+  onSubmit,
   onStepChange,
+  onVerify,
   step,
 }: {
+  flow: BorrowFlowState
+  metrics: BorrowFlowMetrics
   onClose: () => void
+  onSubmit: () => void
   onStepChange: (step: MarketStep) => void
+  onVerify: () => void
   step: MarketStep
 }): React.ReactElement {
+  return (
+    <div className={DESKTOP_FOOTER_CLASS}>
+      <MarketStepFooterActions
+        flow={flow}
+        metrics={metrics}
+        onClose={onClose}
+        onStepChange={onStepChange}
+        onSubmit={onSubmit}
+        onVerify={onVerify}
+        step={step}
+      />
+    </div>
+  )
+}
+
+function MarketStepFooterActions({
+  flow,
+  metrics,
+  onClose,
+  onStepChange,
+  onSubmit,
+  onVerify,
+  step,
+}: {
+  flow: BorrowFlowState
+  metrics: BorrowFlowMetrics
+  onClose: () => void
+  onStepChange: (step: MarketStep) => void
+  onSubmit: () => void
+  onVerify: () => void
+  step: MarketStep
+}): React.ReactElement {
+  if (step === "confirmed") {
+    return (
+      <>
+        <Button onClick={onClose} type="button" variant="ghost">
+          Close
+        </Button>
+        <Button onClick={onClose} type="button">
+          Done
+        </Button>
+      </>
+    )
+  }
+
   if (step === "review") {
     return (
-      <div className={DESKTOP_FOOTER_CLASS}>
+      <>
         <Button
           onClick={() => {
-            onStepChange("borrow")
+            onStepChange("verification")
           }}
           type="button"
           variant="ghost"
@@ -265,14 +631,58 @@ function DesktopMarketFooter({
           <ArrowLeftIcon aria-hidden="true" />
           Back
         </Button>
-        <Button type="button">Submit transaction</Button>
-      </div>
+        <Button
+          onClick={() => {
+            onSubmit()
+            onStepChange("confirmed")
+          }}
+          type="button"
+        >
+          Submit transaction
+        </Button>
+      </>
     )
   }
 
-  if (step === "borrow") {
+  if (step === "verification") {
+    const isChecking = flow.verificationStatus === "Checking"
+    const isVerified = flow.verificationStatus === "Verified"
+
     return (
-      <div className={DESKTOP_FOOTER_CLASS}>
+      <>
+        <Button
+          onClick={() => {
+            onStepChange("collateral")
+          }}
+          type="button"
+          variant="ghost"
+        >
+          <ArrowLeftIcon aria-hidden="true" />
+          Back
+        </Button>
+        <Button
+          disabled={isChecking || !metrics.isLoanValid}
+          loading={isChecking}
+          onClick={() => {
+            if (isVerified) {
+              onStepChange("review")
+              return
+            }
+
+            onVerify()
+          }}
+          type="button"
+        >
+          {isVerified ? "Continue" : "Verify eligibility"}
+          {!isVerified ? null : <ArrowRightIcon aria-hidden="true" />}
+        </Button>
+      </>
+    )
+  }
+
+  if (step === "collateral") {
+    return (
+      <>
         <Button
           onClick={() => {
             onStepChange("detail")
@@ -284,48 +694,61 @@ function DesktopMarketFooter({
           Back
         </Button>
         <Button
+          disabled={!metrics.isLoanValid}
           onClick={() => {
-            onStepChange("review")
+            onStepChange("verification")
           }}
           type="button"
-          variant="outline"
         >
-          Review transaction
+          Continue
           <ArrowRightIcon aria-hidden="true" />
         </Button>
-      </div>
+      </>
     )
   }
 
   return (
-    <div className={DESKTOP_FOOTER_CLASS}>
+    <>
       <Button onClick={onClose} type="button" variant="ghost">
         Close
       </Button>
       <Button
         onClick={() => {
-          onStepChange("borrow")
+          onStepChange("collateral")
         }}
         type="button"
       >
         Start borrow
         <ArrowRightIcon aria-hidden="true" />
       </Button>
-    </div>
+    </>
   )
 }
 
 function DesktopMarketStepPanel({
   activeStep,
+  flow,
   market,
+  metrics,
   onClose,
+  onFieldChange,
+  onSubmit,
   onStepChange,
+  onVerify,
   step,
 }: {
   activeStep: MarketStep
+  flow: BorrowFlowState
   market: MarketCardData
+  metrics: BorrowFlowMetrics
   onClose: () => void
+  onFieldChange: (
+    field: "collateralAmount" | "loanAmount",
+    value: string
+  ) => void
+  onSubmit: () => void
   onStepChange: (step: MarketStep) => void
+  onVerify: () => void
   step: MarketStep
 }): React.ReactElement {
   const activeIndex = getStepIndex(activeStep)
@@ -368,13 +791,23 @@ function DesktopMarketStepPanel({
 
       <div className="min-h-0 flex-1 overflow-y-auto p-6 pt-1">
         <div className="space-y-5">
-          <DrawerStepBody market={market} step={step} />
+          <DrawerStepBody
+            flow={flow}
+            market={market}
+            metrics={metrics}
+            onFieldChange={onFieldChange}
+            step={step}
+          />
         </div>
       </div>
 
       <DesktopMarketFooter
+        flow={flow}
+        metrics={metrics}
         onClose={onClose}
+        onSubmit={onSubmit}
         onStepChange={onStepChange}
+        onVerify={onVerify}
         step={step}
       />
     </section>
@@ -383,13 +816,17 @@ function DesktopMarketStepPanel({
 
 function MarketDrawerPopup(props: {
   children: React.ReactNode
+  flow: BorrowFlowState
   market: MarketCardData
+  metrics: BorrowFlowMetrics
+  onFieldChange: (
+    field: "collateralAmount" | "loanAmount",
+    value: string
+  ) => void
   step: MarketStep
-  visibleStep?: MarketStep
 }): React.ReactElement {
-  const { children, market, step, visibleStep } = props
-  const renderedStep = visibleStep ?? step
-  const stepCopy = getStepCopy(market, renderedStep)
+  const { children, flow, market, metrics, onFieldChange, step } = props
+  const stepCopy = getStepCopy(market, step)
 
   return (
     <DrawerPopup showBar>
@@ -406,7 +843,13 @@ function MarketDrawerPopup(props: {
       </DrawerHeader>
 
       <DrawerPanel className="space-y-5" scrollFade>
-        <DrawerStepBody market={market} step={renderedStep} />
+        <DrawerStepBody
+          flow={flow}
+          market={market}
+          metrics={metrics}
+          onFieldChange={onFieldChange}
+          step={step}
+        />
       </DrawerPanel>
 
       {children}
@@ -414,84 +857,214 @@ function MarketDrawerPopup(props: {
   )
 }
 
-function ReviewDrawer({
-  market,
-}: {
-  market: MarketCardData
-}): React.ReactElement {
-  const [returningToBorrow, setReturningToBorrow] = React.useState(false)
-
+function MobileDrawerBackButton(): React.ReactElement {
   return (
-    <Drawer
-      onOpenChange={(open) => {
-        if (open) {
-          setReturningToBorrow(false)
-        }
-      }}
-      position="bottom"
-    >
-      <DrawerTrigger render={<Button variant="outline" />}>
-        Review transaction
-        <ArrowRightIcon aria-hidden="true" />
+    <DrawerClose render={<Button type="button" variant="ghost" />}>
+      <ArrowLeftIcon aria-hidden="true" />
+      Back
+    </DrawerClose>
+  )
+}
+
+function MobileConfirmedDrawer({
+  flow,
+  market,
+  metrics,
+  onClose,
+  onFieldChange,
+  onSubmit,
+}: {
+  flow: BorrowFlowState
+  market: MarketCardData
+  metrics: BorrowFlowMetrics
+  onClose: () => void
+  onFieldChange: (
+    field: "collateralAmount" | "loanAmount",
+    value: string
+  ) => void
+  onSubmit: () => void
+}): React.ReactElement {
+  return (
+    <Drawer>
+      <DrawerTrigger onClick={onSubmit} render={<Button type="button" />}>
+        Submit transaction
       </DrawerTrigger>
       <MarketDrawerPopup
+        flow={flow}
         market={market}
-        step="review"
-        visibleStep={returningToBorrow ? "borrow" : undefined}
+        metrics={metrics}
+        onFieldChange={onFieldChange}
+        step="confirmed"
       >
         <MarketDrawerFooter>
-          <DrawerClose
-            onClick={() => {
-              setReturningToBorrow(true)
-            }}
-            render={<Button variant="ghost" />}
-          >
-            <ArrowLeftIcon aria-hidden="true" />
-            Back
-          </DrawerClose>
-          <Button>Submit transaction</Button>
+          <Button onClick={onClose} type="button" variant="ghost">
+            Close
+          </Button>
+          <Button onClick={onClose} type="button">
+            Done
+          </Button>
         </MarketDrawerFooter>
       </MarketDrawerPopup>
     </Drawer>
   )
 }
 
-function BorrowDrawer({
+function MobileReviewDrawer({
+  flow,
   market,
+  metrics,
+  onClose,
+  onFieldChange,
+  onSubmit,
 }: {
+  flow: BorrowFlowState
   market: MarketCardData
+  metrics: BorrowFlowMetrics
+  onClose: () => void
+  onFieldChange: (
+    field: "collateralAmount" | "loanAmount",
+    value: string
+  ) => void
+  onSubmit: () => void
 }): React.ReactElement {
-  const [returningToDetail, setReturningToDetail] = React.useState(false)
+  return (
+    <Drawer>
+      <DrawerTrigger render={<Button type="button" />}>
+        Continue
+        <ArrowRightIcon aria-hidden="true" />
+      </DrawerTrigger>
+      <MarketDrawerPopup
+        flow={flow}
+        market={market}
+        metrics={metrics}
+        onFieldChange={onFieldChange}
+        step="review"
+      >
+        <MarketDrawerFooter>
+          <MobileDrawerBackButton />
+          <MobileConfirmedDrawer
+            flow={flow}
+            market={market}
+            metrics={metrics}
+            onClose={onClose}
+            onFieldChange={onFieldChange}
+            onSubmit={onSubmit}
+          />
+        </MarketDrawerFooter>
+      </MarketDrawerPopup>
+    </Drawer>
+  )
+}
+
+function MobileVerificationDrawer({
+  flow,
+  market,
+  metrics,
+  onClose,
+  onFieldChange,
+  onSubmit,
+  onVerify,
+}: {
+  flow: BorrowFlowState
+  market: MarketCardData
+  metrics: BorrowFlowMetrics
+  onClose: () => void
+  onFieldChange: (
+    field: "collateralAmount" | "loanAmount",
+    value: string
+  ) => void
+  onSubmit: () => void
+  onVerify: () => void
+}): React.ReactElement {
+  const isChecking = flow.verificationStatus === "Checking"
+  const isVerified = flow.verificationStatus === "Verified"
 
   return (
-    <Drawer
-      onOpenChange={(open) => {
-        if (open) {
-          setReturningToDetail(false)
-        }
-      }}
-      position="bottom"
-    >
-      <DrawerTrigger render={<Button />}>
+    <Drawer>
+      <DrawerTrigger
+        render={<Button disabled={!metrics.isLoanValid} type="button" />}
+      >
+        Continue
+        <ArrowRightIcon aria-hidden="true" />
+      </DrawerTrigger>
+      <MarketDrawerPopup
+        flow={flow}
+        market={market}
+        metrics={metrics}
+        onFieldChange={onFieldChange}
+        step="verification"
+      >
+        <MarketDrawerFooter>
+          <MobileDrawerBackButton />
+          {isVerified ? (
+            <MobileReviewDrawer
+              flow={flow}
+              market={market}
+              metrics={metrics}
+              onClose={onClose}
+              onFieldChange={onFieldChange}
+              onSubmit={onSubmit}
+            />
+          ) : (
+            <Button
+              disabled={isChecking || !metrics.isLoanValid}
+              loading={isChecking}
+              onClick={onVerify}
+              type="button"
+            >
+              Verify eligibility
+            </Button>
+          )}
+        </MarketDrawerFooter>
+      </MarketDrawerPopup>
+    </Drawer>
+  )
+}
+
+function MobileCollateralDrawer({
+  flow,
+  market,
+  metrics,
+  onClose,
+  onFieldChange,
+  onSubmit,
+  onVerify,
+}: {
+  flow: BorrowFlowState
+  market: MarketCardData
+  metrics: BorrowFlowMetrics
+  onClose: () => void
+  onFieldChange: (
+    field: "collateralAmount" | "loanAmount",
+    value: string
+  ) => void
+  onSubmit: () => void
+  onVerify: () => void
+}): React.ReactElement {
+  return (
+    <Drawer>
+      <DrawerTrigger render={<Button type="button" />}>
         Start borrow
         <ArrowRightIcon aria-hidden="true" />
       </DrawerTrigger>
       <MarketDrawerPopup
+        flow={flow}
         market={market}
-        step="borrow"
-        visibleStep={returningToDetail ? "detail" : undefined}
+        metrics={metrics}
+        onFieldChange={onFieldChange}
+        step="collateral"
       >
         <MarketDrawerFooter>
-          <DrawerClose
-            onClick={() => {
-              setReturningToDetail(true)
-            }}
-            render={<Button variant="ghost" />}
-          >
-            <ArrowLeftIcon aria-hidden="true" />
-            Back
-          </DrawerClose>
-          <ReviewDrawer market={market} />
+          <MobileDrawerBackButton />
+          <MobileVerificationDrawer
+            flow={flow}
+            market={market}
+            metrics={metrics}
+            onClose={onClose}
+            onFieldChange={onFieldChange}
+            onSubmit={onSubmit}
+            onVerify={onVerify}
+          />
         </MarketDrawerFooter>
       </MarketDrawerPopup>
     </Drawer>
@@ -505,6 +1078,9 @@ function MobileMarketDrawer({
   market: MarketCardData
   onClose: () => void
 }): React.ReactElement {
+  const { flow, metrics, setFieldValue, submitTransaction, verifyEligibility } =
+    useBorrowFlow()
+
   return (
     <Drawer
       onOpenChange={(open) => {
@@ -514,10 +1090,26 @@ function MobileMarketDrawer({
       }}
       open
     >
-      <MarketDrawerPopup market={market} step="detail">
+      <MarketDrawerPopup
+        flow={flow}
+        market={market}
+        metrics={metrics}
+        onFieldChange={setFieldValue}
+        step="detail"
+      >
         <MarketDrawerFooter>
-          <DrawerClose render={<Button variant="ghost" />}>Close</DrawerClose>
-          <BorrowDrawer market={market} />
+          <DrawerClose render={<Button type="button" variant="ghost" />}>
+            Close
+          </DrawerClose>
+          <MobileCollateralDrawer
+            flow={flow}
+            market={market}
+            metrics={metrics}
+            onClose={onClose}
+            onFieldChange={setFieldValue}
+            onSubmit={submitTransaction}
+            onVerify={verifyEligibility}
+          />
         </MarketDrawerFooter>
       </MarketDrawerPopup>
     </Drawer>
@@ -532,6 +1124,8 @@ function DesktopMarketDrawer({
   onClose: () => void
 }): React.ReactElement {
   const [activeStep, setActiveStep] = React.useState<MarketStep>("detail")
+  const { flow, metrics, setFieldValue, submitTransaction, verifyEligibility } =
+    useBorrowFlow()
 
   return (
     <aside className="ml-4 min-w-0 lg:sticky lg:top-0 lg:self-start">
@@ -539,10 +1133,15 @@ function DesktopMarketDrawer({
         {MARKET_STEPS.map((step) => (
           <DesktopMarketStepPanel
             activeStep={activeStep}
+            flow={flow}
             key={step}
             market={market}
+            metrics={metrics}
             onClose={onClose}
+            onFieldChange={setFieldValue}
+            onSubmit={submitTransaction}
             onStepChange={setActiveStep}
+            onVerify={verifyEligibility}
             step={step}
           />
         ))}

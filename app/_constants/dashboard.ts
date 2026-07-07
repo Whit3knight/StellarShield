@@ -89,23 +89,6 @@ export const marketCards: MarketCardData[] = [
   },
 ]
 
-export const borrowOverview = {
-  availableToBorrow: "$4,250.00",
-  borrowApr: "7.4%",
-  chart: [
-    { label: "Jan", value: 2200 },
-    { label: "Feb", value: 2450 },
-    { label: "Mar", value: 3100 },
-    { label: "Apr", value: 2920 },
-    { label: "May", value: 3600 },
-    { label: "Jun", value: 3900 },
-    { label: "Jul", value: 4250 },
-  ],
-  collateral: "$6,800.00",
-  loanStatus: "Healthy",
-  verification: "Ready",
-}
-
 export function getMarketPair(
   market: Pick<MarketCardData, "collateral" | "symbol">
 ): string {
