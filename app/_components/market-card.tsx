@@ -3,11 +3,10 @@ import type * as React from "react"
 import { getMarketPair, type MarketCardData } from "../_constants/dashboard"
 
 import { Badge } from "@/components/ui/badge"
+import { Sparkline } from "@/components/molecules/sparkline"
 import { Card, CardPanel } from "@/components/ui/card"
 import { Frame, FrameHeader, FrameTitle } from "@/components/ui/frame"
 import { cn } from "@/lib/utils"
-
-import { Sparkline } from "./sparkline"
 
 export function MarketCard({
   active,

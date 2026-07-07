@@ -81,7 +81,7 @@ export function NotificationMenu(): React.ReactElement {
             aria-label="Open notifications"
             className="relative"
             size="icon"
-            variant="secondary"
+            variant="ghost"
           />
         }
       >
