@@ -33,6 +33,9 @@ const DESKTOP_MEDIA_QUERY = "(min-width: 1024px)"
 const MARKET_STEPS: MarketStep[] = ["detail", "borrow", "review"]
 const DESKTOP_STACK_PEEK_PX = 23
 const DESKTOP_STACK_SCALE_STEP = 0.05
+const DRAWER_PANEL_WIDTH_CLASS = "w-[calc(100%-(--spacing(14)))]"
+const DESKTOP_FOOTER_CLASS =
+  "flex w-full flex-row items-center justify-between gap-2 border-t bg-muted/72 px-6 pt-4 pb-[calc(env(safe-area-inset-bottom,0px)+--spacing(4))]"
 
 function getIsDesktop(): boolean {
   return (
@@ -165,21 +168,18 @@ function ReviewStep({
   market: MarketCardData
 }): React.ReactElement {
   return (
-    <>
-      <Card className="rounded-lg before:rounded-[calc(var(--radius-lg)-1px)]">
-        <CardPanel className="space-y-1">
-          <DetailRow label="Market" value={getMarketPair(market)} />
-          <DetailRow label="Collateral" value={borrowOverview.collateral} />
-          <DetailRow
-            label="Loan amount"
-            value={borrowOverview.availableToBorrow}
-          />
-          <DetailRow label="Borrow APR" value={market.borrowApr} />
-          <DetailRow label="Estimated fee" value="0.00003 XLM" />
-        </CardPanel>
-      </Card>
-
-    </>
+    <Card className="rounded-lg before:rounded-[calc(var(--radius-lg)-1px)]">
+      <CardPanel className="space-y-1">
+        <DetailRow label="Market" value={getMarketPair(market)} />
+        <DetailRow label="Collateral" value={borrowOverview.collateral} />
+        <DetailRow
+          label="Loan amount"
+          value={borrowOverview.availableToBorrow}
+        />
+        <DetailRow label="Borrow APR" value={market.borrowApr} />
+        <DetailRow label="Estimated fee" value="0.00003 XLM" />
+      </CardPanel>
+    </Card>
   )
 }
 
@@ -196,13 +196,15 @@ function getStepCopy(
 
   if (step === "review") {
     return {
-      description: "Confirm the borrow request before submitting it to Stellar.",
+      description:
+        "Confirm the borrow request before submitting it to Stellar.",
       title: "Review transaction",
     }
   }
 
   return {
-    description: "Public market details are visible before connecting a wallet.",
+    description:
+      "Public market details are visible before connecting a wallet.",
     title: getMarketPair(market),
   }
 }
@@ -252,7 +254,7 @@ function DesktopMarketFooter({
 }): React.ReactElement {
   if (step === "review") {
     return (
-      <div className="flex w-full flex-row items-center justify-between gap-2 border-t bg-muted/72 px-6 pt-4 pb-[calc(env(safe-area-inset-bottom,0px)+--spacing(4))]">
+      <div className={DESKTOP_FOOTER_CLASS}>
         <Button
           onClick={() => {
             onStepChange("borrow")
@@ -270,7 +272,7 @@ function DesktopMarketFooter({
 
   if (step === "borrow") {
     return (
-      <div className="flex w-full flex-row items-center justify-between gap-2 border-t bg-muted/72 px-6 pt-4 pb-[calc(env(safe-area-inset-bottom,0px)+--spacing(4))]">
+      <div className={DESKTOP_FOOTER_CLASS}>
         <Button
           onClick={() => {
             onStepChange("detail")
@@ -296,7 +298,7 @@ function DesktopMarketFooter({
   }
 
   return (
-    <div className="flex w-full flex-row items-center justify-between gap-2 border-t bg-muted/72 px-6 pt-4 pb-[calc(env(safe-area-inset-bottom,0px)+--spacing(4))]">
+    <div className={DESKTOP_FOOTER_CLASS}>
       <Button onClick={onClose} type="button" variant="ghost">
         Close
       </Button>
@@ -342,7 +344,7 @@ function DesktopMarketStepPanel({
   return (
     <section
       aria-hidden={!isActive}
-      className="absolute inset-y-0 right-0 flex w-[calc(100%-(--spacing(14)))] min-w-0 max-w-none origin-left flex-col overflow-hidden rounded-s-2xl border-s bg-popover text-popover-foreground shadow-lg/5 outline-none transition-[transform,opacity,box-shadow,background-color] duration-450 ease-[cubic-bezier(0.32,0.72,0,1)] will-change-transform before:pointer-events-none before:absolute before:inset-0 before:rounded-s-[calc(var(--radius-2xl)-1px)] before:shadow-[0_1px_--theme(--color-black/4%)] dark:before:shadow-[0_-1px_--theme(--color-white/6%)]"
+      className={`${DRAWER_PANEL_WIDTH_CLASS} absolute inset-y-0 right-0 flex max-w-none min-w-0 origin-left flex-col overflow-hidden rounded-s-2xl border-s bg-popover text-popover-foreground shadow-lg/5 transition-[transform,opacity,box-shadow,background-color] duration-450 ease-[cubic-bezier(0.32,0.72,0,1)] will-change-transform outline-none before:pointer-events-none before:absolute before:inset-0 before:rounded-s-[calc(var(--radius-2xl)-1px)] before:shadow-[0_1px_--theme(--color-black/4%)] dark:before:shadow-[0_-1px_--theme(--color-white/6%)]`}
       inert={isActive ? undefined : true}
       style={{
         opacity: depth < -1 ? 0 : 1,
@@ -353,10 +355,10 @@ function DesktopMarketStepPanel({
       <div className="flex flex-col gap-2 p-6 pb-3">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="font-heading font-semibold text-xl leading-none">
+            <h2 className="font-heading text-xl leading-none font-semibold">
               {stepCopy.title}
             </h2>
-            <p className="mt-2 text-muted-foreground text-sm">
+            <p className="mt-2 text-sm text-muted-foreground">
               {stepCopy.description}
             </p>
           </div>
@@ -379,14 +381,12 @@ function DesktopMarketStepPanel({
   )
 }
 
-function MarketDrawerPopup(
-  props: {
-    children: React.ReactNode
-    market: MarketCardData
-    step: MarketStep
-    visibleStep?: MarketStep
-  }
-): React.ReactElement {
+function MarketDrawerPopup(props: {
+  children: React.ReactNode
+  market: MarketCardData
+  step: MarketStep
+  visibleStep?: MarketStep
+}): React.ReactElement {
   const { children, market, step, visibleStep } = props
   const renderedStep = visibleStep ?? step
   const stepCopy = getStepCopy(market, renderedStep)
@@ -414,9 +414,11 @@ function MarketDrawerPopup(
   )
 }
 
-function ReviewDrawer(
-  { market }: { market: MarketCardData }
-): React.ReactElement {
+function ReviewDrawer({
+  market,
+}: {
+  market: MarketCardData
+}): React.ReactElement {
   const [returningToBorrow, setReturningToBorrow] = React.useState(false)
 
   return (
@@ -454,9 +456,11 @@ function ReviewDrawer(
   )
 }
 
-function BorrowDrawer(
-  { market }: { market: MarketCardData }
-): React.ReactElement {
+function BorrowDrawer({
+  market,
+}: {
+  market: MarketCardData
+}): React.ReactElement {
   const [returningToDetail, setReturningToDetail] = React.useState(false)
 
   return (
@@ -530,7 +534,7 @@ function DesktopMarketDrawer({
   const [activeStep, setActiveStep] = React.useState<MarketStep>("detail")
 
   return (
-    <aside className="min-w-0 ml-4 lg:sticky lg:top-0 lg:self-start">
+    <aside className="ml-4 min-w-0 lg:sticky lg:top-0 lg:self-start">
       <div className="relative isolate overflow-hidden rounded-lg lg:h-[calc(100svh-4rem)]">
         {MARKET_STEPS.map((step) => (
           <DesktopMarketStepPanel

@@ -5,6 +5,7 @@ import { getMarketPair, type MarketCardData } from "../_constants/dashboard"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardPanel } from "@/components/ui/card"
 import { Frame, FrameHeader, FrameTitle } from "@/components/ui/frame"
+import { cn } from "@/lib/utils"
 
 import { Sparkline } from "./sparkline"
 
@@ -29,11 +30,12 @@ export function MarketCard({
     <Frame
       aria-label={`View ${marketPair} market`}
       aria-pressed={active}
-      className={
+      className={cn(
+        "w-full cursor-pointer rounded-lg transition-[background-color,box-shadow] hover:bg-muted focus-visible:ring-[3px] focus-visible:outline-none",
         active
-          ? "w-full cursor-pointer rounded-lg ring-1 ring-primary/40 ring-offset-4 ring-offset-background transition-[background-color,box-shadow] hover:bg-muted focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
-          : "w-full cursor-pointer rounded-lg transition-[background-color,box-shadow] hover:bg-muted focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40"
-      }
+          ? "ring-1 ring-primary/40 ring-offset-4 ring-offset-background focus-visible:ring-ring/50"
+          : "focus-visible:ring-ring/40"
+      )}
       onClick={onViewMarket}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") {
