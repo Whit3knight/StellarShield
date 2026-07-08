@@ -35,7 +35,7 @@ export function ConnectWalletDialog({
         <WalletIcon aria-hidden="true" />
         Connect wallet
       </DialogTrigger>
-      <DialogPopup className="max-w-sm">
+      <DialogPopup className="max-w-sm max-sm:mx-3 max-sm:mb-3 max-sm:max-w-[calc(100%-1.5rem)] max-sm:rounded-2xl max-sm:border">
         <DialogHeader className="items-center text-center">
           <BrandLogo
             className="gap-0"
