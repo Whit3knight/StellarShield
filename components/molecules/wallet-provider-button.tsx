@@ -30,6 +30,7 @@ export function WalletProviderButton({
         onConnect(provider)
       }}
       type="button"
+      variant="link"
     >
       <span className="pointer-events-none me-2 flex-1">
         <Icon aria-hidden="true" className="opacity-60" />
