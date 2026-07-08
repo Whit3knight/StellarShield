@@ -1,6 +1,7 @@
 "use client"
 
 import {
+  ArrowUpRightIcon,
   CreditCardIcon,
   LogOutIcon,
   SettingsIcon,
@@ -19,6 +20,7 @@ import {
   MenuLinkItem,
   MenuPopup,
   MenuSeparator,
+  MenuShortcut,
   MenuTrigger,
 } from "@/components/ui/menu"
 
@@ -89,6 +91,12 @@ export function UserMenu({
               <MenuLinkItem href={link.href} key={link.label}>
                 <Icon aria-hidden="true" />
                 {link.label}
+                <MenuShortcut
+                  aria-hidden="true"
+                  className="tracking-normal [&>svg]:size-3.5"
+                >
+                  <ArrowUpRightIcon />
+                </MenuShortcut>
               </MenuLinkItem>
             )
           })}
