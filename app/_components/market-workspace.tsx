@@ -4,10 +4,14 @@ import * as React from "react"
 
 import { marketCards, type MarketCardData } from "../_constants/dashboard"
 
+import { useWalletConnection } from "@/features/wallet/use-wallet-connection"
+import { getMarketWalletBalance } from "@/features/wallet/utils"
+
 import { MarketCard } from "./market-card"
 import { MarketStackPanel } from "./market-stack-panel"
 
 export function MarketWorkspace(): React.ReactElement {
+  const { account } = useWalletConnection()
   const [selectedMarket, setSelectedMarket] =
     React.useState<MarketCardData | null>(null)
 
@@ -44,6 +48,7 @@ export function MarketWorkspace(): React.ReactElement {
               onViewMarket={() => {
                 setSelectedMarket(market)
               }}
+              yourBalance={getMarketWalletBalance(account, market)}
             />
           ))}
         </div>

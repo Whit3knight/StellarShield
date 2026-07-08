@@ -12,16 +12,18 @@ export function MarketCard({
   active,
   market,
   onViewMarket,
+  yourBalance,
 }: {
   active: boolean
   market: MarketCardData
   onViewMarket: () => void
+  yourBalance: string
 }): React.ReactElement {
   const marketPair = getMarketPair(market)
   const isComingSoon = market.status === "comingSoon"
   const marketMetrics = [
     { label: "Supply APY", value: market.supplyApy },
-    { label: "Borrow APR", value: market.borrowApr },
+    { label: "Your balance", value: yourBalance },
     { label: "Available funds", value: market.availableFunds },
     { label: "Utilization", value: market.utilization },
   ]

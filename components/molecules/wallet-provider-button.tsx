@@ -5,7 +5,9 @@ import { Button } from "@/components/ui/button"
 import type { WalletProvider } from "@/app/_constants/account"
 
 type WalletProviderButtonProps = {
-  onConnect: (provider: WalletProvider) => void
+  disabled?: boolean
+  onConnect: (provider: WalletProvider) => Promise<void> | void
+  pending?: boolean
   provider: WalletProvider
 }
 
@@ -18,7 +20,9 @@ function getWalletProviderButtonClass(provider: WalletProvider): string {
 }
 
 export function WalletProviderButton({
+  disabled = false,
   onConnect,
+  pending = false,
   provider,
 }: WalletProviderButtonProps): React.ReactElement {
   const Icon = provider.icon
@@ -26,8 +30,9 @@ export function WalletProviderButton({
   return (
     <Button
       className={getWalletProviderButtonClass(provider)}
+      disabled={disabled}
       onClick={() => {
-        onConnect(provider)
+        void onConnect(provider)
       }}
       type="button"
       variant="link"
@@ -35,7 +40,7 @@ export function WalletProviderButton({
       <span className="pointer-events-none me-2 flex-1">
         <Icon aria-hidden="true" className="opacity-60" />
       </span>
-      Connect with {provider.name}
+      {pending ? "Connecting..." : `Connect with ${provider.name}`}
     </Button>
   )
 }

@@ -3,35 +3,53 @@
 import * as React from "react"
 
 import { ConnectWalletDialog } from "@/components/organisms/connect-wallet-dialog"
+import { useWalletConnection } from "@/features/wallet/use-wallet-connection"
 
-import {
-  getMockConnectedAccount,
-  walletProviders,
-  type ConnectedAccount,
-  type WalletProvider,
-} from "../_constants/account"
+import { walletProviders, type WalletProvider } from "../_constants/account"
 import { NotificationMenu } from "./notification-menu"
 import { UserMenu } from "./user-menu"
 
 export function WalletNavActions(): React.ReactElement {
-  const [account, setAccount] = React.useState<ConnectedAccount | null>(null)
+  const {
+    account,
+    cancelPendingConnection,
+    connect,
+    disconnect,
+    error,
+    pendingProviderId,
+  } = useWalletConnection()
   const [open, setOpen] = React.useState(false)
 
-  const handleConnect = React.useCallback((provider: WalletProvider) => {
-    setAccount(getMockConnectedAccount(provider))
-    setOpen(false)
-  }, [])
+  const handleOpenChange = React.useCallback(
+    (nextOpen: boolean) => {
+      setOpen(nextOpen)
 
-  const handleDisconnect = React.useCallback(() => {
-    setAccount(null)
-  }, [])
+      if (!nextOpen) {
+        cancelPendingConnection()
+      }
+    },
+    [cancelPendingConnection]
+  )
+
+  const handleConnect = React.useCallback(
+    async (provider: WalletProvider) => {
+      const connected = await connect(provider)
+
+      if (connected) {
+        setOpen(false)
+      }
+    },
+    [connect]
+  )
 
   if (!account) {
     return (
       <ConnectWalletDialog
+        error={error}
         onConnect={handleConnect}
-        onOpenChange={setOpen}
+        onOpenChange={handleOpenChange}
         open={open}
+        pendingProviderId={pendingProviderId}
         providers={walletProviders}
       />
     )
@@ -40,7 +58,7 @@ export function WalletNavActions(): React.ReactElement {
   return (
     <>
       <NotificationMenu />
-      <UserMenu account={account} onDisconnect={handleDisconnect} />
+      <UserMenu account={account} onDisconnect={disconnect} />
     </>
   )
 }

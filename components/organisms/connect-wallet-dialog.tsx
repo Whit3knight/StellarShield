@@ -14,19 +14,23 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 
-import type { WalletProvider } from "@/app/_constants/account"
+import type { WalletProvider, WalletProviderId } from "@/app/_constants/account"
 
 type ConnectWalletDialogProps = {
-  onConnect: (provider: WalletProvider) => void
+  error?: string | null
+  onConnect: (provider: WalletProvider) => Promise<void> | void
   onOpenChange: (open: boolean) => void
   open: boolean
+  pendingProviderId?: WalletProviderId | null
   providers: WalletProvider[]
 }
 
 export function ConnectWalletDialog({
+  error,
   onConnect,
   onOpenChange,
   open,
+  pendingProviderId,
   providers,
 }: ConnectWalletDialogProps): React.ReactElement {
   return (
@@ -51,12 +55,19 @@ export function ConnectWalletDialog({
           <div className="flex flex-col gap-2">
             {providers.map((provider) => (
               <WalletProviderButton
+                disabled={pendingProviderId !== null}
                 key={provider.id}
                 onConnect={onConnect}
+                pending={pendingProviderId === provider.id}
                 provider={provider}
               />
             ))}
           </div>
+          {error ? (
+            <p className="rounded-md border border-destructive/30 bg-destructive/8 px-3 py-2 text-center text-xs text-destructive">
+              {error}
+            </p>
+          ) : null}
           <p className="text-center text-xs text-muted-foreground">
             By connecting you agree to our{" "}
             <a className="underline hover:no-underline" href="#">
