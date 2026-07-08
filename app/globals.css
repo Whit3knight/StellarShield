@@ -300,4 +300,16 @@
   .scrollbar-none [data-slot="scroll-area-scrollbar"] {
     display: none;
   }
+
+  [data-private-mask] {
+    display: none;
+  }
+
+  [data-privacy-mode="true"] [data-private-clear] {
+    display: none;
+  }
+
+  [data-privacy-mode="true"] [data-private-mask] {
+    display: inline;
+  }
 }

@@ -59,7 +59,11 @@ export function TransactionStep({
       <Card className="rounded-lg before:rounded-[calc(var(--radius-lg)-1px)]">
         <CardPanel className="space-y-1">
           <DetailRow label="Market" value={getMarketPair(market)} />
-          <DetailRow label="Account" value={MOCK_ACCOUNT_ADDRESS} />
+          <DetailRow
+            label="Account"
+            privateValue
+            value={MOCK_ACCOUNT_ADDRESS}
+          />
           <DetailRow
             label="Collateral"
             value={formatUsd(metrics.collateralValue)}
@@ -75,7 +79,11 @@ export function TransactionStep({
           />
           <DetailRow label="Estimated fee" value="0.00003 XLM" />
           {isConfirmed ? (
-            <DetailRow label="Receipt" value={MOCK_TRANSACTION_HASH} />
+            <DetailRow
+              label="Receipt"
+              privateValue
+              value={MOCK_TRANSACTION_HASH}
+            />
           ) : null}
         </CardPanel>
       </Card>

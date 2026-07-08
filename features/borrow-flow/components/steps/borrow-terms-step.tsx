@@ -3,6 +3,7 @@ import type * as React from "react"
 
 import { getMarketPair, type MarketCardData } from "@/app/_constants/dashboard"
 import { MetricTile } from "@/components/atoms/metric-tile"
+import { PrivateValue } from "@/components/atoms/private-value"
 import { InputHelpAddon } from "@/components/molecules/input-help-addon"
 import {
   Field,
@@ -97,7 +98,9 @@ export function BorrowTermsStep({
               {formatUsd(MAX_COLLATERAL_VALUE)}.
             </InputHelpAddon>
           </InputGroup>
-          <FieldDescription>{MOCK_ACCOUNT_BALANCE} available</FieldDescription>
+          <FieldDescription>
+            <PrivateValue>{MOCK_ACCOUNT_BALANCE}</PrivateValue> available
+          </FieldDescription>
           {collateralError ? <FieldError>{collateralError}</FieldError> : null}
         </Field>
         <Field invalid={Boolean(loanError)}>

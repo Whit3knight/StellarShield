@@ -23,8 +23,16 @@ export function VerificationStep({
     <>
       <Card className="rounded-lg before:rounded-[calc(var(--radius-lg)-1px)]">
         <CardPanel className="space-y-1">
-          <DetailRow label="Account" value={MOCK_ACCOUNT_ADDRESS} />
-          <DetailRow label="Balance" value={MOCK_ACCOUNT_BALANCE} />
+          <DetailRow
+            label="Account"
+            privateValue
+            value={MOCK_ACCOUNT_ADDRESS}
+          />
+          <DetailRow
+            label="Balance"
+            privateValue
+            value={MOCK_ACCOUNT_BALANCE}
+          />
           <DetailRow label="Market" value={getMarketPair(market)} />
           <DetailRow
             label="Borrowing power"

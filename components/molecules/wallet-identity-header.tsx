@@ -3,6 +3,7 @@
 import { CheckIcon, CopyIcon } from "lucide-react"
 import * as React from "react"
 
+import { PrivateValue } from "@/components/atoms/private-value"
 import { Button } from "@/components/ui/button"
 
 import type { ConnectedAccount } from "@/app/_constants/account"
@@ -48,12 +49,12 @@ export function WalletIdentityHeader({
   return (
     <div className="flex items-start justify-between gap-3 px-2 py-2 text-left">
       <span className="flex min-w-0 flex-col">
-        <span className="truncate text-sm font-medium text-foreground">
+        <PrivateValue className="truncate text-sm font-medium text-foreground">
           {account.wallet.shortAddress}
-        </span>
-        <span className="truncate text-xs font-normal text-muted-foreground">
+        </PrivateValue>
+        <PrivateValue className="truncate text-xs font-normal text-muted-foreground">
           {account.wallet.balance}
-        </span>
+        </PrivateValue>
       </span>
       <Button
         aria-label={
