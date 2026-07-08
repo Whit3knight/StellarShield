@@ -48,6 +48,16 @@ type WalletConnectModuleWithModal = ModuleInterface & {
   modal?: WalletConnectModal
 }
 
+type WalletConnectRuntime = {
+  addressRequest?: Promise<{ address: string }>
+  configKey: string
+  module: ModuleInterface
+}
+
+type WalletConnectGlobal = typeof globalThis & {
+  __stellarShieldWalletConnectRuntime?: WalletConnectRuntime
+}
+
 type FreighterError = {
   code?: number
   message?: string
@@ -79,6 +89,24 @@ export async function connectWalletProvider(
   }
 
   return connectWalletConnect(provider)
+}
+
+export async function refreshConnectedAccountBalances(
+  account: ConnectedAccount
+): Promise<ConnectedAccount> {
+  const balanceResult = await getWalletBalances(account.wallet.address)
+
+  if (balanceResult.balance === "Balance unavailable") {
+    return account
+  }
+
+  return {
+    wallet: {
+      ...account.wallet,
+      balance: balanceResult.balance,
+      balances: balanceResult.balances,
+    },
+  }
 }
 
 async function connectFreighter(
@@ -129,13 +157,13 @@ async function connectFreighter(
   })
 }
 
-let walletConnectModule: ModuleInterface | null = null
 const walletConnectCloseGraceMs = 150
+const walletConnectStoragePrefix = "stellar-shield"
 
 export function cancelWalletConnectConnection(): void {
-  const modal = walletConnectModule
-    ? getWalletConnectModal(walletConnectModule)
-    : null
+  const walletModule = getWalletConnectGlobal()
+    .__stellarShieldWalletConnectRuntime?.module
+  const modal = walletModule ? getWalletConnectModal(walletModule) : null
 
   if (!modal?.close) {
     return
@@ -183,9 +211,34 @@ async function connectWalletConnect(
     network === "public"
       ? WalletConnectTargetChain.PUBLIC
       : WalletConnectTargetChain.TESTNET
+  const configKey = [
+    "walletconnect",
+    walletConnectStoragePrefix,
+    projectId,
+    network,
+    allowedChain,
+    window.location.origin,
+  ].join(":")
 
-  if (!walletConnectModule) {
-    walletConnectModule = new WalletConnectModule({
+  const runtime = getWalletConnectRuntime(configKey)
+
+  if (!runtime) {
+    const appKitOptions = {
+      enableReconnect: false,
+      features: {
+        analytics: false,
+        email: false,
+        history: false,
+        onramp: false,
+        socials: false,
+        swaps: false,
+      },
+    } as ConstructorParameters<
+      typeof WalletConnectModule
+    >[0]["appKitOptions"]
+
+    const walletModule = new WalletConnectModule({
+      appKitOptions,
       allowedChains: [allowedChain],
       metadata: {
         description:
@@ -195,22 +248,38 @@ async function connectWalletConnect(
         url: window.location.origin,
       },
       projectId,
+      signClientOptions: {
+        customStoragePrefix: walletConnectStoragePrefix,
+        telemetryEnabled: false,
+      },
     })
 
     StellarWalletsKit.init({
-      modules: [walletConnectModule],
+      modules: [walletModule],
       network: kitNetwork,
       selectedWalletId: WALLET_CONNECT_ID,
     })
+
+    setWalletConnectRuntime({
+      configKey,
+      module: walletModule,
+    })
+  }
+
+  const walletConnectRuntime = getWalletConnectRuntime(configKey)
+  const walletConnectModule = walletConnectRuntime?.module
+
+  if (!walletConnectRuntime || !walletConnectModule) {
+    throw new WalletConnectionError("WalletConnect failed to initialize.")
   }
 
   await waitForWalletConnectModule(walletConnectModule)
   StellarWalletsKit.setNetwork(kitNetwork)
   StellarWalletsKit.setWallet(WALLET_CONNECT_ID)
 
-  const { address } = await fetchWalletConnectAddress(
+  const { address } = await fetchWalletConnectAddressOnce(
     StellarWalletsKit,
-    walletConnectModule
+    walletConnectRuntime
   )
 
   if (!address) {
@@ -227,6 +296,48 @@ async function connectWalletConnect(
     balances: balanceResult.balances,
     provider,
   })
+}
+
+function getWalletConnectRuntime(
+  configKey: string
+): WalletConnectRuntime | null {
+  const runtime =
+    getWalletConnectGlobal().__stellarShieldWalletConnectRuntime
+
+  if (runtime?.configKey === configKey) {
+    return runtime
+  }
+
+  return null
+}
+
+function setWalletConnectRuntime(runtime: WalletConnectRuntime): void {
+  getWalletConnectGlobal().__stellarShieldWalletConnectRuntime = runtime
+}
+
+function getWalletConnectGlobal(): WalletConnectGlobal {
+  return globalThis as WalletConnectGlobal
+}
+
+function fetchWalletConnectAddressOnce(
+  StellarWalletsKit: typeof import("@creit-tech/stellar-wallets-kit").StellarWalletsKit,
+  runtime: WalletConnectRuntime
+): Promise<{ address: string }> {
+  if (runtime.addressRequest) {
+    return runtime.addressRequest
+  }
+
+  const request = fetchWalletConnectAddress(
+    StellarWalletsKit,
+    runtime.module
+  ).finally(() => {
+    if (runtime.addressRequest === request) {
+      runtime.addressRequest = undefined
+    }
+  })
+
+  runtime.addressRequest = request
+  return request
 }
 
 async function fetchWalletConnectAddress(

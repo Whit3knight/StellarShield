@@ -1,9 +1,6 @@
 import type { ConnectedAccount, WalletProvider } from "@/app/_constants/account"
 
-const ASSET_BALANCE_FORMATTER = new Intl.NumberFormat("en-US", {
-  maximumFractionDigits: 2,
-  minimumFractionDigits: 2,
-})
+const BALANCE_PATTERN = /^([+-]?)(\d+)(?:\.(\d+))?$/
 
 export function formatWalletAddress(address: string): string {
   const trimmedAddress = address.trim()
@@ -23,14 +20,51 @@ export function formatAssetBalance(
   balance: string | number,
   symbol: string
 ): string {
-  const numericBalance =
-    typeof balance === "number" ? balance : Number.parseFloat(balance)
+  const parsedBalance = parseBalance(balance)
 
-  if (Number.isNaN(numericBalance)) {
+  if (!parsedBalance) {
     return "Balance unavailable"
   }
 
-  return `${ASSET_BALANCE_FORMATTER.format(numericBalance)} ${symbol}`
+  const { fractionDigits, isNegative, wholeDigits } = parsedBalance
+  const formattedWholeDigits = formatWholeDigits(wholeDigits)
+  const signedWholeDigits = isNegative
+    ? `-${formattedWholeDigits}`
+    : formattedWholeDigits
+  const formattedBalance = fractionDigits
+    ? `${signedWholeDigits}.${fractionDigits}`
+    : signedWholeDigits
+
+  return `${formattedBalance} ${symbol}`
+}
+
+function parseBalance(balance: string | number): {
+  fractionDigits: string
+  isNegative: boolean
+  wholeDigits: string
+} | null {
+  const rawBalance = String(balance).trim()
+  const match = BALANCE_PATTERN.exec(rawBalance)
+
+  if (!match) {
+    return null
+  }
+
+  const [, sign, wholeDigits, fractionDigits = ""] = match
+  const normalizedWholeDigits = wholeDigits.replace(/^0+(?=\d)/, "")
+  const normalizedFractionDigits = fractionDigits.replace(/0+$/, "")
+  const isZeroBalance =
+    normalizedWholeDigits === "0" && normalizedFractionDigits.length === 0
+
+  return {
+    fractionDigits: normalizedFractionDigits,
+    isNegative: sign === "-" && !isZeroBalance,
+    wholeDigits: normalizedWholeDigits,
+  }
+}
+
+function formatWholeDigits(wholeDigits: string): string {
+  return wholeDigits.replace(/\B(?=(\d{3})+(?!\d))/g, ",")
 }
 
 export function getMarketWalletBalance(

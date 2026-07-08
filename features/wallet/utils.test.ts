@@ -22,12 +22,14 @@ describe("wallet utilities", () => {
   })
 
   it("formats XLM balances", () => {
-    expect(formatXlmBalance("12480.2468")).toBe("12,480.25 XLM")
+    expect(formatXlmBalance("12480.2468")).toBe("12,480.2468 XLM")
+    expect(formatXlmBalance("9999.9999800")).toBe("9,999.99998 XLM")
     expect(formatXlmBalance("not a balance")).toBe("Balance unavailable")
   })
 
   it("formats asset balances", () => {
-    expect(formatAssetBalance("42", "USDC")).toBe("42.00 USDC")
+    expect(formatAssetBalance("42", "USDC")).toBe("42 USDC")
+    expect(formatAssetBalance("42.5000000", "USDC")).toBe("42.5 USDC")
   })
 
   it("creates a connected account shape for menus", () => {

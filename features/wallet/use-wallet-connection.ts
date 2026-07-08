@@ -12,6 +12,7 @@ import type {
 import {
   cancelWalletConnectConnection,
   connectWalletProvider,
+  refreshConnectedAccountBalances,
   WalletConnectionCanceledError,
   WalletConnectionError,
 } from "./connectors"
@@ -31,6 +32,7 @@ type WalletConnectionState = {
 
 export function useWalletConnection(): WalletConnectionState {
   const connectionAttemptRef = React.useRef(0)
+  const refreshedAccountKeyRef = React.useRef<string | null>(null)
   const account = React.useSyncExternalStore(
     subscribeToWalletConnection,
     readStoredAccount,
@@ -39,6 +41,50 @@ export function useWalletConnection(): WalletConnectionState {
   const [error, setError] = React.useState<string | null>(null)
   const [pendingProviderId, setPendingProviderId] =
     React.useState<WalletProviderId | null>(null)
+
+  React.useEffect(() => {
+    if (!account) {
+      refreshedAccountKeyRef.current = null
+      return
+    }
+
+    const accountKey = `${account.wallet.providerId}:${account.wallet.address}`
+
+    if (refreshedAccountKeyRef.current === accountKey) {
+      return
+    }
+
+    refreshedAccountKeyRef.current = accountKey
+    let active = true
+
+    refreshConnectedAccountBalances(account)
+      .then((refreshedAccount) => {
+        if (!active) {
+          return
+        }
+
+        const currentAccount = readStoredAccount()
+
+        if (
+          !currentAccount ||
+          currentAccount.wallet.address !== account.wallet.address ||
+          currentAccount.wallet.providerId !== account.wallet.providerId
+        ) {
+          return
+        }
+
+        if (JSON.stringify(currentAccount) === JSON.stringify(refreshedAccount)) {
+          return
+        }
+
+        setStoredAccount(refreshedAccount)
+      })
+      .catch(() => undefined)
+
+    return () => {
+      active = false
+    }
+  }, [account])
 
   const connect = React.useCallback(async (provider: WalletProvider) => {
     const attemptId = connectionAttemptRef.current + 1
