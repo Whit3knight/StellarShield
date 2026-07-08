@@ -44,7 +44,7 @@ export function MarketDrawerPopup({
         </div>
       </DrawerHeader>
 
-      <DrawerPanel className="space-y-5" scrollFade>
+      <DrawerPanel className="space-y-5" hideScrollbar scrollFade>
         <DrawerStepBody
           flow={flow}
           market={market}

@@ -2,7 +2,6 @@ import type * as React from "react"
 
 import { getMarketPair, type MarketCardData } from "@/app/_constants/dashboard"
 import { DetailRow } from "@/components/atoms/detail-row"
-import { MetricTile } from "@/components/atoms/metric-tile"
 import { Card, CardPanel } from "@/components/ui/card"
 
 import { MOCK_ACCOUNT_ADDRESS, MOCK_ACCOUNT_BALANCE } from "../../constants"
@@ -32,20 +31,14 @@ export function VerificationStep({
             value={formatUsd(metrics.borrowingPower)}
           />
           <DetailRow label="Loan amount" value={formatUsd(metrics.loanValue)} />
+          <DetailRow
+            label="Private verification"
+            value={flow.verificationStatus}
+          />
+          <DetailRow label="Loan health" value={metrics.loanHealth} />
+          <DetailRow label="Wallet details" value="Not exposed" />
         </CardPanel>
       </Card>
-
-      <div className="rounded-md border bg-muted/48 p-3 text-sm">
-        <div className="font-medium">Private verification</div>
-        <p className="mt-1 text-muted-foreground">
-          Eligibility is checked before submission without exposing sensitive
-          wallet details.
-        </p>
-        <div className="mt-3 grid grid-cols-2 gap-3">
-          <MetricTile label="Status" value={flow.verificationStatus} />
-          <MetricTile label="Loan health" value={metrics.loanHealth} />
-        </div>
-      </div>
     </>
   )
 }

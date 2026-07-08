@@ -320,12 +320,14 @@ export function DrawerDescription({
 
 export function DrawerPanel({
   className,
+  hideScrollbar = false,
   scrollFade = true,
   scrollable = true,
   allowSelection = true,
   render,
   ...props
 }: useRender.ComponentProps<"div"> & {
+  hideScrollbar?: boolean;
   scrollFade?: boolean;
   scrollable?: boolean;
   allowSelection?: boolean;
@@ -347,7 +349,10 @@ export function DrawerPanel({
 
   if (scrollable) {
     return (
-      <ScrollArea className="touch-auto" scrollFade={scrollFade}>
+      <ScrollArea
+        className={cn("touch-auto", hideScrollbar && "scrollbar-none")}
+        scrollFade={scrollFade}
+      >
         {content}
       </ScrollArea>
     );

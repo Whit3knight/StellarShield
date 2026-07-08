@@ -277,3 +277,27 @@
     @apply font-sans;
   }
 }
+
+@layer utilities {
+  .scrollbar-none {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+
+  .scrollbar-none [data-slot="scroll-area-viewport"] {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .scrollbar-none [data-slot="scroll-area-viewport"]::-webkit-scrollbar {
+    display: none;
+  }
+
+  .scrollbar-none [data-slot="scroll-area-scrollbar"] {
+    display: none;
+  }
+}

@@ -27,8 +27,8 @@ export function DesktopMarketDrawer({
   } = useBorrowFlow()
 
   return (
-    <aside className="ml-4 min-w-0 lg:sticky lg:top-0 lg:self-start">
-      <div className="relative isolate overflow-hidden rounded-lg lg:h-[calc(100svh-4rem)]">
+    <aside className="ml-4 hidden min-h-0 min-w-0 lg:block">
+      <div className="relative isolate h-full overflow-hidden rounded-lg">
         {MARKET_STEPS.map((step) => (
           <DesktopMarketStepPanel
             activeStep={activeStep}

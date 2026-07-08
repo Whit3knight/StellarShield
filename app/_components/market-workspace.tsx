@@ -15,11 +15,14 @@ export function MarketWorkspace(): React.ReactElement {
     <div
       className={
         selectedMarket
-          ? "grid lg:grid-cols-[minmax(0,1fr)_minmax(24rem,30rem)]"
-          : "grid"
+          ? "grid h-full min-h-0 lg:grid-cols-[minmax(0,1fr)_minmax(24rem,30rem)]"
+          : "grid h-full min-h-0"
       }
     >
-      <section className="flex min-w-0 flex-col gap-4 p-4 md:p-6" id="markets">
+      <section
+        className="scrollbar-none min-h-0 min-w-0 overflow-y-auto p-4 md:p-6"
+        id="markets"
+      >
         <div>
           <h1 className="text-xl font-semibold">Markets</h1>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -29,8 +32,8 @@ export function MarketWorkspace(): React.ReactElement {
         <div
           className={
             selectedMarket
-              ? "grid gap-4 sm:grid-cols-2 2xl:grid-cols-3"
-              : "grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4"
+              ? "mt-4 grid gap-4 sm:grid-cols-2 2xl:grid-cols-3"
+              : "mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4"
           }
         >
           {marketCards.map((market) => (

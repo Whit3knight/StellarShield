@@ -3,7 +3,6 @@ import type * as React from "react"
 
 import { getMarketPair, type MarketCardData } from "@/app/_constants/dashboard"
 import { DetailRow } from "@/components/atoms/detail-row"
-import { MetricTile } from "@/components/atoms/metric-tile"
 import { Button } from "@/components/ui/button"
 import { Card, CardPanel } from "@/components/ui/card"
 
@@ -16,6 +15,35 @@ type TransactionStepProps = {
   market: MarketCardData
   metrics: BorrowFlowMetrics
   onRefreshTransaction: () => void
+}
+
+function TransactionStatusRow({
+  isConfirmed,
+  onRefreshTransaction,
+  status,
+}: {
+  isConfirmed: boolean
+  onRefreshTransaction: () => void
+  status: string
+}): React.ReactElement {
+  return (
+    <div className="flex items-center justify-between gap-4 border-b py-3 text-sm last:border-b-0">
+      <span className="text-muted-foreground">Transaction status</span>
+      <div className="flex min-w-0 items-center gap-2">
+        <span className="truncate font-medium">{status}</span>
+        <Button
+          aria-label="Refresh transaction status"
+          disabled={isConfirmed}
+          onClick={onRefreshTransaction}
+          size="icon-sm"
+          type="button"
+          variant="ghost"
+        >
+          <RefreshCwIcon aria-hidden="true" />
+        </Button>
+      </div>
+    </div>
+  )
 }
 
 export function TransactionStep({
@@ -40,42 +68,17 @@ export function TransactionStep({
           <DetailRow label="Borrow APR" value={market.borrowApr} />
           <DetailRow label="Loan health" value={metrics.loanHealth} />
           <DetailRow label="Verification" value={flow.verificationStatus} />
+          <TransactionStatusRow
+            isConfirmed={isConfirmed}
+            onRefreshTransaction={onRefreshTransaction}
+            status={flow.transactionStatus}
+          />
           <DetailRow label="Estimated fee" value="0.00003 XLM" />
           {isConfirmed ? (
             <DetailRow label="Receipt" value={MOCK_TRANSACTION_HASH} />
           ) : null}
         </CardPanel>
       </Card>
-
-      <div className="rounded-md border bg-muted/48 p-3 text-sm">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="font-medium">Transaction status</div>
-            <p className="mt-1 text-muted-foreground">
-              {isConfirmed
-                ? "Transaction has been confirmed on Stellar."
-                : "Transaction was submitted. Refresh to check the latest state."}
-            </p>
-          </div>
-          <Button
-            aria-label="Refresh transaction status"
-            disabled={isConfirmed}
-            onClick={onRefreshTransaction}
-            size="icon-sm"
-            type="button"
-            variant="outline"
-          >
-            <RefreshCwIcon aria-hidden="true" />
-          </Button>
-        </div>
-        <div className="mt-3 grid grid-cols-2 gap-3">
-          <MetricTile label="State" value={flow.transactionStatus} />
-          <MetricTile label="Receipt" value={MOCK_TRANSACTION_HASH} />
-        </div>
-        <p className="mt-1 text-muted-foreground">
-          The borrow receipt is ready for Activity after confirmation.
-        </p>
-      </div>
     </>
   )
 }

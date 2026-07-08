@@ -4,10 +4,10 @@ import { MarketWorkspace } from "./market-workspace"
 
 export function AppDashboard(): React.ReactElement {
   return (
-    <main className="min-h-[calc(100svh-4rem)] w-full bg-muted/30">
+    <main className="min-h-0 flex-1 overflow-hidden bg-muted/30">
       <section
         aria-label="Lending markets"
-        className="min-h-[calc(100svh-4rem)] w-full"
+        className="h-full min-h-0 w-full"
       >
         <MarketWorkspace />
       </section>

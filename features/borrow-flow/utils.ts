@@ -1,6 +1,12 @@
 import { getMarketPair, type MarketCardData } from "@/app/_constants/dashboard"
 
-import { COLLATERAL_FACTOR, MARKET_STEPS } from "./constants"
+import {
+  COLLATERAL_FACTOR,
+  MARKET_STEPS,
+  MAX_COLLATERAL_VALUE,
+  MIN_COLLATERAL_VALUE,
+  MIN_LOAN_VALUE,
+} from "./constants"
 import type {
   BorrowFlowMetrics,
   BorrowFlowState,
@@ -28,13 +34,41 @@ export function formatUsd(value: number): string {
   return USD_FORMATTER.format(value)
 }
 
+export function getCollateralValidationError(value: number): string | null {
+  if (value < MIN_COLLATERAL_VALUE) {
+    return `Collateral must be at least ${formatUsd(MIN_COLLATERAL_VALUE)}.`
+  }
+
+  if (value > MAX_COLLATERAL_VALUE) {
+    return `Collateral cannot exceed ${formatUsd(MAX_COLLATERAL_VALUE)}.`
+  }
+
+  return null
+}
+
+export function getLoanValidationError(
+  value: number,
+  borrowingPower: number
+): string | null {
+  if (value < MIN_LOAN_VALUE) {
+    return `Loan amount must be at least ${formatUsd(MIN_LOAN_VALUE)}.`
+  }
+
+  if (value > borrowingPower) {
+    return "Loan amount exceeds current borrowing power."
+  }
+
+  return null
+}
+
 export function getBorrowFlowMetrics(flow: BorrowFlowState): BorrowFlowMetrics {
   const collateralValue = parseAmount(flow.collateralAmount)
   const loanValue = parseAmount(flow.loanAmount)
   const borrowingPower = collateralValue * COLLATERAL_FACTOR
   const utilization = borrowingPower > 0 ? loanValue / borrowingPower : 0
   const isLoanValid =
-    collateralValue > 0 && loanValue > 0 && loanValue <= borrowingPower
+    !getCollateralValidationError(collateralValue) &&
+    !getLoanValidationError(loanValue, borrowingPower)
   const loanHealth: LoanHealth = !isLoanValid
     ? "At risk"
     : utilization > 0.85

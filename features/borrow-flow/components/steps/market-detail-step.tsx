@@ -2,7 +2,7 @@ import type * as React from "react"
 
 import { type MarketCardData } from "@/app/_constants/dashboard"
 import { MetricTile } from "@/components/atoms/metric-tile"
-import { Sparkline } from "@/components/molecules/sparkline"
+import { RateTrendChart } from "@/components/molecules/rate-trend-chart"
 import { Card, CardPanel } from "@/components/ui/card"
 
 type MarketDetailStepProps = {
@@ -16,10 +16,11 @@ export function MarketDetailStep({
     <>
       <Card className="rounded-lg before:rounded-[calc(var(--radius-lg)-1px)]">
         <CardPanel className="p-0">
-          <Sparkline
-            className="w-full rounded-md text-chart-2"
-            label={`${market.symbol} borrow APR trend`}
+          <RateTrendChart
+            label="Borrow APR"
             points={market.chart}
+            tone={market.chartTone}
+            value={market.borrowApr}
           />
         </CardPanel>
       </Card>

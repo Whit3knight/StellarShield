@@ -5,7 +5,7 @@ import { WalletNavActions } from "./wallet-nav-actions"
 
 export function AppNavbar(): React.ReactElement {
   return (
-    <header className="border-b px-4 md:px-6">
+    <header className="shrink-0 border-b bg-background px-4 md:px-6">
       <div className="flex h-16 items-center justify-between gap-4">
         <div className="flex flex-1 items-center gap-2">
           <div className="flex items-center">

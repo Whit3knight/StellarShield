@@ -3,12 +3,19 @@ export type ChartPoint = {
   value: number
 }
 
+export type ChartTone =
+  "chart-1" | "chart-2" | "chart-3" | "chart-4" | "chart-5"
+
+export type MarketStatus = "live" | "comingSoon"
+
 export type MarketCardData = {
   availableFunds: string
   borrowApr: string
   chart: ChartPoint[]
+  chartTone: ChartTone
   collateral: string
   risk: "Standard" | "Conservative"
+  status: MarketStatus
   supplyApy: string
   symbol: string
   utilization: string
@@ -27,8 +34,10 @@ export const marketCards: MarketCardData[] = [
       { label: "Sat", value: 7.1 },
       { label: "Sun", value: 7.4 },
     ],
+    chartTone: "chart-2",
     collateral: "XLM",
     risk: "Standard",
+    status: "live",
     supplyApy: "4.1%",
     symbol: "USDC",
     utilization: "68%",
@@ -45,8 +54,10 @@ export const marketCards: MarketCardData[] = [
       { label: "Sat", value: 6.5 },
       { label: "Sun", value: 6.8 },
     ],
+    chartTone: "chart-1",
     collateral: "USDC",
     risk: "Conservative",
+    status: "live",
     supplyApy: "3.2%",
     symbol: "XLM",
     utilization: "54%",
@@ -63,29 +74,33 @@ export const marketCards: MarketCardData[] = [
       { label: "Sat", value: 7.7 },
       { label: "Sun", value: 7.9 },
     ],
+    chartTone: "chart-4",
     collateral: "USDC",
     risk: "Standard",
+    status: "comingSoon",
     supplyApy: "4.6%",
     symbol: "EURC",
     utilization: "61%",
   },
   {
-    availableFunds: "$310K",
-    borrowApr: "9.2%",
+    availableFunds: "$520K",
+    borrowApr: "8.6%",
     chart: [
-      { label: "Mon", value: 8.1 },
-      { label: "Tue", value: 8.4 },
-      { label: "Wed", value: 8.3 },
-      { label: "Thu", value: 8.8 },
-      { label: "Fri", value: 9.0 },
-      { label: "Sat", value: 8.9 },
-      { label: "Sun", value: 9.2 },
+      { label: "Mon", value: 7.8 },
+      { label: "Tue", value: 8.0 },
+      { label: "Wed", value: 7.9 },
+      { label: "Thu", value: 8.2 },
+      { label: "Fri", value: 8.4 },
+      { label: "Sat", value: 8.5 },
+      { label: "Sun", value: 8.6 },
     ],
+    chartTone: "chart-5",
     collateral: "USDC",
-    risk: "Standard",
-    supplyApy: "5.3%",
-    symbol: "AQUA",
-    utilization: "73%",
+    risk: "Conservative",
+    status: "comingSoon",
+    supplyApy: "4.8%",
+    symbol: "BTC",
+    utilization: "66%",
   },
 ]
 
