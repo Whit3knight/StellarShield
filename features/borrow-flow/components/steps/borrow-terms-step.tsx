@@ -1,6 +1,6 @@
-import { DollarSignIcon } from "lucide-react"
 import type * as React from "react"
 
+import type { ConnectedAccount } from "@/app/_constants/account"
 import { getMarketPair, type MarketCardData } from "@/app/_constants/dashboard"
 import { MetricTile } from "@/components/atoms/metric-tile"
 import { PrivateValue } from "@/components/atoms/private-value"
@@ -19,10 +19,8 @@ import {
 } from "@/components/ui/input-group"
 
 import {
-  MAX_COLLATERAL_VALUE,
-  MIN_COLLATERAL_VALUE,
+  MIN_COLLATERAL_AMOUNT,
   MIN_LOAN_VALUE,
-  MOCK_ACCOUNT_BALANCE,
 } from "../../constants"
 import type {
   BorrowField,
@@ -30,12 +28,15 @@ import type {
   BorrowFlowState,
 } from "../../types"
 import {
+  formatAssetAmount,
   formatUsd,
+  getAssetPriceUsd,
   getCollateralValidationError,
   getLoanValidationError,
 } from "../../utils"
 
 type BorrowTermsStepProps = {
+  account: ConnectedAccount | null
   flow: BorrowFlowState
   market: MarketCardData
   metrics: BorrowFlowMetrics
@@ -43,17 +44,24 @@ type BorrowTermsStepProps = {
 }
 
 export function BorrowTermsStep({
+  account,
   flow,
   market,
   metrics,
   onFieldChange,
 }: BorrowTermsStepProps): React.ReactElement {
-  const collateralError = getCollateralValidationError(metrics.collateralValue)
+  const collateralError = getCollateralValidationError({
+    amount: metrics.collateralAmount,
+    balance: metrics.collateralWalletBalance,
+    hasWallet: Boolean(account),
+    symbol: market.collateral,
+  })
   const loanError = getLoanValidationError(
     metrics.loanValue,
     metrics.borrowingPower
   )
   const marketPair = getMarketPair(market)
+  const minimumLoanAmount = MIN_LOAN_VALUE / getAssetPriceUsd(market.symbol)
 
   return (
     <Form className="flex w-full flex-col gap-4">
@@ -74,18 +82,16 @@ export function BorrowTermsStep({
 
       <div className="grid gap-3 sm:grid-cols-2">
         <Field invalid={Boolean(collateralError)}>
-          <FieldLabel>Collateral value</FieldLabel>
+          <FieldLabel>Collateral amount</FieldLabel>
           <InputGroup>
-            <InputGroupAddon>
-              <DollarSignIcon aria-hidden="true" />
-            </InputGroupAddon>
+            <InputGroupAddon>{market.collateral}</InputGroupAddon>
             <InputGroupInput
               aria-invalid={Boolean(collateralError)}
-              aria-label="Collateral value"
+              aria-label="Collateral amount"
               className="*:[input]:ps-0!"
               inputMode="decimal"
-              max={MAX_COLLATERAL_VALUE}
-              min={MIN_COLLATERAL_VALUE}
+              max={metrics.collateralWalletBalance || undefined}
+              min={MIN_COLLATERAL_AMOUNT}
               onChange={(event) => {
                 onFieldChange("collateralAmount", event.currentTarget.value)
               }}
@@ -94,28 +100,38 @@ export function BorrowTermsStep({
               value={flow.collateralAmount}
             />
             <InputHelpAddon>
-              Enter collateral value from {formatUsd(MIN_COLLATERAL_VALUE)} to{" "}
-              {formatUsd(MAX_COLLATERAL_VALUE)}.
+              Enter at least{" "}
+              {formatAssetAmount(MIN_COLLATERAL_AMOUNT, market.collateral)}.
             </InputHelpAddon>
           </InputGroup>
           <FieldDescription>
-            <PrivateValue>{MOCK_ACCOUNT_BALANCE}</PrivateValue> available
+            {account ? (
+              <>
+                <PrivateValue>
+                  {formatAssetAmount(
+                    metrics.collateralWalletBalance,
+                    market.collateral
+                  )}
+                </PrivateValue>{" "}
+                available
+              </>
+            ) : (
+              "Connect wallet to view available collateral"
+            )}
           </FieldDescription>
           {collateralError ? <FieldError>{collateralError}</FieldError> : null}
         </Field>
         <Field invalid={Boolean(loanError)}>
           <FieldLabel>Loan amount</FieldLabel>
           <InputGroup>
-            <InputGroupAddon>
-              <DollarSignIcon aria-hidden="true" />
-            </InputGroupAddon>
+            <InputGroupAddon>{market.symbol}</InputGroupAddon>
             <InputGroupInput
               aria-invalid={Boolean(loanError)}
               aria-label="Loan amount"
               className="*:[input]:ps-0!"
               inputMode="decimal"
-              max={metrics.borrowingPower}
-              min={MIN_LOAN_VALUE}
+              max={metrics.maxLoanAmount}
+              min={minimumLoanAmount}
               onChange={(event) => {
                 onFieldChange("loanAmount", event.currentTarget.value)
               }}
@@ -124,12 +140,13 @@ export function BorrowTermsStep({
               value={flow.loanAmount}
             />
             <InputHelpAddon>
-              Enter loan amount from {formatUsd(MIN_LOAN_VALUE)} to{" "}
-              {formatUsd(metrics.borrowingPower)}.
+              Enter at least{" "}
+              {formatAssetAmount(minimumLoanAmount, market.symbol)}.
             </InputHelpAddon>
           </InputGroup>
           <FieldDescription>
-            Available to borrow: {formatUsd(metrics.borrowingPower)}
+            Available to borrow:{" "}
+            {formatAssetAmount(metrics.maxLoanAmount, market.symbol)}
           </FieldDescription>
           {loanError ? <FieldError>{loanError}</FieldError> : null}
         </Field>
@@ -142,6 +159,14 @@ export function BorrowTermsStep({
         />
         <MetricTile label="Borrow APR" value={market.borrowApr} />
         <MetricTile label="Loan health" value={metrics.loanHealth} />
+        <MetricTile
+          label="Health factor"
+          value={
+            metrics.healthFactor === null
+              ? "N/A"
+              : metrics.healthFactor.toFixed(2)
+          }
+        />
         <MetricTile
           label="Utilization"
           value={`${Math.round(metrics.utilization * 100)}%`}

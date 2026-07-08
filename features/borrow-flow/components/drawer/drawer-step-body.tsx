@@ -12,6 +12,7 @@ type DrawerStepBodyProps = BorrowFlowStepProps & {
 }
 
 export function DrawerStepBody({
+  account,
   flow,
   market,
   metrics,
@@ -22,6 +23,7 @@ export function DrawerStepBody({
   if (step === "collateral") {
     return (
       <BorrowTermsStep
+        account={account}
         flow={flow}
         market={market}
         metrics={metrics}
@@ -31,12 +33,20 @@ export function DrawerStepBody({
   }
 
   if (step === "verification") {
-    return <VerificationStep flow={flow} market={market} metrics={metrics} />
+    return (
+      <VerificationStep
+        account={account}
+        flow={flow}
+        market={market}
+        metrics={metrics}
+      />
+    )
   }
 
   if (step === "transaction") {
     return (
       <TransactionStep
+        account={account}
         flow={flow}
         market={market}
         metrics={metrics}
@@ -45,5 +55,5 @@ export function DrawerStepBody({
     )
   }
 
-  return <MarketDetailStep market={market} />
+  return <MarketDetailStep account={account} market={market} />
 }

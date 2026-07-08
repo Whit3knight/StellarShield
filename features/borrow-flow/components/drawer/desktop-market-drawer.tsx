@@ -1,5 +1,6 @@
 import * as React from "react"
 
+import type { ConnectedAccount } from "@/app/_constants/account"
 import type { MarketCardData } from "@/app/_constants/dashboard"
 
 import { MARKET_STEPS } from "../../constants"
@@ -8,11 +9,13 @@ import type { MarketStep } from "../../types"
 import { DesktopMarketStepPanel } from "./desktop-market-step-panel"
 
 type DesktopMarketDrawerProps = {
+  account: ConnectedAccount | null
   market: MarketCardData
   onClose: () => void
 }
 
 export function DesktopMarketDrawer({
+  account,
   market,
   onClose,
 }: DesktopMarketDrawerProps): React.ReactElement {
@@ -24,7 +27,7 @@ export function DesktopMarketDrawer({
     setFieldValue,
     submitTransaction,
     verifyEligibility,
-  } = useBorrowFlow()
+  } = useBorrowFlow({ account, market })
 
   return (
     <aside className="ml-4 hidden min-h-0 min-w-0 lg:block">
@@ -32,6 +35,7 @@ export function DesktopMarketDrawer({
         {MARKET_STEPS.map((step) => (
           <DesktopMarketStepPanel
             activeStep={activeStep}
+            account={account}
             flow={flow}
             key={step}
             market={market}

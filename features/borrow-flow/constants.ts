@@ -14,20 +14,25 @@ export const DESKTOP_STACK_SCALE_STEP = 0.05
 export const DESKTOP_STACK_RAIL_PX =
   DESKTOP_STACK_PEEK_PX * (MARKET_STEPS.length - 1)
 
-export const MOCK_ACCOUNT_ADDRESS = "GABC...7KQ2"
-export const MOCK_ACCOUNT_BALANCE = "3,420.24 XLM"
 export const MOCK_TRANSACTION_HASH = "3f6d...91b2"
-export const COLLATERAL_FACTOR = 0.625
-export const MIN_COLLATERAL_VALUE = 100
-export const MAX_COLLATERAL_VALUE = 6800
+export const MAX_LOAN_TO_VALUE = 0.625
+export const LIQUIDATION_THRESHOLD = 0.8
+export const MIN_COLLATERAL_AMOUNT = 100
 export const MIN_LOAN_VALUE = 50
+export const ASSET_PRICES_USD: Record<string, number> = {
+  BTC: 62_000,
+  EURC: 1.08,
+  USDC: 1,
+  XLM: 0.12,
+}
 
 export const DESKTOP_FOOTER_CLASS =
   "flex w-full flex-row items-center justify-between gap-2 border-t bg-muted/72 px-6 pt-4 pb-[calc(env(safe-area-inset-bottom,0px)+--spacing(4))]"
 
 export const INITIAL_FLOW_STATE: BorrowFlowState = {
-  collateralAmount: "6800",
-  loanAmount: "4250",
+  collateralAmount: "3000",
+  loanAmount: "220",
+  proof: null,
   transactionStatus: "Draft",
   verificationStatus: "Not started",
 }

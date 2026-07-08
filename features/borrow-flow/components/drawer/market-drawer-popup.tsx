@@ -20,6 +20,7 @@ type MarketDrawerPopupProps = BorrowFlowStepProps & {
 }
 
 export function MarketDrawerPopup({
+  account,
   children,
   flow,
   market,
@@ -46,6 +47,7 @@ export function MarketDrawerPopup({
 
       <DrawerPanel className="space-y-5" hideScrollbar scrollFade>
         <DrawerStepBody
+          account={account}
           flow={flow}
           market={market}
           metrics={metrics}

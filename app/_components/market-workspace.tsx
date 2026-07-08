@@ -56,6 +56,7 @@ export function MarketWorkspace(): React.ReactElement {
 
       {selectedMarket ? (
         <MarketStackPanel
+          account={account}
           key={selectedMarket.symbol}
           market={selectedMarket}
           onClose={() => {

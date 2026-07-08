@@ -1,4 +1,5 @@
 import type { MarketCardData } from "@/app/_constants/dashboard"
+import type { ConnectedAccount } from "@/app/_constants/account"
 
 import type {
   BorrowField,
@@ -7,6 +8,7 @@ import type {
 } from "../../types"
 
 export type BorrowFlowStepProps = {
+  account: ConnectedAccount | null
   flow: BorrowFlowState
   market: MarketCardData
   metrics: BorrowFlowMetrics

@@ -1,8 +1,11 @@
 import * as React from "react"
 
+import type { ConnectedAccount } from "@/app/_constants/account"
+import type { MarketCardData } from "@/app/_constants/dashboard"
+
 import { INITIAL_FLOW_STATE } from "../constants"
 import type { BorrowField, BorrowFlowMetrics, BorrowFlowState } from "../types"
-import { getBorrowFlowMetrics } from "../utils"
+import { createBorrowProof, getBorrowFlowMetrics } from "../utils"
 
 type BorrowFlowControls = {
   flow: BorrowFlowState
@@ -13,18 +16,27 @@ type BorrowFlowControls = {
   verifyEligibility: () => void
 }
 
-export function useBorrowFlow(): BorrowFlowControls {
+type UseBorrowFlowParams = {
+  account: ConnectedAccount | null
+  market: MarketCardData
+}
+
+export function useBorrowFlow({
+  account,
+  market,
+}: UseBorrowFlowParams): BorrowFlowControls {
   const [flow, setFlow] = React.useState<BorrowFlowState>(INITIAL_FLOW_STATE)
-  const verificationTimerRef = React.useRef<ReturnType<
-    typeof setTimeout
-  > | null>(null)
-  const metrics = React.useMemo(() => getBorrowFlowMetrics(flow), [flow])
+  const verificationTimerRefs = React.useRef<
+    Array<ReturnType<typeof setTimeout>>
+  >([])
+  const metrics = React.useMemo(
+    () => getBorrowFlowMetrics(flow, market, account),
+    [account, flow, market]
+  )
 
   React.useEffect(() => {
     return () => {
-      if (verificationTimerRef.current) {
-        clearTimeout(verificationTimerRef.current)
-      }
+      clearVerificationTimers(verificationTimerRefs.current)
     }
   }, [])
 
@@ -33,6 +45,7 @@ export function useBorrowFlow(): BorrowFlowControls {
       setFlow((currentFlow) => ({
         ...currentFlow,
         [field]: value,
+        proof: null,
         transactionStatus: "Draft",
         verificationStatus: "Not started",
       }))
@@ -41,36 +54,61 @@ export function useBorrowFlow(): BorrowFlowControls {
   )
 
   const verifyEligibility = React.useCallback(() => {
-    if (verificationTimerRef.current) {
-      clearTimeout(verificationTimerRef.current)
+    clearVerificationTimers(verificationTimerRefs.current)
+
+    if (!metrics.isLoanValid) {
+      setFlow((currentFlow) => ({
+        ...currentFlow,
+        proof: createBorrowProof({ market, metrics }),
+        verificationStatus: "Failed",
+      }))
+      return
     }
 
     setFlow((currentFlow) => ({
       ...currentFlow,
-      verificationStatus: "Checking",
+      proof: null,
+      verificationStatus: "Preparing",
     }))
 
-    verificationTimerRef.current = setTimeout(() => {
+    const preparingTimer = setTimeout(() => {
       setFlow((currentFlow) => ({
         ...currentFlow,
-        verificationStatus: "Verified",
+        verificationStatus: "Generating proof",
       }))
-    }, 650)
-  }, [])
+    }, 350)
+    const verifiedTimer = setTimeout(() => {
+      const proof = createBorrowProof({ market, metrics })
+
+      setFlow((currentFlow) => ({
+        ...currentFlow,
+        proof,
+        verificationStatus: proof.status,
+      }))
+    }, 900)
+
+    verificationTimerRefs.current = [preparingTimer, verifiedTimer]
+  }, [market, metrics])
 
   const refreshTransaction = React.useCallback(() => {
     setFlow((currentFlow) => ({
       ...currentFlow,
-      transactionStatus: "Confirmed",
+      transactionStatus:
+        currentFlow.transactionStatus === "Submitted"
+          ? "Confirmed"
+          : currentFlow.transactionStatus,
     }))
   }, [])
 
   const submitTransaction = React.useCallback(() => {
     setFlow((currentFlow) => ({
       ...currentFlow,
-      transactionStatus: "Submitted",
+      transactionStatus:
+        currentFlow.verificationStatus === "Verified" && metrics.isLoanValid
+          ? "Submitted"
+          : currentFlow.transactionStatus,
     }))
-  }, [])
+  }, [metrics.isLoanValid])
 
   return {
     flow,
@@ -80,4 +118,13 @@ export function useBorrowFlow(): BorrowFlowControls {
     submitTransaction,
     verifyEligibility,
   }
+}
+
+function clearVerificationTimers(
+  timers: Array<ReturnType<typeof setTimeout>>
+): void {
+  timers.forEach((timer) => {
+    clearTimeout(timer)
+  })
+  timers.length = 0
 }

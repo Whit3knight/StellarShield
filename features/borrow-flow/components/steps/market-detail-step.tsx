@@ -1,17 +1,23 @@
 import type * as React from "react"
 
+import type { ConnectedAccount } from "@/app/_constants/account"
 import { type MarketCardData } from "@/app/_constants/dashboard"
 import { MetricTile } from "@/components/atoms/metric-tile"
 import { RateTrendChart } from "@/components/molecules/rate-trend-chart"
 import { Card, CardPanel } from "@/components/ui/card"
+import { getMarketWalletBalance } from "@/features/wallet/utils"
 
 type MarketDetailStepProps = {
+  account: ConnectedAccount | null
   market: MarketCardData
 }
 
 export function MarketDetailStep({
+  account,
   market,
 }: MarketDetailStepProps): React.ReactElement {
+  const yourBalance = getMarketWalletBalance(account, market)
+
   return (
     <>
       <Card className="rounded-lg before:rounded-[calc(var(--radius-lg)-1px)]">
@@ -27,7 +33,7 @@ export function MarketDetailStep({
 
       <div className="grid grid-cols-2 gap-3">
         <MetricTile label="Supply APY" value={market.supplyApy} />
-        <MetricTile label="Borrow APR" value={market.borrowApr} />
+        <MetricTile label="Your balance" value={yourBalance} />
         <MetricTile label="Available" value={market.availableFunds} />
         <MetricTile label="Utilization" value={market.utilization} />
       </div>

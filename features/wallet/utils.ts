@@ -75,11 +75,22 @@ export function getMarketWalletBalance(
     return "Connect wallet"
   }
 
-  if (market.symbol === "XLM") {
-    return account.wallet.balance
+  return getWalletAssetBalance(account, market.symbol) ?? `0.00 ${market.symbol}`
+}
+
+export function getWalletAssetBalance(
+  account: ConnectedAccount | null,
+  symbol: string
+): string | null {
+  if (!account) {
+    return null
   }
 
-  return account.wallet.balances?.[market.symbol] ?? `0.00 ${market.symbol}`
+  if (symbol === "XLM") {
+    return account.wallet.balances?.XLM ?? account.wallet.balance
+  }
+
+  return account.wallet.balances?.[symbol] ?? null
 }
 
 export function createConnectedAccount({

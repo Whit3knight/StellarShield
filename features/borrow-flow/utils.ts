@@ -1,17 +1,22 @@
 import { getMarketPair, type MarketCardData } from "@/app/_constants/dashboard"
+import type { ConnectedAccount } from "@/app/_constants/account"
+import { getWalletAssetBalance } from "@/features/wallet/utils"
 
 import {
-  COLLATERAL_FACTOR,
+  ASSET_PRICES_USD,
+  LIQUIDATION_THRESHOLD,
   MARKET_STEPS,
-  MAX_COLLATERAL_VALUE,
-  MIN_COLLATERAL_VALUE,
+  MAX_LOAN_TO_VALUE,
+  MIN_COLLATERAL_AMOUNT,
   MIN_LOAN_VALUE,
 } from "./constants"
 import type {
+  BorrowProof,
   BorrowFlowMetrics,
   BorrowFlowState,
   LoanHealth,
   MarketStep,
+  UserPosition,
 } from "./types"
 
 const USD_FORMATTER = new Intl.NumberFormat("en-US", {
@@ -19,6 +24,7 @@ const USD_FORMATTER = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 2,
   style: "currency",
 })
+const ATTENTION_HEALTH_FACTOR = 1.5
 
 export function parseAmount(value: string): number {
   const parsedValue = Number.parseFloat(value.replace(/[^0-9.]/g, ""))
@@ -34,54 +40,174 @@ export function formatUsd(value: number): string {
   return USD_FORMATTER.format(value)
 }
 
-export function getCollateralValidationError(value: number): string | null {
-  if (value < MIN_COLLATERAL_VALUE) {
-    return `Collateral must be at least ${formatUsd(MIN_COLLATERAL_VALUE)}.`
+export function formatAssetAmount(value: number, symbol: string): string {
+  const formattedValue = new Intl.NumberFormat("en-US", {
+    maximumFractionDigits: 6,
+    minimumFractionDigits: value > 0 && value < 1 ? 2 : 0,
+  }).format(value)
+
+  return `${formattedValue} ${symbol}`
+}
+
+export function getAssetPriceUsd(symbol: string): number {
+  return ASSET_PRICES_USD[symbol] ?? 1
+}
+
+export function getCollateralValidationError({
+  amount,
+  balance,
+  hasWallet,
+  symbol,
+}: {
+  amount: number
+  balance: number
+  hasWallet: boolean
+  symbol: string
+}): string | null {
+  if (!hasWallet) {
+    return "Connect wallet to continue."
   }
 
-  if (value > MAX_COLLATERAL_VALUE) {
-    return `Collateral cannot exceed ${formatUsd(MAX_COLLATERAL_VALUE)}.`
+  if (amount < MIN_COLLATERAL_AMOUNT) {
+    return `Collateral must be at least ${formatAssetAmount(
+      MIN_COLLATERAL_AMOUNT,
+      symbol
+    )}.`
+  }
+
+  if (amount > balance) {
+    return `Collateral exceeds available ${symbol} balance.`
   }
 
   return null
 }
 
 export function getLoanValidationError(
-  value: number,
+  valueUsd: number,
   borrowingPower: number
 ): string | null {
-  if (value < MIN_LOAN_VALUE) {
+  if (valueUsd < MIN_LOAN_VALUE) {
     return `Loan amount must be at least ${formatUsd(MIN_LOAN_VALUE)}.`
   }
 
-  if (value > borrowingPower) {
+  if (valueUsd > borrowingPower) {
     return "Loan amount exceeds current borrowing power."
   }
 
   return null
 }
 
-export function getBorrowFlowMetrics(flow: BorrowFlowState): BorrowFlowMetrics {
-  const collateralValue = parseAmount(flow.collateralAmount)
-  const loanValue = parseAmount(flow.loanAmount)
-  const borrowingPower = collateralValue * COLLATERAL_FACTOR
+export function getBorrowFlowMetrics(
+  flow: BorrowFlowState,
+  market: MarketCardData,
+  account: ConnectedAccount | null
+): BorrowFlowMetrics {
+  const collateralAmount = parseAmount(flow.collateralAmount)
+  const loanAmount = parseAmount(flow.loanAmount)
+  const collateralPriceUsd = getAssetPriceUsd(market.collateral)
+  const loanPriceUsd = getAssetPriceUsd(market.symbol)
+  const collateralValue = collateralAmount * collateralPriceUsd
+  const loanValue = loanAmount * loanPriceUsd
+  const borrowingPower = collateralValue * MAX_LOAN_TO_VALUE
+  const maxLoanAmount =
+    loanPriceUsd > 0 ? borrowingPower / loanPriceUsd : borrowingPower
   const utilization = borrowingPower > 0 ? loanValue / borrowingPower : 0
+  const collateralWalletBalance = parseAmount(
+    getWalletAssetBalance(account, market.collateral) ?? ""
+  )
+  const hasWallet = Boolean(account)
+  const healthFactor =
+    loanValue > 0
+      ? (collateralValue * LIQUIDATION_THRESHOLD) / loanValue
+      : null
+  const liquidationPrice =
+    loanValue > 0 && collateralAmount > 0
+      ? loanValue / (collateralAmount * LIQUIDATION_THRESHOLD)
+      : null
+  const collateralError = getCollateralValidationError({
+    amount: collateralAmount,
+    balance: collateralWalletBalance,
+    hasWallet,
+    symbol: market.collateral,
+  })
+  const loanError = getLoanValidationError(loanValue, borrowingPower)
+  const validationError = collateralError ?? loanError
   const isLoanValid =
-    !getCollateralValidationError(collateralValue) &&
-    !getLoanValidationError(loanValue, borrowingPower)
+    !validationError && loanAmount > 0 && collateralAmount > 0
   const loanHealth: LoanHealth = !isLoanValid
     ? "At risk"
-    : utilization > 0.85
+    : healthFactor !== null && healthFactor < ATTENTION_HEALTH_FACTOR
       ? "Attention"
       : "Healthy"
 
   return {
     borrowingPower,
+    collateralAmount,
     collateralValue,
+    collateralWalletBalance,
+    hasWallet,
+    healthFactor,
     isLoanValid,
+    liquidationPrice,
     loanHealth,
+    loanAmount,
     loanValue,
+    maxLoanAmount,
+    validationError,
     utilization,
+  }
+}
+
+export function createBorrowProof({
+  market,
+  metrics,
+}: {
+  market: MarketCardData
+  metrics: BorrowFlowMetrics
+}): BorrowProof {
+  return {
+    claim: "Borrow eligibility verified",
+    expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+    id: `proof-${Date.now().toString(36)}`,
+    publicInputs: {
+      healthFactorMin: "1.25",
+      market: getMarketPair(market),
+      maxLtv: `${Math.round(MAX_LOAN_TO_VALUE * 100)}%`,
+    },
+    status: metrics.isLoanValid ? "Verified" : "Failed",
+  }
+}
+
+export function createUserPosition({
+  market,
+  metrics,
+}: {
+  market: MarketCardData
+  metrics: BorrowFlowMetrics
+}): UserPosition {
+  return {
+    borrowed:
+      metrics.loanAmount > 0
+        ? [
+            {
+              amount: metrics.loanAmount,
+              symbol: market.symbol,
+              valueUsd: metrics.loanValue,
+            },
+          ]
+        : [],
+    borrowingPowerUsed: metrics.utilization,
+    healthFactor: metrics.healthFactor,
+    supplied:
+      metrics.collateralAmount > 0
+        ? [
+            {
+              amount: metrics.collateralAmount,
+              symbol: market.collateral,
+              valueUsd: metrics.collateralValue,
+            },
+          ]
+        : [],
   }
 }
 
@@ -105,8 +231,8 @@ export function getStepCopy(
 
   if (step === "transaction") {
     return {
-      description: "Track the submitted borrow transaction.",
-      title: "Transaction",
+      description: "Review the borrow request before wallet signature.",
+      title: "Review transaction",
     }
   }
 

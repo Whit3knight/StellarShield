@@ -42,8 +42,17 @@ export function MarketStepFooterActions({
   }
 
   if (step === "verification") {
-    const isChecking = flow.verificationStatus === "Checking"
+    const isChecking =
+      flow.verificationStatus === "Preparing" ||
+      flow.verificationStatus === "Generating proof"
     const isVerified = flow.verificationStatus === "Verified"
+    const verificationLabel = isVerified
+      ? "Submit transaction"
+      : isChecking
+        ? flow.verificationStatus
+        : flow.verificationStatus === "Failed"
+          ? "Retry verification"
+          : "Verify eligibility"
 
     return (
       <>
@@ -71,7 +80,7 @@ export function MarketStepFooterActions({
           }}
           type="button"
         >
-          {isVerified ? "Submit transaction" : "Verify eligibility"}
+          {verificationLabel}
           {!isVerified ? null : <ArrowRightIcon aria-hidden="true" />}
         </Button>
       </>
@@ -111,6 +120,7 @@ export function MarketStepFooterActions({
         Close
       </Button>
       <Button
+        disabled={!metrics.hasWallet}
         onClick={() => {
           onStepChange("collateral")
         }}

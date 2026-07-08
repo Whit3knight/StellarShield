@@ -20,6 +20,7 @@ type DesktopMarketStepPanelProps = BorrowFlowDrawerProps & {
 }
 
 export function DesktopMarketStepPanel({
+  account,
   activeStep,
   flow,
   market,
@@ -74,6 +75,7 @@ export function DesktopMarketStepPanel({
       <div className="scrollbar-none min-h-0 flex-1 overflow-y-auto p-6 pt-1">
         <div className="space-y-5">
           <DrawerStepBody
+            account={account}
             flow={flow}
             market={market}
             metrics={metrics}

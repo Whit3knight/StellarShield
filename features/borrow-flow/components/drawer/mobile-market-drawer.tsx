@@ -1,6 +1,7 @@
 import { ArrowLeftIcon, ArrowRightIcon } from "lucide-react"
 import type * as React from "react"
 
+import type { ConnectedAccount } from "@/app/_constants/account"
 import type { MarketCardData } from "@/app/_constants/dashboard"
 import { Button } from "@/components/ui/button"
 import { Drawer, DrawerClose, DrawerTrigger } from "@/components/ui/drawer"
@@ -20,6 +21,7 @@ function MobileDrawerBackButton(): React.ReactElement {
 }
 
 function MobileTransactionDrawer({
+  account,
   flow,
   market,
   metrics,
@@ -34,6 +36,7 @@ function MobileTransactionDrawer({
         Submit transaction
       </DrawerTrigger>
       <MarketDrawerPopup
+        account={account}
         flow={flow}
         market={market}
         metrics={metrics}
@@ -55,6 +58,7 @@ function MobileTransactionDrawer({
 }
 
 function MobileVerificationDrawer({
+  account,
   flow,
   market,
   metrics,
@@ -64,7 +68,9 @@ function MobileVerificationDrawer({
   onSubmit,
   onVerify,
 }: BorrowFlowDrawerProps): React.ReactElement {
-  const isChecking = flow.verificationStatus === "Checking"
+  const isChecking =
+    flow.verificationStatus === "Preparing" ||
+    flow.verificationStatus === "Generating proof"
   const isVerified = flow.verificationStatus === "Verified"
 
   return (
@@ -76,6 +82,7 @@ function MobileVerificationDrawer({
         <ArrowRightIcon aria-hidden="true" />
       </DrawerTrigger>
       <MarketDrawerPopup
+        account={account}
         flow={flow}
         market={market}
         metrics={metrics}
@@ -87,6 +94,7 @@ function MobileVerificationDrawer({
           <MobileDrawerBackButton />
           {isVerified ? (
             <MobileTransactionDrawer
+              account={account}
               flow={flow}
               market={market}
               metrics={metrics}
@@ -116,7 +124,9 @@ function MobileCollateralDrawer(
 ): React.ReactElement {
   return (
     <Drawer>
-      <DrawerTrigger render={<Button type="button" />}>
+      <DrawerTrigger
+        render={<Button disabled={!props.metrics.hasWallet} type="button" />}
+      >
         Start borrow
         <ArrowRightIcon aria-hidden="true" />
       </DrawerTrigger>
@@ -131,11 +141,13 @@ function MobileCollateralDrawer(
 }
 
 type MobileMarketDrawerProps = {
+  account: ConnectedAccount | null
   market: MarketCardData
   onClose: () => void
 }
 
 export function MobileMarketDrawer({
+  account,
   market,
   onClose,
 }: MobileMarketDrawerProps): React.ReactElement {
@@ -146,9 +158,10 @@ export function MobileMarketDrawer({
     setFieldValue,
     submitTransaction,
     verifyEligibility,
-  } = useBorrowFlow()
+  } = useBorrowFlow({ account, market })
 
   const drawerProps = {
+    account,
     flow,
     market,
     metrics,
