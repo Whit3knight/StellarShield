@@ -7,6 +7,7 @@ import {
   createBorrowProof,
   createUserPosition,
   formatAssetAmount,
+  formatPairPrice,
   formatUsd,
   getBorrowFlowMetrics,
   getCollateralValidationError,
@@ -43,24 +44,30 @@ describe("borrow flow utilities", () => {
 
   it("formats asset amounts", () => {
     expect(formatAssetAmount(3000, "XLM")).toBe("3,000 XLM")
-    expect(formatAssetAmount(0.25, "BTC")).toBe("0.25 BTC")
+    expect(formatAssetAmount(0.25, "EURC")).toBe("0.25 EURC")
+  })
+
+  it("formats market pair prices", () => {
+    expect(formatPairPrice(market)).toBe("1 USDC = 8.333333 XLM")
   })
 
   it("validates collateral boundaries", () => {
     expect(
       getCollateralValidationError({
-        amount: 99,
+        amount: 50,
         balance: 9999,
         hasWallet: true,
         symbol: "XLM",
+        valueUsd: 6,
       })
-    ).toBe("Collateral must be at least 100 XLM.")
+    ).toBe("Collateral value must be at least $10.00.")
     expect(
       getCollateralValidationError({
         amount: 10_000,
         balance: 9999,
         hasWallet: true,
         symbol: "XLM",
+        valueUsd: 1200,
       })
     ).toBe("Collateral exceeds available XLM balance.")
     expect(
@@ -69,6 +76,7 @@ describe("borrow flow utilities", () => {
         balance: 9999,
         hasWallet: true,
         symbol: "XLM",
+        valueUsd: 12,
       })
     ).toBeNull()
     expect(
@@ -77,6 +85,7 @@ describe("borrow flow utilities", () => {
         balance: 0,
         hasWallet: false,
         symbol: "XLM",
+        valueUsd: 12,
       })
     ).toBe("Connect wallet to continue.")
   })

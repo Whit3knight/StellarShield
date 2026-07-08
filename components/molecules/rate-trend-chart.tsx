@@ -10,7 +10,7 @@ export type RateTrendPoint = {
 }
 
 export type RateTrendTone =
-  "chart-1" | "chart-2" | "chart-3" | "chart-4" | "chart-5"
+  "chart-1" | "chart-2" | "chart-3" | "chart-4" | "chart-5" | "success"
 
 type ChartBounds = {
   max: number
@@ -45,6 +45,7 @@ const toneClassNames: Record<RateTrendTone, string> = {
   "chart-3": "text-chart-3",
   "chart-4": "text-chart-4",
   "chart-5": "text-chart-5",
+  success: "text-success",
 }
 
 function formatPercent(value: number): string {

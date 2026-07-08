@@ -17,10 +17,9 @@ export const DESKTOP_STACK_RAIL_PX =
 export const MOCK_TRANSACTION_HASH = "3f6d...91b2"
 export const MAX_LOAN_TO_VALUE = 0.625
 export const LIQUIDATION_THRESHOLD = 0.8
-export const MIN_COLLATERAL_AMOUNT = 100
+export const MIN_COLLATERAL_VALUE = 10
 export const MIN_LOAN_VALUE = 50
 export const ASSET_PRICES_USD: Record<string, number> = {
-  BTC: 62_000,
   EURC: 1.08,
   USDC: 1,
   XLM: 0.12,

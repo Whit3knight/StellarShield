@@ -7,6 +7,8 @@ import { RateTrendChart } from "@/components/molecules/rate-trend-chart"
 import { Card, CardPanel } from "@/components/ui/card"
 import { getMarketWalletBalance } from "@/features/wallet/utils"
 
+import { formatPairPrice } from "../../utils"
+
 type MarketDetailStepProps = {
   account: ConnectedAccount | null
   market: MarketCardData
@@ -33,6 +35,7 @@ export function MarketDetailStep({
 
       <div className="grid grid-cols-2 gap-3">
         <MetricTile label="Supply APY" value={market.supplyApy} />
+        <MetricTile label="Pair price" value={formatPairPrice(market)} />
         <MetricTile label="Your balance" value={yourBalance} />
         <MetricTile label="Available" value={market.availableFunds} />
         <MetricTile label="Utilization" value={market.utilization} />

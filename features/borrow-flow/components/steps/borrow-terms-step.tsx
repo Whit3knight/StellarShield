@@ -18,10 +18,7 @@ import {
   InputGroupInput,
 } from "@/components/ui/input-group"
 
-import {
-  MIN_COLLATERAL_AMOUNT,
-  MIN_LOAN_VALUE,
-} from "../../constants"
+import { MIN_COLLATERAL_VALUE, MIN_LOAN_VALUE } from "../../constants"
 import type {
   BorrowField,
   BorrowFlowMetrics,
@@ -29,6 +26,7 @@ import type {
 } from "../../types"
 import {
   formatAssetAmount,
+  formatPairPrice,
   formatUsd,
   getAssetPriceUsd,
   getCollateralValidationError,
@@ -55,12 +53,15 @@ export function BorrowTermsStep({
     balance: metrics.collateralWalletBalance,
     hasWallet: Boolean(account),
     symbol: market.collateral,
+    valueUsd: metrics.collateralValue,
   })
   const loanError = getLoanValidationError(
     metrics.loanValue,
     metrics.borrowingPower
   )
   const marketPair = getMarketPair(market)
+  const minimumCollateralAmount =
+    MIN_COLLATERAL_VALUE / getAssetPriceUsd(market.collateral)
   const minimumLoanAmount = MIN_LOAN_VALUE / getAssetPriceUsd(market.symbol)
 
   return (
@@ -78,6 +79,9 @@ export function BorrowTermsStep({
             The market pair selected for this borrow request.
           </InputHelpAddon>
         </InputGroup>
+        <FieldDescription>
+          Pair price: {formatPairPrice(market)}
+        </FieldDescription>
       </Field>
 
       <div className="grid gap-3 sm:grid-cols-2">
@@ -91,7 +95,7 @@ export function BorrowTermsStep({
               className="*:[input]:ps-0!"
               inputMode="decimal"
               max={metrics.collateralWalletBalance || undefined}
-              min={MIN_COLLATERAL_AMOUNT}
+              min={minimumCollateralAmount}
               onChange={(event) => {
                 onFieldChange("collateralAmount", event.currentTarget.value)
               }}
@@ -100,8 +104,7 @@ export function BorrowTermsStep({
               value={flow.collateralAmount}
             />
             <InputHelpAddon>
-              Enter at least{" "}
-              {formatAssetAmount(MIN_COLLATERAL_AMOUNT, market.collateral)}.
+              Enter collateral worth at least {formatUsd(MIN_COLLATERAL_VALUE)}.
             </InputHelpAddon>
           </InputGroup>
           <FieldDescription>

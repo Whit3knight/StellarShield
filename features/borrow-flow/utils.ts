@@ -7,7 +7,7 @@ import {
   LIQUIDATION_THRESHOLD,
   MARKET_STEPS,
   MAX_LOAN_TO_VALUE,
-  MIN_COLLATERAL_AMOUNT,
+  MIN_COLLATERAL_VALUE,
   MIN_LOAN_VALUE,
 } from "./constants"
 import type {
@@ -53,25 +53,37 @@ export function getAssetPriceUsd(symbol: string): number {
   return ASSET_PRICES_USD[symbol] ?? 1
 }
 
+export function formatPairPrice(market: MarketCardData): string {
+  const basePriceUsd = getAssetPriceUsd(market.symbol)
+  const quotePriceUsd = getAssetPriceUsd(market.collateral)
+  const pairPrice = quotePriceUsd > 0 ? basePriceUsd / quotePriceUsd : 0
+  const formattedPrice = new Intl.NumberFormat("en-US", {
+    maximumFractionDigits: 6,
+  }).format(pairPrice)
+
+  return `1 ${market.symbol} = ${formattedPrice} ${market.collateral}`
+}
+
 export function getCollateralValidationError({
   amount,
   balance,
   hasWallet,
   symbol,
+  valueUsd,
 }: {
   amount: number
   balance: number
   hasWallet: boolean
   symbol: string
+  valueUsd: number
 }): string | null {
   if (!hasWallet) {
     return "Connect wallet to continue."
   }
 
-  if (amount < MIN_COLLATERAL_AMOUNT) {
-    return `Collateral must be at least ${formatAssetAmount(
-      MIN_COLLATERAL_AMOUNT,
-      symbol
+  if (valueUsd < MIN_COLLATERAL_VALUE) {
+    return `Collateral value must be at least ${formatUsd(
+      MIN_COLLATERAL_VALUE
     )}.`
   }
 
@@ -117,9 +129,7 @@ export function getBorrowFlowMetrics(
   )
   const hasWallet = Boolean(account)
   const healthFactor =
-    loanValue > 0
-      ? (collateralValue * LIQUIDATION_THRESHOLD) / loanValue
-      : null
+    loanValue > 0 ? (collateralValue * LIQUIDATION_THRESHOLD) / loanValue : null
   const liquidationPrice =
     loanValue > 0 && collateralAmount > 0
       ? loanValue / (collateralAmount * LIQUIDATION_THRESHOLD)
@@ -129,11 +139,11 @@ export function getBorrowFlowMetrics(
     balance: collateralWalletBalance,
     hasWallet,
     symbol: market.collateral,
+    valueUsd: collateralValue,
   })
   const loanError = getLoanValidationError(loanValue, borrowingPower)
   const validationError = collateralError ?? loanError
-  const isLoanValid =
-    !validationError && loanAmount > 0 && collateralAmount > 0
+  const isLoanValid = !validationError && loanAmount > 0 && collateralAmount > 0
   const loanHealth: LoanHealth = !isLoanValid
     ? "At risk"
     : healthFactor !== null && healthFactor < ATTENTION_HEALTH_FACTOR

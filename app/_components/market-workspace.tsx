@@ -2,7 +2,11 @@
 
 import * as React from "react"
 
-import { marketCards, type MarketCardData } from "../_constants/dashboard"
+import {
+  getMarketPair,
+  marketCards,
+  type MarketCardData,
+} from "../_constants/dashboard"
 
 import { useWalletConnection } from "@/features/wallet/use-wallet-connection"
 import { getMarketWalletBalance } from "@/features/wallet/utils"
@@ -14,6 +18,9 @@ export function MarketWorkspace(): React.ReactElement {
   const { account } = useWalletConnection()
   const [selectedMarket, setSelectedMarket] =
     React.useState<MarketCardData | null>(null)
+  const selectedMarketPair = selectedMarket
+    ? getMarketPair(selectedMarket)
+    : null
 
   return (
     <div
@@ -24,7 +31,7 @@ export function MarketWorkspace(): React.ReactElement {
       }
     >
       <section
-        className="scrollbar-none min-h-0 min-w-0 overflow-y-auto p-4 md:p-6"
+        className="min-h-0 min-w-0 scrollbar-none overflow-y-auto p-4 md:p-6"
         id="markets"
       >
         <div>
@@ -40,24 +47,28 @@ export function MarketWorkspace(): React.ReactElement {
               : "mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4"
           }
         >
-          {marketCards.map((market) => (
-            <MarketCard
-              active={selectedMarket?.symbol === market.symbol}
-              key={market.symbol}
-              market={market}
-              onViewMarket={() => {
-                setSelectedMarket(market)
-              }}
-              yourBalance={getMarketWalletBalance(account, market)}
-            />
-          ))}
+          {marketCards.map((market) => {
+            const marketPair = getMarketPair(market)
+
+            return (
+              <MarketCard
+                active={selectedMarketPair === marketPair}
+                key={marketPair}
+                market={market}
+                onViewMarket={() => {
+                  setSelectedMarket(market)
+                }}
+                yourBalance={getMarketWalletBalance(account, market)}
+              />
+            )
+          })}
         </div>
       </section>
 
       {selectedMarket ? (
         <MarketStackPanel
           account={account}
-          key={selectedMarket.symbol}
+          key={selectedMarketPair}
           market={selectedMarket}
           onClose={() => {
             setSelectedMarket(null)
