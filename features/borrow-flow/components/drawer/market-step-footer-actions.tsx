@@ -8,6 +8,7 @@ import type {
   BorrowFlowState,
   MarketStep,
 } from "../../types"
+import { canSubmitTransaction, isVerificationPending } from "../../utils"
 
 type MarketStepFooterActionsProps = {
   flow: BorrowFlowState
@@ -42,11 +43,12 @@ export function MarketStepFooterActions({
   }
 
   if (step === "verification") {
-    const isChecking =
-      flow.verificationStatus === "Preparing" ||
-      flow.verificationStatus === "Generating proof"
-    const isVerified = flow.verificationStatus === "Verified"
-    const verificationLabel = isVerified
+    const isChecking = isVerificationPending(flow.verificationStatus)
+    const canSubmit = canSubmitTransaction({
+      metrics,
+      status: flow.verificationStatus,
+    })
+    const verificationLabel = canSubmit
       ? "Submit transaction"
       : isChecking
         ? flow.verificationStatus
@@ -70,7 +72,7 @@ export function MarketStepFooterActions({
           disabled={isChecking || !metrics.isLoanValid}
           loading={isChecking}
           onClick={() => {
-            if (isVerified) {
+            if (canSubmit) {
               onSubmit()
               onStepChange("transaction")
               return
@@ -81,7 +83,7 @@ export function MarketStepFooterActions({
           type="button"
         >
           {verificationLabel}
-          {!isVerified ? null : <ArrowRightIcon aria-hidden="true" />}
+          {!canSubmit ? null : <ArrowRightIcon aria-hidden="true" />}
         </Button>
       </>
     )

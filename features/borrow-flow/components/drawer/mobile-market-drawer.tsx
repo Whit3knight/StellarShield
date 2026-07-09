@@ -2,11 +2,12 @@ import { ArrowLeftIcon, ArrowRightIcon } from "lucide-react"
 import type * as React from "react"
 
 import type { ConnectedAccount } from "@/app/_constants/account"
-import type { MarketCardData } from "@/app/_constants/dashboard"
 import { Button } from "@/components/ui/button"
 import { Drawer, DrawerClose, DrawerTrigger } from "@/components/ui/drawer"
+import type { MarketCardData } from "@/features/markets"
 
 import { useBorrowFlow } from "../../hooks/use-borrow-flow"
+import { canSubmitTransaction, isVerificationPending } from "../../utils"
 import { MarketDrawerFooter } from "./market-drawer-footer"
 import { MarketDrawerPopup } from "./market-drawer-popup"
 import type { BorrowFlowDrawerProps } from "./types"
@@ -68,10 +69,11 @@ function MobileVerificationDrawer({
   onSubmit,
   onVerify,
 }: BorrowFlowDrawerProps): React.ReactElement {
-  const isChecking =
-    flow.verificationStatus === "Preparing" ||
-    flow.verificationStatus === "Generating proof"
-  const isVerified = flow.verificationStatus === "Verified"
+  const isChecking = isVerificationPending(flow.verificationStatus)
+  const canSubmit = canSubmitTransaction({
+    metrics,
+    status: flow.verificationStatus,
+  })
 
   return (
     <Drawer>
@@ -92,7 +94,7 @@ function MobileVerificationDrawer({
       >
         <MarketDrawerFooter>
           <MobileDrawerBackButton />
-          {isVerified ? (
+          {canSubmit ? (
             <MobileTransactionDrawer
               account={account}
               flow={flow}

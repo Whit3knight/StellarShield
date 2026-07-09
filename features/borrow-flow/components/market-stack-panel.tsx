@@ -3,7 +3,7 @@
 import type * as React from "react"
 
 import type { ConnectedAccount } from "@/app/_constants/account"
-import type { MarketCardData } from "@/app/_constants/dashboard"
+import type { MarketCardData } from "@/features/markets"
 
 import { useIsDesktop } from "../hooks/use-is-desktop"
 import { DesktopMarketDrawer } from "./drawer/desktop-market-drawer"

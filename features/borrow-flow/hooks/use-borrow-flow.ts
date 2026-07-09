@@ -1,11 +1,15 @@
 import * as React from "react"
 
 import type { ConnectedAccount } from "@/app/_constants/account"
-import type { MarketCardData } from "@/app/_constants/dashboard"
+import type { MarketCardData } from "@/features/markets"
 
 import { INITIAL_FLOW_STATE } from "../constants"
 import type { BorrowField, BorrowFlowMetrics, BorrowFlowState } from "../types"
-import { createBorrowProof, getBorrowFlowMetrics } from "../utils"
+import {
+  canSubmitTransaction,
+  createBorrowProof,
+  getBorrowFlowMetrics,
+} from "../utils"
 
 type BorrowFlowControls = {
   flow: BorrowFlowState
@@ -103,12 +107,14 @@ export function useBorrowFlow({
   const submitTransaction = React.useCallback(() => {
     setFlow((currentFlow) => ({
       ...currentFlow,
-      transactionStatus:
-        currentFlow.verificationStatus === "Verified" && metrics.isLoanValid
-          ? "Submitted"
-          : currentFlow.transactionStatus,
+      transactionStatus: canSubmitTransaction({
+        metrics,
+        status: currentFlow.verificationStatus,
+      })
+        ? "Submitted"
+        : currentFlow.transactionStatus,
     }))
-  }, [metrics.isLoanValid])
+  }, [metrics])
 
   return {
     flow,

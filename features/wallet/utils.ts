@@ -1,4 +1,8 @@
 import type { ConnectedAccount, WalletProvider } from "@/app/_constants/account"
+import {
+  formatZeroAssetBalance,
+  type SupportedAssetSymbol,
+} from "@/features/markets"
 
 const BALANCE_PATTERN = /^([+-]?)(\d+)(?:\.(\d+))?$/
 
@@ -69,18 +73,18 @@ function formatWholeDigits(wholeDigits: string): string {
 
 export function getMarketWalletBalance(
   account: ConnectedAccount | null,
-  market: { symbol: string }
+  market: { symbol: SupportedAssetSymbol }
 ): string {
   if (!account) {
     return "Connect wallet"
   }
 
-  return getWalletAssetBalance(account, market.symbol) ?? `0.00 ${market.symbol}`
+  return getWalletAssetBalanceDisplay(account, market.symbol)
 }
 
 export function getWalletAssetBalance(
   account: ConnectedAccount | null,
-  symbol: string
+  symbol: SupportedAssetSymbol
 ): string | null {
   if (!account) {
     return null
@@ -91,6 +95,26 @@ export function getWalletAssetBalance(
   }
 
   return account.wallet.balances?.[symbol] ?? null
+}
+
+export function getWalletAssetBalanceDisplay(
+  account: ConnectedAccount | null,
+  symbol: SupportedAssetSymbol
+): string {
+  if (!account) {
+    return "Connect wallet"
+  }
+
+  return (
+    getWalletAssetBalance(account, symbol) ?? formatZeroAssetBalance(symbol)
+  )
+}
+
+export function hasWalletAssetBalance(
+  account: ConnectedAccount | null,
+  symbol: SupportedAssetSymbol
+): boolean {
+  return Boolean(getWalletAssetBalance(account, symbol))
 }
 
 export function createConnectedAccount({

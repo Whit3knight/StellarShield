@@ -28,6 +28,38 @@ export type UserPosition = {
   supplied: AssetAmount[]
 }
 
+export type BorrowQuote = {
+  borrowingPower: number
+  collateral: AssetAmount
+  collateralWalletBalance: number
+  estimatedFee: AssetAmount
+  healthFactor: number | null
+  liquidationPrice: number | null
+  loan: AssetAmount
+  loanHealth: LoanHealth
+  maxLoanAmount: number
+  market: string
+  utilization: number
+  validationError: string | null
+}
+
+export type TransactionPreview = {
+  account: string
+  borrowApr: string
+  collateral: string
+  collateralValue: string
+  estimatedFee: string
+  healthFactor: string
+  loan: string
+  loanHealth: LoanHealth
+  loanValue: string
+  market: string
+  proof: string
+  receipt: string | null
+  status: TransactionStatus
+  verification: VerificationStatus
+}
+
 export type BorrowProof = {
   claim: string
   expiresAt: string
@@ -61,6 +93,7 @@ export type BorrowFlowMetrics = {
   loanAmount: number
   loanValue: number
   maxLoanAmount: number
+  quote: BorrowQuote
   validationError: string | null
   utilization: number
 }

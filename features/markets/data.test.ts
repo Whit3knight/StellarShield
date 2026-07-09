@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest"
 
-import { getMarketPair, marketCards } from "./dashboard"
+import { assetPricesUsd, getMarketPair, marketCards } from "."
 
-describe("dashboard market constants", () => {
+describe("market data", () => {
   it("lists the supported USDC, EURC, and XLM pair universe", () => {
     expect(marketCards.map((market) => getMarketPair(market))).toEqual([
       "USDC/XLM",
@@ -25,9 +25,14 @@ describe("dashboard market constants", () => {
     )
   })
 
-  it("uses the success tone for market charts", () => {
+  it("uses success chart tone and explicit asset prices", () => {
     expect(marketCards.every((market) => market.chartTone === "success")).toBe(
       true
     )
+    expect(assetPricesUsd).toEqual({
+      EURC: 1.08,
+      USDC: 1,
+      XLM: 0.12,
+    })
   })
 })

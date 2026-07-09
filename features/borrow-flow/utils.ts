@@ -1,22 +1,30 @@
-import { getMarketPair, type MarketCardData } from "@/app/_constants/dashboard"
 import type { ConnectedAccount } from "@/app/_constants/account"
+import {
+  getAssetPriceUsd,
+  getMarketPair,
+  type MarketCardData,
+} from "@/features/markets"
 import { getWalletAssetBalance } from "@/features/wallet/utils"
 
 import {
-  ASSET_PRICES_USD,
+  ESTIMATED_TRANSACTION_FEE_XLM,
   LIQUIDATION_THRESHOLD,
   MARKET_STEPS,
   MAX_LOAN_TO_VALUE,
   MIN_COLLATERAL_VALUE,
   MIN_LOAN_VALUE,
+  MOCK_TRANSACTION_HASH,
 } from "./constants"
 import type {
   BorrowProof,
+  BorrowQuote,
   BorrowFlowMetrics,
   BorrowFlowState,
   LoanHealth,
   MarketStep,
+  TransactionPreview,
   UserPosition,
+  VerificationStatus,
 } from "./types"
 
 const USD_FORMATTER = new Intl.NumberFormat("en-US", {
@@ -47,10 +55,6 @@ export function formatAssetAmount(value: number, symbol: string): string {
   }).format(value)
 
   return `${formattedValue} ${symbol}`
-}
-
-export function getAssetPriceUsd(symbol: string): number {
-  return ASSET_PRICES_USD[symbol] ?? 1
 }
 
 export function formatPairPrice(market: MarketCardData): string {
@@ -109,15 +113,20 @@ export function getLoanValidationError(
   return null
 }
 
-export function getBorrowFlowMetrics(
-  flow: BorrowFlowState,
-  market: MarketCardData,
+export function createBorrowQuote({
+  account,
+  flow,
+  market,
+}: {
   account: ConnectedAccount | null
-): BorrowFlowMetrics {
+  flow: BorrowFlowState
+  market: MarketCardData
+}): BorrowQuote {
   const collateralAmount = parseAmount(flow.collateralAmount)
   const loanAmount = parseAmount(flow.loanAmount)
   const collateralPriceUsd = getAssetPriceUsd(market.collateral)
   const loanPriceUsd = getAssetPriceUsd(market.symbol)
+  const feePriceUsd = getAssetPriceUsd("XLM")
   const collateralValue = collateralAmount * collateralPriceUsd
   const loanValue = loanAmount * loanPriceUsd
   const borrowingPower = collateralValue * MAX_LOAN_TO_VALUE
@@ -152,19 +161,60 @@ export function getBorrowFlowMetrics(
 
   return {
     borrowingPower,
-    collateralAmount,
-    collateralValue,
+    collateral: {
+      amount: collateralAmount,
+      symbol: market.collateral,
+      valueUsd: collateralValue,
+    },
     collateralWalletBalance,
-    hasWallet,
+    estimatedFee: {
+      amount: ESTIMATED_TRANSACTION_FEE_XLM,
+      symbol: "XLM",
+      valueUsd: ESTIMATED_TRANSACTION_FEE_XLM * feePriceUsd,
+    },
     healthFactor,
-    isLoanValid,
     liquidationPrice,
+    loan: {
+      amount: loanAmount,
+      symbol: market.symbol,
+      valueUsd: loanValue,
+    },
     loanHealth,
-    loanAmount,
-    loanValue,
+    market: getMarketPair(market),
     maxLoanAmount,
-    validationError,
     utilization,
+    validationError,
+  }
+}
+
+export function getBorrowFlowMetrics(
+  flow: BorrowFlowState,
+  market: MarketCardData,
+  account: ConnectedAccount | null
+): BorrowFlowMetrics {
+  const quote = createBorrowQuote({ account, flow, market })
+  const hasWallet = Boolean(account)
+  const isLoanValid =
+    !quote.validationError &&
+    quote.loan.amount > 0 &&
+    quote.collateral.amount > 0
+
+  return {
+    borrowingPower: quote.borrowingPower,
+    collateralAmount: quote.collateral.amount,
+    collateralValue: quote.collateral.valueUsd,
+    collateralWalletBalance: quote.collateralWalletBalance,
+    hasWallet,
+    healthFactor: quote.healthFactor,
+    isLoanValid,
+    liquidationPrice: quote.liquidationPrice,
+    loanAmount: quote.loan.amount,
+    loanHealth: quote.loanHealth,
+    loanValue: quote.loan.valueUsd,
+    maxLoanAmount: quote.maxLoanAmount,
+    quote,
+    validationError: quote.validationError,
+    utilization: quote.utilization,
   }
 }
 
@@ -218,6 +268,61 @@ export function createUserPosition({
             },
           ]
         : [],
+  }
+}
+
+export function isVerificationPending(status: VerificationStatus): boolean {
+  return status === "Preparing" || status === "Generating proof"
+}
+
+export function canSubmitTransaction({
+  metrics,
+  status,
+}: {
+  metrics: BorrowFlowMetrics
+  status: VerificationStatus
+}): boolean {
+  return status === "Verified" && metrics.isLoanValid
+}
+
+export function createTransactionPreview({
+  account,
+  flow,
+  market,
+  metrics,
+}: {
+  account: ConnectedAccount | null
+  flow: BorrowFlowState
+  market: MarketCardData
+  metrics: BorrowFlowMetrics
+}): TransactionPreview {
+  const quote = metrics.quote
+  const healthFactor =
+    quote.healthFactor === null ? "N/A" : quote.healthFactor.toFixed(2)
+  const receipt =
+    flow.transactionStatus === "Confirmed" ? MOCK_TRANSACTION_HASH : null
+
+  return {
+    account: account?.wallet.shortAddress ?? "Connect wallet",
+    borrowApr: market.borrowApr,
+    collateral: formatAssetAmount(
+      quote.collateral.amount,
+      quote.collateral.symbol
+    ),
+    collateralValue: formatUsd(quote.collateral.valueUsd),
+    estimatedFee: formatAssetAmount(
+      quote.estimatedFee.amount,
+      quote.estimatedFee.symbol
+    ),
+    healthFactor,
+    loan: formatAssetAmount(quote.loan.amount, quote.loan.symbol),
+    loanHealth: quote.loanHealth,
+    loanValue: formatUsd(quote.loan.valueUsd),
+    market: quote.market,
+    proof: flow.proof?.id ?? "Required before submission",
+    receipt,
+    status: flow.transactionStatus,
+    verification: flow.verificationStatus,
   }
 }
 

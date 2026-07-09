@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest"
 
 import type { ConnectedAccount } from "@/app/_constants/account"
-import { marketCards } from "@/app/_constants/dashboard"
+import { marketCards } from "@/features/markets"
 
 import {
   createBorrowProof,
+  createTransactionPreview,
   createUserPosition,
   formatAssetAmount,
   formatPairPrice,
@@ -125,6 +126,14 @@ describe("borrow flow utilities", () => {
       loanHealth: "Healthy",
       loanValue: 180,
       maxLoanAmount: 225,
+      quote: {
+        estimatedFee: {
+          amount: 0.00003,
+          symbol: "XLM",
+          valueUsd: 0.0000036,
+        },
+        market: "USDC/XLM",
+      },
       utilization: 0.8,
     })
 
@@ -205,6 +214,30 @@ describe("borrow flow utilities", () => {
     expect(createUserPosition({ market, metrics })).toMatchObject({
       borrowed: [{ amount: 50, symbol: "USDC", valueUsd: 50 }],
       supplied: [{ amount: 1000, symbol: "XLM", valueUsd: 120 }],
+    })
+  })
+
+  it("creates transaction previews from quote state", () => {
+    const flow = {
+      collateralAmount: "1000",
+      loanAmount: "50",
+      proof: null,
+      transactionStatus: "Draft" as const,
+      verificationStatus: "Not started" as const,
+    }
+    const metrics = getBorrowFlowMetrics(flow, market, account)
+
+    expect(
+      createTransactionPreview({ account, flow, market, metrics })
+    ).toMatchObject({
+      account: "GDU3...Y9KQ",
+      collateral: "1,000 XLM",
+      estimatedFee: "0.00003 XLM",
+      loan: "50 USDC",
+      market: "USDC/XLM",
+      proof: "Required before submission",
+      receipt: null,
+      verification: "Not started",
     })
   })
 })

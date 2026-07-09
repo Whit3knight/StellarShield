@@ -1,7 +1,7 @@
 import * as React from "react"
 
 import type { ConnectedAccount } from "@/app/_constants/account"
-import type { MarketCardData } from "@/app/_constants/dashboard"
+import type { MarketCardData } from "@/features/markets"
 
 import { MARKET_STEPS } from "../../constants"
 import { useBorrowFlow } from "../../hooks/use-borrow-flow"

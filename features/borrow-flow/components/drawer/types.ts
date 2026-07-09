@@ -1,5 +1,5 @@
-import type { MarketCardData } from "@/app/_constants/dashboard"
 import type { ConnectedAccount } from "@/app/_constants/account"
+import type { MarketCardData } from "@/features/markets"
 
 import type {
   BorrowField,

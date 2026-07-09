@@ -1,7 +1,6 @@
 import type * as React from "react"
 
 import type { ConnectedAccount } from "@/app/_constants/account"
-import { getMarketPair, type MarketCardData } from "@/app/_constants/dashboard"
 import { MetricTile } from "@/components/atoms/metric-tile"
 import { PrivateValue } from "@/components/atoms/private-value"
 import { InputHelpAddon } from "@/components/molecules/input-help-addon"
@@ -17,6 +16,11 @@ import {
   InputGroupAddon,
   InputGroupInput,
 } from "@/components/ui/input-group"
+import {
+  getAssetPriceUsd,
+  getMarketPair,
+  type MarketCardData,
+} from "@/features/markets"
 
 import { MIN_COLLATERAL_VALUE, MIN_LOAN_VALUE } from "../../constants"
 import type {
@@ -28,7 +32,6 @@ import {
   formatAssetAmount,
   formatPairPrice,
   formatUsd,
-  getAssetPriceUsd,
   getCollateralValidationError,
   getLoanValidationError,
 } from "../../utils"
@@ -63,6 +66,10 @@ export function BorrowTermsStep({
   const minimumCollateralAmount =
     MIN_COLLATERAL_VALUE / getAssetPriceUsd(market.collateral)
   const minimumLoanAmount = MIN_LOAN_VALUE / getAssetPriceUsd(market.symbol)
+  const liquidationPrice =
+    metrics.quote.liquidationPrice === null
+      ? "N/A"
+      : `${formatUsd(metrics.quote.liquidationPrice)} / ${market.collateral}`
 
   return (
     <Form className="flex w-full flex-col gap-4">
@@ -160,6 +167,10 @@ export function BorrowTermsStep({
           label="Borrowing power"
           value={formatUsd(metrics.borrowingPower)}
         />
+        <MetricTile
+          label="Max borrow"
+          value={formatAssetAmount(metrics.maxLoanAmount, market.symbol)}
+        />
         <MetricTile label="Borrow APR" value={market.borrowApr} />
         <MetricTile label="Loan health" value={metrics.loanHealth} />
         <MetricTile
@@ -173,6 +184,14 @@ export function BorrowTermsStep({
         <MetricTile
           label="Utilization"
           value={`${Math.round(metrics.utilization * 100)}%`}
+        />
+        <MetricTile label="Liquidation price" value={liquidationPrice} />
+        <MetricTile
+          label="Estimated fee"
+          value={formatAssetAmount(
+            metrics.quote.estimatedFee.amount,
+            metrics.quote.estimatedFee.symbol
+          )}
         />
       </div>
     </Form>

@@ -1,11 +1,10 @@
 import type * as React from "react"
 
-import { getMarketPair, type MarketCardData } from "../_constants/dashboard"
-
 import { Badge } from "@/components/ui/badge"
 import { RateTrendChart } from "@/components/molecules/rate-trend-chart"
 import { Card, CardPanel } from "@/components/ui/card"
 import { Frame, FrameHeader, FrameTitle } from "@/components/ui/frame"
+import { getMarketPair, type MarketCardData } from "@/features/markets"
 import { cn } from "@/lib/utils"
 
 export function MarketCard({
@@ -23,7 +22,7 @@ export function MarketCard({
   const isComingSoon = market.status === "comingSoon"
   const marketMetrics = [
     { label: "Supply APY", value: market.supplyApy },
-    { label: "Your balance", value: yourBalance },
+    { label: `${market.symbol} balance`, value: yourBalance },
     { label: "Available funds", value: market.availableFunds },
     { label: "Utilization", value: market.utilization },
   ]
@@ -79,7 +78,7 @@ export function MarketCard({
         <div
           className={cn(
             "transition-[filter,opacity]",
-            isComingSoon && "pointer-events-none select-none blur-sm opacity-55"
+            isComingSoon && "pointer-events-none opacity-55 blur-sm select-none"
           )}
         >
           <Card className="rounded-lg before:rounded-[calc(var(--radius-lg)-1px)]">
@@ -107,7 +106,7 @@ export function MarketCard({
 
         {isComingSoon ? (
           <div className="absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-background/35 backdrop-blur-[2px]">
-            <span className="rounded-md border bg-background/85 px-3 py-1.5 font-medium text-sm shadow-xs/5">
+            <span className="rounded-md border bg-background/85 px-3 py-1.5 text-sm font-medium shadow-xs/5">
               Coming soon
             </span>
           </div>

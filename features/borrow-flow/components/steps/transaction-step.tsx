@@ -2,14 +2,13 @@ import { RefreshCwIcon } from "lucide-react"
 import type * as React from "react"
 
 import type { ConnectedAccount } from "@/app/_constants/account"
-import { getMarketPair, type MarketCardData } from "@/app/_constants/dashboard"
 import { DetailRow } from "@/components/atoms/detail-row"
 import { Button } from "@/components/ui/button"
 import { Card, CardPanel } from "@/components/ui/card"
+import type { MarketCardData } from "@/features/markets"
 
-import { MOCK_TRANSACTION_HASH } from "../../constants"
 import type { BorrowFlowMetrics, BorrowFlowState } from "../../types"
-import { formatAssetAmount, formatUsd } from "../../utils"
+import { createTransactionPreview } from "../../utils"
 
 type TransactionStepProps = {
   account: ConnectedAccount | null
@@ -56,61 +55,31 @@ export function TransactionStep({
   onRefreshTransaction,
 }: TransactionStepProps): React.ReactElement {
   const isConfirmed = flow.transactionStatus === "Confirmed"
+  const preview = createTransactionPreview({ account, flow, market, metrics })
 
   return (
     <>
       <Card className="rounded-lg before:rounded-[calc(var(--radius-lg)-1px)]">
         <CardPanel className="space-y-1">
-          <DetailRow label="Market" value={getMarketPair(market)} />
-          <DetailRow
-            label="Account"
-            privateValue
-            value={account?.wallet.shortAddress ?? "Connect wallet"}
-          />
-          <DetailRow
-            label="Collateral"
-            value={formatAssetAmount(
-              metrics.collateralAmount,
-              market.collateral
-            )}
-          />
-          <DetailRow
-            label="Collateral value"
-            value={formatUsd(metrics.collateralValue)}
-          />
-          <DetailRow
-            label="Loan amount"
-            value={formatAssetAmount(metrics.loanAmount, market.symbol)}
-          />
-          <DetailRow label="Loan value" value={formatUsd(metrics.loanValue)} />
-          <DetailRow label="Borrow APR" value={market.borrowApr} />
-          <DetailRow
-            label="Health factor"
-            value={
-              metrics.healthFactor === null
-                ? "N/A"
-                : metrics.healthFactor.toFixed(2)
-            }
-          />
-          <DetailRow label="Loan health" value={metrics.loanHealth} />
-          <DetailRow label="Verification" value={flow.verificationStatus} />
-          <DetailRow
-            label="Proof"
-            privateValue
-            value={flow.proof?.id ?? "Required before submission"}
-          />
+          <DetailRow label="Market" value={preview.market} />
+          <DetailRow label="Account" privateValue value={preview.account} />
+          <DetailRow label="Collateral" value={preview.collateral} />
+          <DetailRow label="Collateral value" value={preview.collateralValue} />
+          <DetailRow label="Loan amount" value={preview.loan} />
+          <DetailRow label="Loan value" value={preview.loanValue} />
+          <DetailRow label="Borrow APR" value={preview.borrowApr} />
+          <DetailRow label="Health factor" value={preview.healthFactor} />
+          <DetailRow label="Loan health" value={preview.loanHealth} />
+          <DetailRow label="Verification" value={preview.verification} />
+          <DetailRow label="Proof" privateValue value={preview.proof} />
           <TransactionStatusRow
             isConfirmed={isConfirmed}
             onRefreshTransaction={onRefreshTransaction}
-            status={flow.transactionStatus}
+            status={preview.status}
           />
-          <DetailRow label="Estimated fee" value="0.00003 XLM" />
-          {isConfirmed ? (
-            <DetailRow
-              label="Receipt"
-              privateValue
-              value={MOCK_TRANSACTION_HASH}
-            />
+          <DetailRow label="Estimated fee" value={preview.estimatedFee} />
+          {preview.receipt ? (
+            <DetailRow label="Receipt" privateValue value={preview.receipt} />
           ) : null}
         </CardPanel>
       </Card>

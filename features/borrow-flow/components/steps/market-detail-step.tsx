@@ -1,11 +1,11 @@
 import type * as React from "react"
 
 import type { ConnectedAccount } from "@/app/_constants/account"
-import { type MarketCardData } from "@/app/_constants/dashboard"
 import { MetricTile } from "@/components/atoms/metric-tile"
 import { RateTrendChart } from "@/components/molecules/rate-trend-chart"
 import { Card, CardPanel } from "@/components/ui/card"
-import { getMarketWalletBalance } from "@/features/wallet/utils"
+import { type MarketCardData } from "@/features/markets"
+import { getWalletAssetBalanceDisplay } from "@/features/wallet/utils"
 
 import { formatPairPrice } from "../../utils"
 
@@ -18,7 +18,11 @@ export function MarketDetailStep({
   account,
   market,
 }: MarketDetailStepProps): React.ReactElement {
-  const yourBalance = getMarketWalletBalance(account, market)
+  const borrowBalance = getWalletAssetBalanceDisplay(account, market.symbol)
+  const collateralBalance = getWalletAssetBalanceDisplay(
+    account,
+    market.collateral
+  )
 
   return (
     <>
@@ -36,7 +40,11 @@ export function MarketDetailStep({
       <div className="grid grid-cols-2 gap-3">
         <MetricTile label="Supply APY" value={market.supplyApy} />
         <MetricTile label="Pair price" value={formatPairPrice(market)} />
-        <MetricTile label="Your balance" value={yourBalance} />
+        <MetricTile label={`${market.symbol} balance`} value={borrowBalance} />
+        <MetricTile
+          label={`${market.collateral} collateral`}
+          value={collateralBalance}
+        />
         <MetricTile label="Available" value={market.availableFunds} />
         <MetricTile label="Utilization" value={market.utilization} />
       </div>

@@ -1,9 +1,9 @@
 import type * as React from "react"
 
 import type { ConnectedAccount } from "@/app/_constants/account"
-import { getMarketPair, type MarketCardData } from "@/app/_constants/dashboard"
 import { DetailRow } from "@/components/atoms/detail-row"
 import { Card, CardPanel } from "@/components/ui/card"
+import { getMarketPair, type MarketCardData } from "@/features/markets"
 
 import type { BorrowFlowMetrics, BorrowFlowState } from "../../types"
 import { formatAssetAmount, formatUsd } from "../../utils"

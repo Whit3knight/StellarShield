@@ -6,8 +6,7 @@ import {
   getMarketPair,
   marketCards,
   type MarketCardData,
-} from "../_constants/dashboard"
-
+} from "@/features/markets"
 import { useWalletConnection } from "@/features/wallet/use-wallet-connection"
 import { getMarketWalletBalance } from "@/features/wallet/utils"
 

@@ -1,12 +1,10 @@
+export { assetPricesUsd, assets, marketCards } from "./data"
 export {
-  assetPricesUsd,
-  assets,
   formatZeroAssetBalance,
   getAsset,
   getAssetPriceUsd,
   getMarketPair,
-  marketCards,
-} from "@/features/markets"
+} from "./utils"
 export type {
   Asset,
   ChartPoint,
@@ -16,4 +14,4 @@ export type {
   MarketStatus,
   RiskProfile,
   SupportedAssetSymbol,
-} from "@/features/markets"
+} from "./types"
