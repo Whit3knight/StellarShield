@@ -1,9 +1,15 @@
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
 import type { BorrowEligibilityProof } from "@/features/proofs"
 
-import { borrowSession } from "./session-store"
+import { __TEST__, borrowSession } from "./session-store"
 import type { BorrowActivity } from "./types"
+
+beforeEach(() => {
+  window.localStorage.removeItem(__TEST__.STORAGE_KEY)
+  borrowSession.reset()
+  window.localStorage.removeItem(__TEST__.STORAGE_KEY)
+})
 
 function activity(seed: string): BorrowActivity {
   return {
@@ -91,6 +97,63 @@ describe("borrowSession", () => {
     borrowSession.appendActivity(same)
 
     expect(calls).toBe(0)
+
+    unsubscribe()
+  })
+
+  it("persists appended state to localStorage", () => {
+    borrowSession.appendActivity(activity("persisted"))
+
+    const raw = window.localStorage.getItem(__TEST__.STORAGE_KEY)
+
+    expect(raw).not.toBeNull()
+    if (raw) {
+      const parsed = JSON.parse(raw) as {
+        activities: BorrowActivity[]
+        proofs: BorrowEligibilityProof[]
+      }
+      expect(parsed.activities.map((item) => item.title)).toEqual([
+        "persisted",
+      ])
+    }
+  })
+
+  it("drops malformed JSON on external write and rehydrates empty", () => {
+    window.localStorage.setItem(__TEST__.STORAGE_KEY, "{{{ not json")
+
+    let calls = 0
+    const unsubscribe = borrowSession.subscribe(() => calls++)
+
+    window.dispatchEvent(new Event(__TEST__.CHANGE_EVENT))
+
+    expect(borrowSession.getSnapshot().activities).toHaveLength(0)
+    expect(borrowSession.getSnapshot().proofs).toHaveLength(0)
+    expect(window.localStorage.getItem(__TEST__.STORAGE_KEY)).toBeNull()
+    expect(calls).toBe(1)
+
+    unsubscribe()
+  })
+
+  it("re-reads from localStorage on external change event", () => {
+    borrowSession.appendActivity(activity("first"))
+
+    let calls = 0
+    const unsubscribe = borrowSession.subscribe(() => calls++)
+
+    const externalState = {
+      activities: [activity("external")],
+      proofs: [],
+    }
+    window.localStorage.setItem(
+      __TEST__.STORAGE_KEY,
+      JSON.stringify(externalState)
+    )
+    window.dispatchEvent(new Event(__TEST__.CHANGE_EVENT))
+
+    expect(
+      borrowSession.getSnapshot().activities.map((item) => item.title)
+    ).toEqual(["external"])
+    expect(calls).toBe(1)
 
     unsubscribe()
   })
