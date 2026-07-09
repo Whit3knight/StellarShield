@@ -7,7 +7,7 @@ import { INITIAL_FLOW_STATE } from "./constants"
 import { createUserPosition } from "./positions"
 import {
   createBorrowIntentFromFlow,
-  createBorrowProof,
+  generateProof,
 } from "./flow-actions"
 import {
   formatAssetAmount,
@@ -184,7 +184,7 @@ describe("borrow flow utilities", () => {
     })
   })
 
-  it("creates proof and position records from a valid quote", () => {
+  it("creates proof and position records from a valid quote", async () => {
     const metrics = getBorrowFlowMetrics(
       {
         collateralAmount: "1000",
@@ -194,7 +194,11 @@ describe("borrow flow utilities", () => {
       account
     )
 
-    expect(createBorrowProof({ account, market, metrics })).toMatchObject({
+    const proofResult = await generateProof({ account, market, metrics })
+    if (!proofResult.ok) throw new Error("proof failed")
+    const proof = proofResult.value
+
+    expect(proof).toMatchObject({
       publicInputs: {
         healthFactorMin: "1.25",
         market: "USDC/XLM",
@@ -202,11 +206,16 @@ describe("borrow flow utilities", () => {
       },
       status: "Verified",
     })
-    const proof = createBorrowProof({ account, market, metrics })
 
-    expect(
-      createBorrowIntentFromFlow({ account, metrics, proof })
-    ).toMatchObject({
+    const intentResult = await createBorrowIntentFromFlow({
+      account,
+      metrics,
+      proof,
+    })
+    if (!intentResult.ok || !intentResult.value) throw new Error("intent failed")
+    const intent = intentResult.value
+
+    expect(intent).toMatchObject({
       borrow: { amount: 50, symbol: "USDC", valueUsd: 50 },
       collateral: { amount: 1000, symbol: "XLM", valueUsd: 120 },
       market: "USDC/XLM",
@@ -216,7 +225,7 @@ describe("borrow flow utilities", () => {
       createUserPosition({
         flow: {
           ...INITIAL_FLOW_STATE,
-          borrowIntent: createBorrowIntentFromFlow({ account, metrics, proof }),
+          borrowIntent: intent,
         },
         market,
         metrics,

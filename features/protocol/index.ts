@@ -1,11 +1,4 @@
-export {
-  createBorrowIntent,
-  getNextSubmitStatus,
-  mockProtocolAdapter,
-  refreshTransaction,
-  simulateBorrowIntent,
-  submitTransaction,
-} from "./mock-adapter"
+export { mockProtocolAdapter } from "./mock-adapter"
 export type { AdapterError, AdapterResult } from "./result"
 export { err, formatAdapterError, ok } from "./result"
 export type { LifecycleState } from "./lifecycle"
@@ -22,13 +15,13 @@ export type {
   ProtocolAdapter,
   ProtocolNetwork,
   ProtocolOperation,
-  ProtocolSubmitResult,
-  ProtocolSimulationResult,
   ProtocolSimulationStatus,
   ProtocolSubmitStatus,
   ProtocolTransactionReceipt,
   ProtocolTransactionPayload,
-  RefreshTransactionParams,
+  SignedTransaction,
+  SignTransactionParams,
   SimulateBorrowParams,
   SubmitTransactionParams,
+  WaitForConfirmationParams,
 } from "./types"

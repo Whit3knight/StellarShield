@@ -1,23 +1,17 @@
 import { describe, expect, it } from "vitest"
 
-import {
-  createBorrowIntent,
-  getNextSubmitStatus,
-  refreshTransaction,
-  simulateBorrowIntent,
-  submitTransaction,
-} from "."
+import { mockProtocolAdapter } from "./mock-adapter"
 
-const intent = createBorrowIntent({
+const intentParams = {
   account: "GDU3Z6QKJ2KX3J64P5QBDW6M7Q9Q3EMB4L5PM7KXH4JR6Y9KQ",
   borrow: {
     amount: 50,
-    symbol: "USDC",
+    symbol: "USDC" as const,
     valueUsd: 50,
   },
   collateral: {
     amount: 1000,
-    symbol: "XLM",
+    symbol: "XLM" as const,
     valueUsd: 120,
   },
   expiresAt: "2026-07-09T00:10:00.000Z",
@@ -25,46 +19,46 @@ const intent = createBorrowIntent({
   market: "USDC/XLM",
   maxLtv: 0.625,
   proofId: "proof-abc",
-})
+}
+
+const fee = {
+  amount: 0.00003,
+  symbol: "XLM" as const,
+  valueUsd: 0.0000036,
+}
 
 describe("protocol mock adapter", () => {
-  it("creates deterministic borrow intents", () => {
-    expect(intent).toMatchObject({
-      account: "GDU3Z6QKJ2KX3J64P5QBDW6M7Q9Q3EMB4L5PM7KXH4JR6Y9KQ",
-      borrow: {
-        amount: 50,
-        symbol: "USDC",
-      },
-      collateral: {
-        amount: 1000,
-        symbol: "XLM",
-      },
-      id: "intent-0tt2nhm",
-      market: "USDC/XLM",
-      proofId: "proof-abc",
+  it("creates deterministic borrow intents", async () => {
+    const result = await mockProtocolAdapter.createBorrowIntent(intentParams)
+
+    expect(result).toEqual({
+      ok: true,
+      value: expect.objectContaining({
+        account: "GDU3Z6QKJ2KX3J64P5QBDW6M7Q9Q3EMB4L5PM7KXH4JR6Y9KQ",
+        id: "intent-0tt2nhm",
+        market: "USDC/XLM",
+        proofId: "proof-abc",
+      }),
     })
   })
 
-  it("simulates ready transaction payloads", () => {
-    expect(
-      simulateBorrowIntent({
-        fee: {
-          amount: 0.00003,
-          symbol: "XLM",
-          valueUsd: 0.0000036,
-        },
-        intent,
-        now: Date.UTC(2026, 6, 9),
-      })
-    ).toEqual({
-      error: null,
-      payload: {
+  it("simulates ready transaction payloads", async () => {
+    const intentResult = await mockProtocolAdapter.createBorrowIntent(
+      intentParams
+    )
+    if (!intentResult.ok) throw new Error("intent failed")
+
+    const result = await mockProtocolAdapter.simulateBorrow({
+      fee,
+      intent: intentResult.value,
+      now: Date.UTC(2026, 6, 9),
+    })
+
+    expect(result).toEqual({
+      ok: true,
+      value: {
         expiresAt: "2026-07-09T00:05:00.000Z",
-        fee: {
-          amount: 0.00003,
-          symbol: "XLM",
-          valueUsd: 0.0000036,
-        },
+        fee,
         id: "tx-1ycwvdi",
         intentId: "intent-0tt2nhm",
         memo: "StellarShield borrow USDC/XLM",
@@ -72,44 +66,61 @@ describe("protocol mock adapter", () => {
         operation: "borrow",
         status: "Ready",
       },
-      status: "Ready",
     })
   })
 
-  it("advances submit state one step at a time", () => {
-    expect(getNextSubmitStatus("Ready")).toBe("Ready")
-    expect(getNextSubmitStatus("Signing")).toBe("Submitted")
-    expect(getNextSubmitStatus("Submitted")).toBe("Confirmed")
-    expect(getNextSubmitStatus("Confirmed")).toBe("Confirmed")
-  })
+  it("signs, submits, then waits for confirmation", async () => {
+    const intentResult = await mockProtocolAdapter.createBorrowIntent(
+      intentParams
+    )
+    if (!intentResult.ok) throw new Error("intent failed")
 
-  it("submits and refreshes transactions into confirmed receipts", () => {
-    const simulation = simulateBorrowIntent({
-      fee: {
-        amount: 0.00003,
-        symbol: "XLM",
-        valueUsd: 0.0000036,
-      },
-      intent,
+    const simulation = await mockProtocolAdapter.simulateBorrow({
+      fee,
+      intent: intentResult.value,
       now: Date.UTC(2026, 6, 9),
     })
-    const signing = submitTransaction({ payload: simulation.payload })
-    const submitted = refreshTransaction({ payload: signing.payload })
-    const confirmed = refreshTransaction({
-      payload: submitted.payload,
+    if (!simulation.ok) throw new Error("sim failed")
+
+    const signed = await mockProtocolAdapter.signTransaction({
+      account: intentParams.account,
+      payload: simulation.value,
+    })
+    if (!signed.ok) throw new Error("sign failed")
+    expect(signed.value.payload.status).toBe("Signing")
+    expect(signed.value.signedXdr).toBe(`signed:${simulation.value.id}`)
+
+    const submitted = await mockProtocolAdapter.submitTransaction({
+      payload: signed.value.payload,
+      signedXdr: signed.value.signedXdr,
+    })
+    if (!submitted.ok) throw new Error("submit failed")
+    expect(submitted.value.status).toBe("Submitted")
+
+    const confirmed = await mockProtocolAdapter.waitForConfirmation({
+      payload: submitted.value,
       now: Date.UTC(2026, 6, 9, 0, 1),
     })
+    if (!confirmed.ok) throw new Error("confirm failed")
+    expect(confirmed.value).toEqual({
+      confirmedAt: "2026-07-09T00:01:00.000Z",
+      hash: "3f6d...91b2",
+      network: "stellar-testnet",
+    })
+  })
 
-    expect(signing.status).toBe("Signing")
-    expect(submitted.status).toBe("Submitted")
-    expect(confirmed).toMatchObject({
-      error: null,
-      receipt: {
-        confirmedAt: "2026-07-09T00:01:00.000Z",
-        hash: "3f6d...91b2",
-        network: "stellar-testnet",
-      },
-      status: "Confirmed",
+  it("returns Aborted when the signal is already aborted", async () => {
+    const controller = new AbortController()
+    controller.abort()
+
+    const result = await mockProtocolAdapter.createBorrowIntent(
+      intentParams,
+      controller.signal
+    )
+
+    expect(result).toEqual({
+      ok: false,
+      error: { tag: "Aborted", message: "Operation aborted." },
     })
   })
 })

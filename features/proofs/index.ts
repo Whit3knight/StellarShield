@@ -1,4 +1,4 @@
-export { generateBorrowProof, mockBorrowProverAdapter } from "./mock-prover"
+export { buildBorrowProof, mockBorrowProverAdapter } from "./mock-prover"
 export type {
   BorrowEligibilityProof,
   BorrowProofPublicInputs,

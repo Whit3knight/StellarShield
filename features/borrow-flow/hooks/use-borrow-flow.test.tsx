@@ -50,11 +50,7 @@ describe("useBorrowFlow", () => {
     })
 
     await act(async () => {
-      result.current.verifyEligibility()
-    })
-
-    await act(async () => {
-      vi.advanceTimersByTime(900)
+      await result.current.verifyEligibility()
     })
 
     expect(result.current.flow.verification.status).toBe("Verified")
@@ -64,24 +60,8 @@ describe("useBorrowFlow", () => {
     )
 
     await act(async () => {
-      result.current.submitTransaction()
+      await result.current.submitTransaction()
     })
-
-    expect(result.current.flow.transactionStatus).toBe("Signing")
-    expect(result.current.activity[0]).toMatchObject({
-      title: "Transaction submitted",
-      type: "transaction_submitted",
-    })
-
-    await act(async () => {
-      result.current.refreshTransaction()
-    })
-    expect(result.current.flow.transactionStatus).toBe("Submitted")
-
-    await act(async () => {
-      result.current.refreshTransaction()
-    })
-    await act(async () => undefined)
 
     expect(result.current.flow.transactionStatus).toBe("Confirmed")
     expect(result.current.position).toMatchObject({
@@ -91,10 +71,12 @@ describe("useBorrowFlow", () => {
       status: "Open",
       supplied: [{ amount: 3000, symbol: "XLM" }],
     })
-    expect(result.current.activity[0]).toMatchObject({
-      title: "Transaction confirmed",
-      type: "transaction_confirmed",
-    })
+    expect(result.current.activity.map((item) => item.type)).toEqual(
+      expect.arrayContaining([
+        "transaction_submitted",
+        "transaction_confirmed",
+      ])
+    )
   })
 
   it("marks verification failed and records a proof activity when the loan is invalid", async () => {
@@ -111,7 +93,7 @@ describe("useBorrowFlow", () => {
     expect(result.current.metrics.isLoanValid).toBe(false)
 
     await act(async () => {
-      result.current.verifyEligibility()
+      await result.current.verifyEligibility()
     })
 
     expect(result.current.flow.verification.status).toBe("Failed")
@@ -130,32 +112,32 @@ describe("useBorrowFlow", () => {
 
     await act(async () => undefined)
     await act(async () => {
-      result.current.submitTransaction()
+      await result.current.submitTransaction()
     })
 
     expect(result.current.flow.transactionStatus).toBe("Draft")
-    expect(result.current.activity.some((item) => item.type === "transaction_submitted")).toBe(
-      false
-    )
+    expect(
+      result.current.activity.some(
+        (item) => item.type === "transaction_submitted"
+      )
+    ).toBe(false)
   })
 
-  it("clears pending verification timers on unmount", async () => {
+  it("aborts pending verification on unmount", async () => {
     const { result, unmount } = renderHook(
       () => useBorrowFlow({ account, market: marketCards[0] }),
       { wrapper }
     )
 
     await act(async () => undefined)
-    act(() => {
-      result.current.verifyEligibility()
-    })
 
-    expect(result.current.flow.verification.status).toBe("Preparing")
+    let verifyPromise: Promise<void> | undefined
+    act(() => {
+      verifyPromise = result.current.verifyEligibility()
+    })
 
     unmount()
 
-    expect(() => {
-      vi.advanceTimersByTime(2000)
-    }).not.toThrow()
+    await expect(verifyPromise).resolves.not.toThrow()
   })
 })

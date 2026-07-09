@@ -1,3 +1,4 @@
+import { err, ok } from "@/features/protocol"
 import { createStableId } from "@/lib/stable-id"
 
 import type {
@@ -9,10 +10,16 @@ import type {
 const PROOF_TTL_MS = 10 * 60 * 1000
 
 export const mockBorrowProverAdapter: BorrowProverAdapter = {
-  generateBorrowProof,
+  generateBorrowProof: async (params, signal) => {
+    if (signal?.aborted) {
+      return err({ tag: "Aborted", message: "Proof generation aborted." })
+    }
+
+    return ok(buildBorrowProof(params))
+  },
 }
 
-export function generateBorrowProof({
+export function buildBorrowProof({
   account,
   borrow,
   collateral,
@@ -45,4 +52,3 @@ export function generateBorrowProof({
     status: isEligible ? "Verified" : "Failed",
   }
 }
-

@@ -1,3 +1,4 @@
+import type { AdapterResult } from "@/features/protocol"
 import type { AssetAmount } from "@/features/shared/asset-amount"
 
 export type BorrowProofStatus = "Failed" | "Verified"
@@ -30,6 +31,7 @@ export type GenerateBorrowProofParams = {
 
 export type BorrowProverAdapter = {
   generateBorrowProof: (
-    params: GenerateBorrowProofParams
-  ) => BorrowEligibilityProof
+    params: GenerateBorrowProofParams,
+    signal?: AbortSignal
+  ) => Promise<AdapterResult<BorrowEligibilityProof>>
 }

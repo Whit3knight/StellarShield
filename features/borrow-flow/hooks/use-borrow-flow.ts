@@ -2,7 +2,6 @@ import * as React from "react"
 
 import type { ConnectedAccount } from "@/app/_constants/account"
 import type { MarketCardData } from "@/features/markets"
-import type { ProtocolAdapter } from "@/features/protocol"
 import { useAdapters } from "@/features/shared/adapter-provider"
 
 import { INITIAL_FLOW_STATE } from "../constants"
@@ -26,7 +25,7 @@ import type {
 import {
   canSubmitTransaction,
   createBorrowIntentFromFlow,
-  createBorrowProof,
+  generateProof,
   simulateBorrowIntentFromFlow,
 } from "../flow-actions"
 import { getBorrowFlowMetrics } from "../quote"
@@ -38,8 +37,8 @@ type BorrowFlowControls = {
   position: UserPosition | null
   refreshTransaction: () => void
   setFieldValue: (field: BorrowField, value: string) => void
-  submitTransaction: () => void
-  verifyEligibility: () => void
+  submitTransaction: () => Promise<void>
+  verifyEligibility: () => Promise<void>
 }
 
 type UseBorrowFlowParams = {
@@ -55,9 +54,8 @@ export function useBorrowFlow({
   const [activity, setActivity] = React.useState<BorrowActivity[]>([])
   const [position, setPosition] = React.useState<UserPosition | null>(null)
   const { protocol: protocolAdapter, prover } = useAdapters()
-  const verificationTimerRefs = React.useRef<
-    Array<ReturnType<typeof setTimeout>>
-  >([])
+  const verifyAbortRef = React.useRef<AbortController | null>(null)
+  const submitAbortRef = React.useRef<AbortController | null>(null)
   const connectedWalletRef = React.useRef<string | null>(null)
   const confirmedPayloadRef = React.useRef<string | null>(null)
   const deferredCollateralAmount = React.useDeferredValue(flow.collateralAmount)
@@ -77,7 +75,8 @@ export function useBorrowFlow({
 
   React.useEffect(() => {
     return () => {
-      clearVerificationTimers(verificationTimerRefs.current)
+      verifyAbortRef.current?.abort()
+      submitAbortRef.current?.abort()
     }
   }, [])
 
@@ -126,6 +125,8 @@ export function useBorrowFlow({
 
   const setFieldValue = React.useCallback(
     (field: BorrowField, value: string) => {
+      verifyAbortRef.current?.abort()
+      submitAbortRef.current?.abort()
       setFlow((currentFlow) => ({
         ...currentFlow,
         [field]: value,
@@ -140,19 +141,46 @@ export function useBorrowFlow({
     []
   )
 
-  const verifyEligibility = React.useCallback(() => {
-    clearVerificationTimers(verificationTimerRefs.current)
+  const verifyEligibility = React.useCallback(async () => {
+    verifyAbortRef.current?.abort()
+    const controller = new AbortController()
+    verifyAbortRef.current = controller
+    const { signal } = controller
 
-    if (!metrics.isLoanValid) {
-      const proof = createBorrowProof({ account, market, metrics, prover })
+    setFlow((currentFlow) => ({
+      ...currentFlow,
+      borrowIntent: null,
+      simulationStatus: "Idle",
+      transactionPayload: null,
+      transactionReceipt: null,
+      transactionStatus: "Draft",
+      verification: {
+        status: metrics.isLoanValid ? "Preparing" : "Generating proof",
+      },
+    }))
 
+    const proofResult = await generateProof({
+      account,
+      market,
+      metrics,
+      prover,
+      signal,
+    })
+
+    if (signal.aborted) return
+    if (!proofResult.ok) {
       setFlow((currentFlow) => ({
         ...currentFlow,
-        borrowIntent: null,
-        simulationStatus: "Idle",
-        transactionPayload: null,
-        transactionReceipt: null,
-        transactionStatus: "Draft",
+        verification: { status: "Not started" },
+      }))
+      return
+    }
+
+    const proof = proofResult.value
+
+    if (!metrics.isLoanValid) {
+      setFlow((currentFlow) => ({
+        ...currentFlow,
         verification: { status: "Failed", proof },
       }))
       setActivity((currentActivity) =>
@@ -164,105 +192,155 @@ export function useBorrowFlow({
       return
     }
 
-    setFlow((currentFlow) => ({
-      ...currentFlow,
-      borrowIntent: null,
-      simulationStatus: "Idle",
-      transactionPayload: null,
-      transactionReceipt: null,
-      transactionStatus: "Draft",
-      verification: { status: "Preparing" },
-    }))
-
-    const preparingTimer = setTimeout(() => {
-      setFlow((currentFlow) => ({
-        ...currentFlow,
-        verification: { status: "Generating proof" },
-      }))
-    }, 350)
-    const verifiedTimer = setTimeout(() => {
-      const proof = createBorrowProof({ account, market, metrics, prover })
-      const intent = createBorrowIntentFromFlow({
-        account,
-        adapter: protocolAdapter,
-        metrics,
-        proof,
-      })
-      const simulation = simulateBorrowIntentFromFlow({
-        adapter: protocolAdapter,
-        intent,
-        metrics,
-      })
-      const nextVerification: Verification =
-        proof.status === "Verified"
-          ? { status: "Verified", proof }
-          : { status: "Failed", proof }
-
-      setFlow((currentFlow) => ({
-        ...currentFlow,
-        borrowIntent: intent,
-        simulationStatus: simulation.status,
-        transactionPayload: simulation.payload,
-        transactionReceipt: null,
-        transactionStatus: simulation.status === "Ready" ? "Ready" : "Draft",
-        verification: nextVerification,
-      }))
-      setActivity((currentActivity) => {
-        let nextActivity = appendBorrowActivity(
-          currentActivity,
-          createProofGeneratedActivity({ proof })
-        )
-
-        if (intent) {
-          nextActivity = appendBorrowActivity(
-            nextActivity,
-            createIntentPreparedActivity({ intent })
-          )
-        }
-
-        return nextActivity
-      })
-    }, 900)
-
-    verificationTimerRefs.current = [preparingTimer, verifiedTimer]
-  }, [account, market, metrics, protocolAdapter, prover])
-
-  const refreshTransaction = React.useCallback(() => {
-    setFlow((currentFlow) => ({
-      ...currentFlow,
-      ...getRefreshedTransactionState(currentFlow, protocolAdapter),
-    }))
-  }, [protocolAdapter])
-
-  const submitTransaction = React.useCallback(() => {
-    const canSubmit = canSubmitTransaction({
+    const intentResult = await createBorrowIntentFromFlow({
+      account,
+      adapter: protocolAdapter,
       metrics,
-      simulationStatus: flow.simulationStatus,
-      status: flow.verification.status,
-      transactionPayload: flow.transactionPayload,
+      proof,
+      signal,
     })
 
-    if (!canSubmit) {
+    if (signal.aborted) return
+    const intent = intentResult.ok ? intentResult.value : null
+    const simulationResult = intent
+      ? await simulateBorrowIntentFromFlow({
+          adapter: protocolAdapter,
+          intent,
+          metrics,
+          signal,
+        })
+      : null
+
+    if (signal.aborted) return
+
+    const payload = simulationResult?.ok ? simulationResult.value : null
+    const nextVerification: Verification =
+      proof.status === "Verified"
+        ? { status: "Verified", proof }
+        : { status: "Failed", proof }
+
+    setFlow((currentFlow) => ({
+      ...currentFlow,
+      borrowIntent: intent,
+      simulationStatus: payload ? "Ready" : "Idle",
+      transactionPayload: payload,
+      transactionReceipt: null,
+      transactionStatus: payload ? "Ready" : "Draft",
+      verification: nextVerification,
+    }))
+    setActivity((currentActivity) => {
+      let next = appendBorrowActivity(
+        currentActivity,
+        createProofGeneratedActivity({ proof })
+      )
+
+      if (intent) {
+        next = appendBorrowActivity(
+          next,
+          createIntentPreparedActivity({ intent })
+        )
+      }
+
+      return next
+    })
+  }, [account, market, metrics, protocolAdapter, prover])
+
+  const submitTransaction = React.useCallback(async () => {
+    if (
+      !account ||
+      !canSubmitTransaction({
+        metrics,
+        simulationStatus: flow.simulationStatus,
+        status: flow.verification.status,
+        transactionPayload: flow.transactionPayload,
+      })
+    ) {
       return
     }
 
-    const submitted = protocolAdapter.submitTransaction({
-      payload: flow.transactionPayload,
-    })
+    const payload = flow.transactionPayload
+    if (!payload) return
+
+    submitAbortRef.current?.abort()
+    const controller = new AbortController()
+    submitAbortRef.current = controller
+    const { signal } = controller
 
     setFlow((currentFlow) => ({
       ...currentFlow,
-      transactionPayload: submitted.payload,
-      transactionReceipt: submitted.receipt,
-      transactionStatus: submitted.status,
+      transactionStatus: "Signing",
+    }))
+
+    const signResult = await protocolAdapter.signTransaction(
+      { account: account.wallet.address, payload },
+      signal
+    )
+
+    if (signal.aborted) return
+    if (!signResult.ok) {
+      setFlow((currentFlow) => ({
+        ...currentFlow,
+        transactionStatus: "Failed",
+      }))
+      return
+    }
+
+    const submitResult = await protocolAdapter.submitTransaction(
+      {
+        payload: signResult.value.payload,
+        signedXdr: signResult.value.signedXdr,
+      },
+      signal
+    )
+
+    if (signal.aborted) return
+    if (!submitResult.ok) {
+      setFlow((currentFlow) => ({
+        ...currentFlow,
+        transactionStatus: "Failed",
+      }))
+      return
+    }
+
+    const submittedPayload = submitResult.value
+
+    setFlow((currentFlow) => ({
+      ...currentFlow,
+      transactionPayload: submittedPayload,
+      transactionStatus: "Submitted",
     }))
     setActivity((currentActivity) =>
       appendBorrowActivity(
         currentActivity,
-        createTransactionSubmittedActivity({ status: submitted.status })
+        createTransactionSubmittedActivity({ status: submittedPayload.status })
       )
     )
-  }, [flow, metrics, protocolAdapter])
+
+    const waitResult = await protocolAdapter.waitForConfirmation(
+      { payload: submittedPayload },
+      signal
+    )
+
+    if (signal.aborted) return
+    if (!waitResult.ok) {
+      setFlow((currentFlow) => ({
+        ...currentFlow,
+        transactionStatus: "Failed",
+      }))
+      return
+    }
+
+    setFlow((currentFlow) => ({
+      ...currentFlow,
+      transactionReceipt: waitResult.value,
+      transactionStatus: "Confirmed",
+    }))
+  }, [account, flow, metrics, protocolAdapter])
+
+  const refreshTransaction = React.useCallback(() => {
+    // Confirmation now flows automatically via waitForConfirmation.
+    // Kept for consumer API compatibility until the refresh button UX is retired.
+  }, [])
 
   return {
     activity,
@@ -273,40 +351,5 @@ export function useBorrowFlow({
     setFieldValue,
     submitTransaction,
     verifyEligibility,
-  }
-}
-
-function clearVerificationTimers(
-  timers: Array<ReturnType<typeof setTimeout>>
-): void {
-  timers.forEach((timer) => {
-    clearTimeout(timer)
-  })
-  timers.length = 0
-}
-
-function getRefreshedTransactionState(
-  flow: BorrowFlowState,
-  adapter: ProtocolAdapter
-): Pick<
-  BorrowFlowState,
-  "transactionPayload" | "transactionReceipt" | "transactionStatus"
-> {
-  if (flow.transactionStatus === "Draft") {
-    return {
-      transactionPayload: flow.transactionPayload,
-      transactionReceipt: flow.transactionReceipt,
-      transactionStatus: flow.transactionStatus,
-    }
-  }
-
-  const refreshed = adapter.refreshTransaction({
-    payload: flow.transactionPayload,
-  })
-
-  return {
-    transactionPayload: refreshed.payload,
-    transactionReceipt: refreshed.receipt ?? flow.transactionReceipt,
-    transactionStatus: refreshed.status,
   }
 }

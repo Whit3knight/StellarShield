@@ -1,5 +1,7 @@
 import type { AssetAmount } from "@/features/shared/asset-amount"
 
+import type { AdapterResult } from "./result"
+
 export type ProtocolNetwork = "stellar-testnet"
 
 export type ProtocolOperation = "borrow"
@@ -55,32 +57,50 @@ export type PrepareTransactionParams = {
 
 export type SimulateBorrowParams = {
   fee: AssetAmount
-  intent: BorrowIntent | null
+  intent: BorrowIntent
   now?: number
+}
+
+export type SignTransactionParams = {
+  account: string
+  payload: ProtocolTransactionPayload
+}
+
+export type SignedTransaction = {
+  payload: ProtocolTransactionPayload
+  signedXdr: string
 }
 
 export type SubmitTransactionParams = {
-  payload: ProtocolTransactionPayload | null
+  payload: ProtocolTransactionPayload
+  signedXdr: string
 }
 
-export type RefreshTransactionParams = {
-  payload: ProtocolTransactionPayload | null
+export type WaitForConfirmationParams = {
+  payload: ProtocolTransactionPayload
   now?: number
-}
-
-export type ProtocolSubmitResult = {
-  error: string | null
-  payload: ProtocolTransactionPayload | null
-  receipt: ProtocolTransactionReceipt | null
-  status: ProtocolSubmitStatus
+  timeoutMs?: number
 }
 
 export type ProtocolAdapter = {
-  createBorrowIntent: (params: CreateBorrowIntentParams) => BorrowIntent
-  prepareTransaction: (
-    params: PrepareTransactionParams
-  ) => ProtocolTransactionPayload
-  refreshTransaction: (params: RefreshTransactionParams) => ProtocolSubmitResult
-  simulateBorrow: (params: SimulateBorrowParams) => ProtocolSimulationResult
-  submitTransaction: (params: SubmitTransactionParams) => ProtocolSubmitResult
+  createBorrowIntent: (
+    params: CreateBorrowIntentParams,
+    signal?: AbortSignal
+  ) => Promise<AdapterResult<BorrowIntent>>
+  simulateBorrow: (
+    params: SimulateBorrowParams,
+    signal?: AbortSignal
+  ) => Promise<AdapterResult<ProtocolTransactionPayload>>
+  signTransaction: (
+    params: SignTransactionParams,
+    signal?: AbortSignal
+  ) => Promise<AdapterResult<SignedTransaction>>
+  submitTransaction: (
+    params: SubmitTransactionParams,
+    signal?: AbortSignal
+  ) => Promise<AdapterResult<ProtocolTransactionPayload>>
+  waitForConfirmation: (
+    params: WaitForConfirmationParams,
+    signal?: AbortSignal
+  ) => Promise<AdapterResult<ProtocolTransactionReceipt>>
 }
