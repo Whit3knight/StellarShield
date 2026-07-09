@@ -1,15 +1,9 @@
 import {
   ActivityIcon,
-  CoinsIcon,
   FileCheckIcon,
-  HashIcon,
-  HeartPulseIcon,
   LandmarkIcon,
-  NetworkIcon,
   ReceiptTextIcon,
   RefreshCwIcon,
-  RouteIcon,
-  SendIcon,
   WalletIcon,
 } from "lucide-react"
 import type * as React from "react"
@@ -18,9 +12,9 @@ import type { ConnectedAccount } from "@/app/_constants/account"
 import { Button } from "@/components/ui/button"
 import type { MarketCardData } from "@/features/markets"
 
-import { SummaryRow, SummarySection, TransferRoute } from "../summary-list"
 import type { BorrowFlowMetrics, BorrowFlowState } from "../../types"
 import { createTransactionPreview } from "../../utils"
+import { TimelineItem, TimelineSection } from "../flow-timeline"
 
 type TransactionStepProps = {
   account: ConnectedAccount | null
@@ -30,38 +24,27 @@ type TransactionStepProps = {
   onRefreshTransaction: () => void
 }
 
-function TransactionStatusRow({
+function RefreshTransactionButton({
   showRefresh,
   onRefreshTransaction,
-  status,
 }: {
   showRefresh: boolean
   onRefreshTransaction: () => void
-  status: string
-}): React.ReactElement {
+}): React.ReactElement | null {
+  if (!showRefresh) {
+    return null
+  }
+
   return (
-    <div className="grid grid-cols-[2rem_minmax(0,1fr)] gap-3 px-4 py-3 text-sm">
-      <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md bg-muted/60 text-muted-foreground">
-        <ActivityIcon aria-hidden="true" className="size-4" />
-      </div>
-      <div className="flex min-w-0 items-center justify-between gap-4">
-        <span className="text-muted-foreground">Transaction status</span>
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="truncate font-medium">{status}</span>
-          {showRefresh ? (
-            <Button
-              aria-label="Refresh transaction status"
-              onClick={onRefreshTransaction}
-              size="icon-sm"
-              type="button"
-              variant="ghost"
-            >
-              <RefreshCwIcon aria-hidden="true" />
-            </Button>
-          ) : null}
-        </div>
-      </div>
-    </div>
+    <Button
+      aria-label="Refresh transaction status"
+      onClick={onRefreshTransaction}
+      size="icon-sm"
+      type="button"
+      variant="ghost"
+    >
+      <RefreshCwIcon aria-hidden="true" />
+    </Button>
   )
 }
 
@@ -78,119 +61,151 @@ export function TransactionStep({
   const preview = createTransactionPreview({ account, flow, market, metrics })
   const marketVault = `${market.collateral} vault`
   const marketPool = `${market.symbol} pool`
+  const signStatus = getTransactionTimelineStatus(flow.transactionStatus)
 
   return (
-    <>
-      <SummarySection
-        description="What leaves the wallet and what comes back after signing."
-        icon={SendIcon}
-        title="Asset movement"
-      >
-        <TransferRoute
-          amount={preview.collateral}
-          description="Collateral is locked before the borrow draw is released."
-          from={preview.account}
-          icon={WalletIcon}
-          label="Send collateral"
-          privateFrom
-          to={marketVault}
-        />
-        <TransferRoute
-          amount={preview.loan}
-          description="Borrowed liquidity is sent back to the connected wallet."
-          from={marketPool}
-          icon={LandmarkIcon}
-          label="Receive borrow"
-          privateTo
-          to={preview.account}
-        />
-      </SummarySection>
-
-      <SummarySection
-        description="Deterministic payload prepared from the verified borrow intent."
-        icon={RouteIcon}
-        title="Protocol payload"
-      >
-        <SummaryRow icon={LandmarkIcon} label="Market" value={preview.market} />
-        <SummaryRow
-          icon={ActivityIcon}
-          label="Simulation"
-          value={preview.simulation}
-        />
-        <SummaryRow
-          icon={HashIcon}
-          label="Intent"
-          privateValue
-          value={preview.intentId}
-        />
-        <SummaryRow
-          icon={FileCheckIcon}
-          label="Proof"
-          privateValue
-          value={preview.proof}
-        />
-        <SummaryRow
-          icon={NetworkIcon}
-          label="Network"
-          value={preview.network}
-        />
-        <SummaryRow
-          icon={RouteIcon}
-          label="Operation"
-          value={preview.operation}
-        />
-        <SummaryRow
-          icon={HashIcon}
-          label="Memo"
-          multiline
-          value={preview.memo}
-        />
-      </SummarySection>
-
-      <SummarySection
-        description="Risk, fee, and settlement status before wallet signature completes."
-        icon={HeartPulseIcon}
-        title="Settlement"
-      >
-        <TransactionStatusRow
-          onRefreshTransaction={onRefreshTransaction}
-          showRefresh={showRefresh}
-          status={preview.status}
-        />
-        <SummaryRow
-          icon={CoinsIcon}
-          label="Loan value"
-          value={preview.loanValue}
-        />
-        <SummaryRow
-          icon={CoinsIcon}
-          label="Collateral value"
-          value={preview.collateralValue}
-        />
-        <SummaryRow
-          icon={ActivityIcon}
-          label="Borrow APR"
-          value={preview.borrowApr}
-        />
-        <SummaryRow
-          icon={HeartPulseIcon}
-          label="Health factor"
-          value={preview.healthFactor}
-        />
-        <SummaryRow
-          icon={CoinsIcon}
-          label="Estimated fee"
-          value={preview.estimatedFee}
-        />
-        {preview.receipt ? (
-          <SummaryRow
-            icon={ReceiptTextIcon}
-            label="Receipt"
-            privateValue
-            value={preview.receipt}
+    <TimelineSection>
+      <TimelineItem
+        amount={preview.collateral}
+        from={preview.account}
+        icon={WalletIcon}
+        info="Collateral is locked before borrowed liquidity is released."
+        label="Lock collateral"
+        meta={[
+          {
+            label: "Value",
+            value: preview.collateralValue,
+          },
+          {
+            label: "Market",
+            value: preview.market,
+          },
+        ]}
+        privateFrom
+        status="done"
+        to={marketVault}
+      />
+      <TimelineItem
+        amount={preview.loan}
+        from={marketPool}
+        icon={LandmarkIcon}
+        info="Borrowed liquidity is sent back to the connected wallet after the collateral leg is accepted."
+        label="Draw borrow"
+        meta={[
+          {
+            label: "Value",
+            value: preview.loanValue,
+          },
+          {
+            label: "Borrow APR",
+            value: preview.borrowApr,
+          },
+        ]}
+        privateTo
+        status="done"
+        to={preview.account}
+      />
+      <TimelineItem
+        amount={preview.proof}
+        from="Proof"
+        icon={FileCheckIcon}
+        info="The transaction includes the verified proof and borrow intent instead of raw private wallet data."
+        label="Attach proof"
+        meta={[
+          {
+            label: "Intent",
+            privateValue: Boolean(flow.borrowIntent),
+            value: preview.intentId,
+          },
+          {
+            label: "Simulation",
+            value: preview.simulation,
+          },
+          {
+            label: "Operation",
+            value: preview.operation,
+          },
+          {
+            label: "Memo",
+            info: "Memo is deterministic and used to bind the signed transaction to this borrow intent.",
+            value: preview.memo,
+            wide: true,
+          },
+        ]}
+        privateAmount={Boolean(flow.proof)}
+        privateTo
+        status={flow.proof && flow.borrowIntent ? "done" : "pending"}
+        to="Borrow intent"
+      />
+      <TimelineItem
+        action={
+          <RefreshTransactionButton
+            onRefreshTransaction={onRefreshTransaction}
+            showRefresh={showRefresh}
           />
-        ) : null}
-      </SummarySection>
-    </>
+        }
+        amount={preview.status}
+        from={preview.account}
+        icon={ActivityIcon}
+        info="Wallet signature starts settlement. Refresh is only needed while the request is signing or submitted."
+        label="Sign transaction"
+        meta={[
+          {
+            label: "Estimated fee",
+            value: preview.estimatedFee,
+          },
+          {
+            label: "Health factor",
+            value: preview.healthFactor,
+          },
+          {
+            label: "Network",
+            value: preview.network,
+          },
+        ]}
+        privateFrom
+        status={signStatus}
+        to="Stellar wallet"
+      />
+      <TimelineItem
+        amount={preview.receipt ?? "After confirmation"}
+        from="Stellar ledger"
+        icon={ReceiptTextIcon}
+        info="Confirmed transactions expose a receipt hash for lookup while wallet details can stay masked."
+        isLast
+        label="Receipt"
+        meta={[
+          {
+            label: "Status",
+            value: preview.status,
+          },
+          {
+            label: "Loan health",
+            value: preview.loanHealth,
+          },
+        ]}
+        privateAmount={Boolean(preview.receipt)}
+        status={preview.receipt ? "done" : "pending"}
+        to="Wallet"
+      />
+    </TimelineSection>
   )
+}
+
+function getTransactionTimelineStatus(
+  status: BorrowFlowState["transactionStatus"]
+): "active" | "done" | "failed" | "pending" {
+  if (status === "Confirmed") {
+    return "done"
+  }
+
+  if (status === "Failed") {
+    return "failed"
+  }
+
+  if (status === "Ready" || status === "Signing" || status === "Submitted") {
+    return "active"
+  }
+
+  return "pending"
 }
