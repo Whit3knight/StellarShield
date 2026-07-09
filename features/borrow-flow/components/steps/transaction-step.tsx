@@ -6,7 +6,7 @@ import {
   RefreshCwIcon,
   WalletIcon,
 } from "lucide-react"
-import type * as React from "react"
+import * as React from "react"
 
 import type { ConnectedAccount } from "@/app/_constants/account"
 import { MetricTile } from "@/components/atoms/metric-tile"
@@ -71,7 +71,10 @@ export function TransactionStep({
   const showRefresh =
     flow.transactionStatus === "Signing" ||
     flow.transactionStatus === "Submitted"
-  const preview = createTransactionPreview({ account, flow, market, metrics })
+  const preview = React.useMemo(
+    () => createTransactionPreview({ account, flow, market, metrics }),
+    [account, flow, market, metrics]
+  )
   const marketVault = `${market.collateral} vault`
   const marketPool = `${market.symbol} pool`
   const signStatus = getTransactionTimelineStatus(flow.transactionStatus)

@@ -61,8 +61,16 @@ export function useBorrowFlow({
   const connectedWalletRef = React.useRef<string | null>(null)
   const confirmedPayloadRef = React.useRef<string | null>(null)
   const metrics = React.useMemo(
-    () => getBorrowFlowMetrics(flow, market, account),
-    [account, flow, market]
+    () =>
+      getBorrowFlowMetrics(
+        {
+          collateralAmount: flow.collateralAmount,
+          loanAmount: flow.loanAmount,
+        },
+        market,
+        account
+      ),
+    [account, flow.collateralAmount, flow.loanAmount, market]
   )
 
   React.useEffect(() => {

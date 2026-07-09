@@ -1,9 +1,3 @@
-import {
-  getNetworkDetails,
-  isConnected,
-  requestAccess,
-} from "@stellar/freighter-api"
-
 import type { ConnectedAccount, WalletProvider } from "@/app/_constants/account"
 import type { ModuleInterface } from "@creit-tech/stellar-wallets-kit"
 
@@ -117,6 +111,10 @@ async function connectFreighter(
       "Freighter can only be connected from a browser."
     )
   }
+
+  const { getNetworkDetails, isConnected, requestAccess } = await import(
+    "@stellar/freighter-api"
+  )
 
   const connection = await isConnected()
   assertFreighterResult(connection)
