@@ -1,6 +1,6 @@
 "use client"
 
-import { SearchIcon } from "lucide-react"
+import { ArrowUpRightIcon, LandmarkIcon, SearchIcon } from "lucide-react"
 import * as React from "react"
 
 import {
@@ -16,17 +16,31 @@ import {
   CommandList,
   CommandPanel,
   CommandSeparator,
-  CommandShortcut,
 } from "@/components/ui/command"
-
 import {
-  commandActionGroups,
-  type CommandAction,
-  type CommandActionGroup,
-} from "../_constants/command-actions"
+  getMarketPair,
+  getMarketSearchValue,
+  marketCards,
+  type MarketCardData,
+} from "@/features/markets"
+
+import { useMarketSelection } from "../_hooks/use-market-selection"
+
+type CommandActionItem = {
+  label: string
+  onSelect: () => void
+  value: string
+}
+
+type CommandActionGroup = {
+  items: CommandActionItem[]
+  key: string
+  label: string
+}
 
 export function CommandSearch(): React.ReactElement {
   const [open, setOpen] = React.useState(false)
+  const { selectMarket } = useMarketSelection()
 
   React.useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -43,9 +57,36 @@ export function CommandSearch(): React.ReactElement {
     }
   }, [])
 
-  function handleItemClick() {
-    setOpen(false)
-  }
+  const groups = React.useMemo<CommandActionGroup[]>(() => {
+    const marketItems = marketCards.map<CommandActionItem>((market) => ({
+      label: getMarketPair(market),
+      onSelect: () => {
+        selectMarket(market)
+        setOpen(false)
+      },
+      value: getMarketSearchValue(market),
+    }))
+
+    const navigationItems: CommandActionItem[] = [
+      {
+        label: "Go to markets",
+        onSelect: () => {
+          if (typeof window !== "undefined") {
+            document
+              .getElementById("markets")
+              ?.scrollIntoView({ behavior: "smooth" })
+          }
+          setOpen(false)
+        },
+        value: "go to markets",
+      },
+    ]
+
+    return [
+      { items: marketItems, key: "markets", label: "Markets" },
+      { items: navigationItems, key: "navigation", label: "Navigation" },
+    ]
+  }, [selectMarket])
 
   return (
     <CommandDialog onOpenChange={setOpen} open={open}>
@@ -68,35 +109,46 @@ export function CommandSearch(): React.ReactElement {
         </button>
       </div>
       <CommandDialogPopup>
-        <Command items={commandActionGroups}>
-          <CommandInput placeholder="Search pools, positions, or proofs..." />
+        <Command items={groups}>
+          <CommandInput placeholder="Search markets by pair or asset name..." />
           <CommandPanel>
-            <CommandEmpty>No results found.</CommandEmpty>
+            <CommandEmpty>No markets match.</CommandEmpty>
             <CommandList>
               {(group: CommandActionGroup) => (
-                <React.Fragment key={group.value}>
+                <React.Fragment key={group.key}>
                   <CommandGroup items={group.items}>
-                    <CommandGroupLabel>{group.value}</CommandGroupLabel>
+                    <CommandGroupLabel>{group.label}</CommandGroupLabel>
                     <CommandCollection>
-                      {(item: CommandAction) => {
-                        const Icon = item.icon
+                      {(item: CommandActionItem) => {
+                        const isMarket = group.key === "markets"
+                        const market = isMarket
+                          ? marketCards.find(
+                              (candidate) =>
+                                getMarketPair(candidate) === item.label
+                            )
+                          : undefined
 
                         return (
                           <CommandItem
                             className="gap-2"
-                            key={item.value}
-                            onClick={handleItemClick}
+                            key={item.label}
+                            onClick={item.onSelect}
                             value={item.value}
                           >
-                            <Icon
-                              aria-hidden="true"
-                              className="size-4 opacity-60"
-                            />
+                            {isMarket ? (
+                              <LandmarkIcon
+                                aria-hidden="true"
+                                className="size-4 opacity-60"
+                              />
+                            ) : (
+                              <ArrowUpRightIcon
+                                aria-hidden="true"
+                                className="size-4 opacity-60"
+                              />
+                            )}
                             <span className="flex-1">{item.label}</span>
-                            {item.shortcut ? (
-                              <CommandShortcut className="justify-center">
-                                {item.shortcut}
-                              </CommandShortcut>
+                            {market ? (
+                              <MarketBadges market={market} />
                             ) : null}
                           </CommandItem>
                         )
@@ -111,5 +163,20 @@ export function CommandSearch(): React.ReactElement {
         </Command>
       </CommandDialogPopup>
     </CommandDialog>
+  )
+}
+
+function MarketBadges({
+  market,
+}: {
+  market: MarketCardData
+}): React.ReactElement {
+  return (
+    <span className="ms-auto flex items-center gap-1.5 text-xs text-muted-foreground">
+      <span className="rounded-md border px-1.5 py-0.5">{market.risk}</span>
+      <span className="rounded-md border px-1.5 py-0.5">
+        APR {market.borrowApr}
+      </span>
+    </span>
   )
 }

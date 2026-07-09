@@ -4,6 +4,7 @@ export {
   getAsset,
   getAssetPriceUsd,
   getMarketPair,
+  getMarketSearchValue,
 } from "./utils"
 export type {
   Asset,

@@ -18,3 +18,13 @@ export function getAssetPriceUsd(symbol: SupportedAssetSymbol): number {
 export function formatZeroAssetBalance(symbol: SupportedAssetSymbol): string {
   return `0.00 ${symbol}`
 }
+
+export function getMarketSearchValue(
+  market: Pick<Market, "collateral" | "symbol">
+): string {
+  const pair = getMarketPair(market)
+  const symbolName = assets[market.symbol].name
+  const collateralName = assets[market.collateral].name
+
+  return `${pair} ${symbolName} ${collateralName}`.toLowerCase()
+}

@@ -1,22 +1,18 @@
 "use client"
 
-import * as React from "react"
+import type * as React from "react"
 
-import {
-  getMarketPair,
-  marketCards,
-  type MarketCardData,
-} from "@/features/markets"
+import { getMarketPair, marketCards } from "@/features/markets"
 import { useWalletConnection } from "@/features/wallet/use-wallet-connection"
 import { getMarketWalletBalance } from "@/features/wallet/utils"
 
+import { useMarketSelection } from "../_hooks/use-market-selection"
 import { MarketCard } from "./market-card"
 import { MarketStackPanel } from "./market-stack-panel"
 
 export function MarketWorkspace(): React.ReactElement {
   const { account } = useWalletConnection()
-  const [selectedMarket, setSelectedMarket] =
-    React.useState<MarketCardData | null>(null)
+  const { clearMarket, selectMarket, selectedMarket } = useMarketSelection()
   const selectedMarketPair = selectedMarket
     ? getMarketPair(selectedMarket)
     : null
@@ -55,7 +51,7 @@ export function MarketWorkspace(): React.ReactElement {
                 key={marketPair}
                 market={market}
                 onViewMarket={() => {
-                  setSelectedMarket(market)
+                  selectMarket(market)
                 }}
                 yourBalance={getMarketWalletBalance(account, market)}
               />
@@ -69,9 +65,7 @@ export function MarketWorkspace(): React.ReactElement {
           account={account}
           key={selectedMarketPair}
           market={selectedMarket}
-          onClose={() => {
-            setSelectedMarket(null)
-          }}
+          onClose={clearMarket}
         />
       ) : null}
     </div>

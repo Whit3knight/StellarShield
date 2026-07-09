@@ -1,3 +1,5 @@
+import * as React from "react"
+
 import { BrandLogo } from "@/components/brand-logo"
 
 import { CommandSearch } from "./command-search"
@@ -20,7 +22,9 @@ export function AppNavbar(): React.ReactElement {
         </div>
 
         <div className="grow">
-          <CommandSearch />
+          <React.Suspense fallback={null}>
+            <CommandSearch />
+          </React.Suspense>
         </div>
 
         <div className="flex flex-1 items-center justify-end gap-2">
