@@ -36,7 +36,6 @@ type BorrowFlowControls = {
   flow: BorrowFlowState
   metrics: BorrowFlowMetrics
   position: UserPosition | null
-  refreshTransaction: () => void
   setFieldValue: (field: BorrowField, value: string) => void
   submitTransaction: () => Promise<void>
   verifyEligibility: () => Promise<void>
@@ -271,7 +270,7 @@ export function useBorrowFlow({
           status: "Failed",
           intent,
           payload,
-          error: signResult.error.tag,
+          error: signResult.error,
         },
       }))
       return
@@ -293,7 +292,7 @@ export function useBorrowFlow({
           status: "Failed",
           intent,
           payload: signResult.value.payload,
-          error: submitResult.error.tag,
+          error: submitResult.error,
         },
       }))
       return
@@ -325,7 +324,7 @@ export function useBorrowFlow({
           status: "Failed",
           intent,
           payload: submittedPayload,
-          error: waitResult.error.tag,
+          error: waitResult.error,
         },
       }))
       return
@@ -342,17 +341,11 @@ export function useBorrowFlow({
     }))
   }, [account, flow, metrics, protocolAdapter])
 
-  const refreshTransaction = React.useCallback(() => {
-    // Confirmation now flows automatically via waitForConfirmation.
-    // Kept for consumer API compatibility until the refresh button UX is retired.
-  }, [])
-
   return {
     activity,
     flow,
     metrics,
     position,
-    refreshTransaction,
     setFieldValue,
     submitTransaction,
     verifyEligibility,

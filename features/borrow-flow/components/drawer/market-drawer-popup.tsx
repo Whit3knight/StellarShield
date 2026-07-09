@@ -27,7 +27,6 @@ export function MarketDrawerPopup({
   market,
   metrics,
   onFieldChange,
-  onRefreshTransaction,
   position,
   step,
 }: MarketDrawerPopupProps): React.ReactElement {
@@ -55,7 +54,6 @@ export function MarketDrawerPopup({
           market={market}
           metrics={metrics}
           onFieldChange={onFieldChange}
-          onRefreshTransaction={onRefreshTransaction}
           position={position}
           step={step}
         />

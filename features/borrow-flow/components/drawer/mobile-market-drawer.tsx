@@ -30,7 +30,6 @@ function MobileTransactionDrawer({
   metrics,
   onClose,
   onFieldChange,
-  onRefreshTransaction,
   onSubmit,
   position,
 }: Omit<BorrowFlowDrawerProps, "onVerify">): React.ReactElement {
@@ -46,7 +45,6 @@ function MobileTransactionDrawer({
         market={market}
         metrics={metrics}
         onFieldChange={onFieldChange}
-        onRefreshTransaction={onRefreshTransaction}
         position={position}
         step="transaction"
       >
@@ -71,7 +69,6 @@ function MobileVerificationDrawer({
   metrics,
   onClose,
   onFieldChange,
-  onRefreshTransaction,
   onSubmit,
   onVerify,
   position,
@@ -98,7 +95,6 @@ function MobileVerificationDrawer({
         market={market}
         metrics={metrics}
         onFieldChange={onFieldChange}
-        onRefreshTransaction={onRefreshTransaction}
         position={position}
         step="verification"
       >
@@ -113,7 +109,6 @@ function MobileVerificationDrawer({
               metrics={metrics}
               onClose={onClose}
               onFieldChange={onFieldChange}
-              onRefreshTransaction={onRefreshTransaction}
               onSubmit={onSubmit}
               position={position}
             />
@@ -170,7 +165,6 @@ export function MobileMarketDrawer({
     flow,
     metrics,
     position,
-    refreshTransaction,
     setFieldValue,
     submitTransaction,
     verifyEligibility,
@@ -184,7 +178,6 @@ export function MobileMarketDrawer({
     metrics,
     onClose,
     onFieldChange: setFieldValue,
-    onRefreshTransaction: refreshTransaction,
     onSubmit: submitTransaction,
     onVerify: verifyEligibility,
     position,

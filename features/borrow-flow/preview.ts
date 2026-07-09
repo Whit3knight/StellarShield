@@ -1,5 +1,6 @@
 import type { ConnectedAccount } from "@/app/_constants/account"
 import type { MarketCardData } from "@/features/markets"
+import { formatAdapterError } from "@/features/protocol"
 
 import { formatAssetAmount, formatUsd } from "./format"
 import { getIntent, getPayload, getProof, getReceipt } from "./types"
@@ -24,6 +25,10 @@ export function createTransactionPreview({
   const intent = getIntent(flow.transaction)
   const payload = getPayload(flow.transaction)
   const receipt = getReceipt(flow.transaction)
+  const error =
+    flow.transaction.status === "Failed" && flow.transaction.error
+      ? formatAdapterError(flow.transaction.error)
+      : null
   const healthFactor =
     quote.healthFactor === null ? "N/A" : quote.healthFactor.toFixed(2)
 
@@ -35,6 +40,7 @@ export function createTransactionPreview({
       quote.collateral.symbol
     ),
     collateralValue: formatUsd(quote.collateral.valueUsd),
+    error,
     estimatedFee: formatAssetAmount(
       quote.estimatedFee.amount,
       quote.estimatedFee.symbol

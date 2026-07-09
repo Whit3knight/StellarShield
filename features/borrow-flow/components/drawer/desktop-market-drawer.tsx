@@ -25,7 +25,6 @@ export function DesktopMarketDrawer({
     flow,
     metrics,
     position,
-    refreshTransaction,
     setFieldValue,
     submitTransaction,
     verifyEligibility,
@@ -45,7 +44,6 @@ export function DesktopMarketDrawer({
             metrics={metrics}
             onClose={onClose}
             onFieldChange={setFieldValue}
-            onRefreshTransaction={refreshTransaction}
             onSubmit={submitTransaction}
             onStepChange={setActiveStep}
             onVerify={verifyEligibility}

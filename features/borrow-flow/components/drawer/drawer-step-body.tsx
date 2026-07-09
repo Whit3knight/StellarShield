@@ -18,7 +18,6 @@ export function DrawerStepBody({
   market,
   metrics,
   onFieldChange,
-  onRefreshTransaction,
   position,
   step,
 }: DrawerStepBodyProps): React.ReactElement {
@@ -53,7 +52,6 @@ export function DrawerStepBody({
         flow={flow}
         market={market}
         metrics={metrics}
-        onRefreshTransaction={onRefreshTransaction}
         position={position}
       />
     )

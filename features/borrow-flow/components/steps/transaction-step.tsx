@@ -3,7 +3,6 @@ import {
   FileCheckIcon,
   LandmarkIcon,
   ReceiptTextIcon,
-  RefreshCwIcon,
   WalletIcon,
 } from "lucide-react"
 import * as React from "react"
@@ -11,7 +10,6 @@ import * as React from "react"
 import type { ConnectedAccount } from "@/app/_constants/account"
 import { MetricTile } from "@/components/atoms/metric-tile"
 import { PrivateValue } from "@/components/atoms/private-value"
-import { Button } from "@/components/ui/button"
 import type { MarketCardData } from "@/features/markets"
 
 import type {
@@ -31,32 +29,7 @@ type TransactionStepProps = {
   flow: BorrowFlowState
   market: MarketCardData
   metrics: BorrowFlowMetrics
-  onRefreshTransaction: () => void
   position: UserPosition | null
-}
-
-function RefreshTransactionButton({
-  showRefresh,
-  onRefreshTransaction,
-}: {
-  showRefresh: boolean
-  onRefreshTransaction: () => void
-}): React.ReactElement | null {
-  if (!showRefresh) {
-    return null
-  }
-
-  return (
-    <Button
-      aria-label="Refresh transaction status"
-      onClick={onRefreshTransaction}
-      size="icon-sm"
-      type="button"
-      variant="ghost"
-    >
-      <RefreshCwIcon aria-hidden="true" />
-    </Button>
-  )
 }
 
 export function TransactionStep({
@@ -65,12 +38,8 @@ export function TransactionStep({
   flow,
   market,
   metrics,
-  onRefreshTransaction,
   position,
 }: TransactionStepProps): React.ReactElement {
-  const showRefresh =
-    flow.transaction.status === "Signing" ||
-    flow.transaction.status === "Submitted"
   const preview = React.useMemo(
     () => createTransactionPreview({ account, flow, market, metrics }),
     [account, flow, market, metrics]
@@ -153,16 +122,10 @@ export function TransactionStep({
           to="Borrow intent"
         />
         <TimelineItem
-          action={
-            <RefreshTransactionButton
-              onRefreshTransaction={onRefreshTransaction}
-              showRefresh={showRefresh}
-            />
-          }
           amount={preview.status}
           from={preview.account}
           icon={ActivityIcon}
-          info="Wallet signature starts settlement. Refresh is only needed while the request is signing or submitted."
+          info="Wallet signature starts settlement; confirmation streams in automatically."
           label="Sign transaction"
           meta={[
             {
@@ -177,6 +140,15 @@ export function TransactionStep({
               label: "Network",
               value: preview.network,
             },
+            ...(preview.error
+              ? [
+                  {
+                    label: "Error",
+                    value: preview.error,
+                    wide: true,
+                  },
+                ]
+              : []),
           ]}
           privateFrom
           status={signStatus}

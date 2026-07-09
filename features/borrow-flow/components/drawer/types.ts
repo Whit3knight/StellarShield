@@ -16,7 +16,6 @@ export type BorrowFlowStepProps = {
   market: MarketCardData
   metrics: BorrowFlowMetrics
   onFieldChange: (field: BorrowField, value: string) => void
-  onRefreshTransaction: () => void
   position: UserPosition | null
 }
 

@@ -28,7 +28,6 @@ export function DesktopMarketStepPanel({
   metrics,
   onClose,
   onFieldChange,
-  onRefreshTransaction,
   onSubmit,
   onStepChange,
   onVerify,
@@ -84,7 +83,6 @@ export function DesktopMarketStepPanel({
               market={market}
               metrics={metrics}
               onFieldChange={onFieldChange}
-              onRefreshTransaction={onRefreshTransaction}
               position={position}
               step={step}
             />

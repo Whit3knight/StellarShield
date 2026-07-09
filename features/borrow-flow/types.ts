@@ -1,4 +1,5 @@
 import type {
+  AdapterError,
   BorrowIntent,
   ProtocolTransactionPayload,
   ProtocolTransactionReceipt,
@@ -62,7 +63,7 @@ export type Transaction =
       status: "Failed"
       intent?: BorrowIntent
       payload?: ProtocolTransactionPayload
-      error?: string
+      error?: AdapterError
     }
 
 export type LoanHealth = "Healthy" | "Attention" | "At risk"
@@ -123,6 +124,7 @@ export type TransactionPreview = {
   borrowApr: string
   collateral: string
   collateralValue: string
+  error: string | null
   estimatedFee: string
   healthFactor: string
   intentId: string
