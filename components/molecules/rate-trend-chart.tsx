@@ -150,19 +150,23 @@ function getActiveIndex(
   return Math.round(ratio * (pointCount - 1))
 }
 
-export function RateTrendChart({
-  className,
-  label,
-  points,
-  tone = "chart-2",
-  value,
-}: {
+type RateTrendChartProps = {
   className?: string
   label: string
   points: RateTrendPoint[]
   tone?: RateTrendTone
   value: string
-}): React.ReactElement {
+}
+
+export const RateTrendChart = React.memo(RateTrendChartInner)
+
+function RateTrendChartInner({
+  className,
+  label,
+  points,
+  tone = "chart-2",
+  value,
+}: RateTrendChartProps): React.ReactElement {
   const gradientId = React.useId().replaceAll(":", "")
   const defaultIndex = Math.max(0, points.length - 1)
   const [hoveredIndex, setHoveredIndex] = React.useState<number | null>(null)
