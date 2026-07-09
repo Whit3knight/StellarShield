@@ -76,17 +76,19 @@ export function DesktopMarketStepPanel({
 
       <div className="scrollbar-none min-h-0 flex-1 overflow-y-auto p-6 pt-1">
         <div className="space-y-5">
-          <DrawerStepBody
-            account={account}
-            activity={activity}
-            flow={flow}
-            market={market}
-            metrics={metrics}
-            onFieldChange={onFieldChange}
-            onRefreshTransaction={onRefreshTransaction}
-            position={position}
-            step={step}
-          />
+          {isActive || isBehind ? (
+            <DrawerStepBody
+              account={account}
+              activity={activity}
+              flow={flow}
+              market={market}
+              metrics={metrics}
+              onFieldChange={onFieldChange}
+              onRefreshTransaction={onRefreshTransaction}
+              position={position}
+              step={step}
+            />
+          ) : null}
         </div>
       </div>
 

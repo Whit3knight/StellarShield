@@ -1,5 +1,5 @@
 import { ArrowRightIcon, InfoIcon, type LucideIcon } from "lucide-react"
-import type * as React from "react"
+import * as React from "react"
 
 import { PrivateValue } from "@/components/atoms/private-value"
 import { Button } from "@/components/ui/button"
@@ -49,7 +49,56 @@ export function TimelineSection({
   return <div className="py-1">{children}</div>
 }
 
-export function TimelineItem({
+export const TimelineItem = React.memo(TimelineItemInner, arePropsEqual)
+
+function arePropsEqual(
+  prev: TimelineItemProps,
+  next: TimelineItemProps
+): boolean {
+  if (
+    prev.action !== next.action ||
+    prev.amount !== next.amount ||
+    prev.from !== next.from ||
+    prev.icon !== next.icon ||
+    prev.info !== next.info ||
+    prev.isLast !== next.isLast ||
+    prev.label !== next.label ||
+    prev.privateAmount !== next.privateAmount ||
+    prev.privateFrom !== next.privateFrom ||
+    prev.privateTo !== next.privateTo ||
+    prev.status !== next.status ||
+    prev.to !== next.to
+  ) {
+    return false
+  }
+
+  const prevMeta = prev.meta ?? EMPTY_META
+  const nextMeta = next.meta ?? EMPTY_META
+
+  if (prevMeta === nextMeta) return true
+  if (prevMeta.length !== nextMeta.length) return false
+
+  for (let i = 0; i < prevMeta.length; i += 1) {
+    const a = prevMeta[i]
+    const b = nextMeta[i]
+
+    if (
+      a.label !== b.label ||
+      a.value !== b.value ||
+      a.info !== b.info ||
+      a.privateValue !== b.privateValue ||
+      a.wide !== b.wide
+    ) {
+      return false
+    }
+  }
+
+  return true
+}
+
+const EMPTY_META: TimelineMeta[] = []
+
+function TimelineItemInner({
   action,
   amount,
   from,
@@ -57,7 +106,7 @@ export function TimelineItem({
   info,
   isLast = false,
   label,
-  meta = [],
+  meta = EMPTY_META,
   privateAmount = false,
   privateFrom = false,
   privateTo = false,

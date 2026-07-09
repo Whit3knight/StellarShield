@@ -60,17 +60,19 @@ export function useBorrowFlow({
   >([])
   const connectedWalletRef = React.useRef<string | null>(null)
   const confirmedPayloadRef = React.useRef<string | null>(null)
+  const deferredCollateralAmount = React.useDeferredValue(flow.collateralAmount)
+  const deferredLoanAmount = React.useDeferredValue(flow.loanAmount)
   const metrics = React.useMemo(
     () =>
       getBorrowFlowMetrics(
         {
-          collateralAmount: flow.collateralAmount,
-          loanAmount: flow.loanAmount,
+          collateralAmount: deferredCollateralAmount,
+          loanAmount: deferredLoanAmount,
         },
         market,
         account
       ),
-    [account, flow.collateralAmount, flow.loanAmount, market]
+    [account, deferredCollateralAmount, deferredLoanAmount, market]
   )
 
   React.useEffect(() => {
