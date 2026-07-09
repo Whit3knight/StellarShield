@@ -9,7 +9,12 @@ import type * as React from "react"
 import type { ConnectedAccount } from "@/app/_constants/account"
 import { getMarketPair, type MarketCardData } from "@/features/markets"
 
-import type { BorrowFlowMetrics, BorrowFlowState } from "../../types"
+import type {
+  BorrowFlowMetrics,
+  BorrowFlowState,
+  VerificationStatus,
+} from "../../types"
+import { getProof } from "../../types"
 import { formatAssetAmount, formatUsd } from "../../format"
 import { TimelineItem, TimelineSection } from "../flow-timeline"
 
@@ -35,18 +40,19 @@ export function VerificationStep({
     market.collateral
   )
   const loanAmount = formatAssetAmount(metrics.loanAmount, market.symbol)
-  const proofExpiresAt = flow.proof
+  const proof = getProof(flow.verification)
+  const proofExpiresAt = proof
     ? new Intl.DateTimeFormat("en-US", {
         hour: "numeric",
         minute: "2-digit",
-      }).format(new Date(flow.proof.expiresAt))
+      }).format(new Date(proof.expiresAt))
     : "After verification"
   const verificationStatus = getVerificationTimelineStatus(
-    flow.verificationStatus
+    flow.verification.status
   )
   const borrowIntentStatus = flow.borrowIntent
     ? "done"
-    : flow.verificationStatus === "Verified"
+    : flow.verification.status === "Verified"
       ? "active"
       : "pending"
 
@@ -93,7 +99,7 @@ export function VerificationStep({
         to={`${market.symbol} borrow`}
       />
       <TimelineItem
-        amount={flow.verificationStatus}
+        amount={flow.verification.status}
         from="Local proof"
         icon={LockIcon}
         info="The private proof is prepared locally, then only the proof result is used for protocol simulation."
@@ -101,7 +107,7 @@ export function VerificationStep({
         meta={[
           {
             label: "Proof claim",
-            value: flow.proof?.claim ?? "Not generated",
+            value: proof?.claim ?? "Not generated",
             wide: true,
           },
           {
@@ -131,9 +137,9 @@ export function VerificationStep({
           {
             label: "Public inputs",
             value:
-              flow.proof === null
+              proof === null
                 ? "Prepared after verification"
-                : `HF >= ${flow.proof.publicInputs.healthFactorMin}, LTV ${flow.proof.publicInputs.maxLtv}`,
+                : `HF >= ${proof.publicInputs.healthFactorMin}, LTV ${proof.publicInputs.maxLtv}`,
             wide: true,
           },
         ]}
@@ -146,7 +152,7 @@ export function VerificationStep({
 }
 
 function getVerificationTimelineStatus(
-  status: BorrowFlowState["verificationStatus"]
+  status: VerificationStatus
 ): "active" | "done" | "failed" | "pending" {
   if (status === "Verified") {
     return "done"

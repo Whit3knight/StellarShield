@@ -2,6 +2,7 @@ import type { ConnectedAccount } from "@/app/_constants/account"
 import type { MarketCardData } from "@/features/markets"
 
 import { formatAssetAmount, formatUsd } from "./format"
+import { getProof } from "./types"
 import type {
   BorrowFlowMetrics,
   BorrowFlowState,
@@ -45,10 +46,10 @@ export function createTransactionPreview({
     memo: payload?.memo ?? "Prepared after simulation",
     network: payload?.network ?? "Prepared after simulation",
     operation: payload?.operation ?? "Prepared after simulation",
-    proof: flow.proof?.id ?? "Required before submission",
+    proof: getProof(flow.verification)?.id ?? "Required before submission",
     receipt: flow.transactionReceipt?.hash ?? null,
     simulation: flow.simulationStatus,
     status: flow.transactionStatus,
-    verification: flow.verificationStatus,
+    verification: flow.verification.status,
   }
 }

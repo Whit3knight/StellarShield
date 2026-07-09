@@ -6,6 +6,15 @@ export {
   simulateBorrowIntent,
   submitTransaction,
 } from "./mock-adapter"
+export type { AdapterError, AdapterResult } from "./result"
+export { err, formatAdapterError, ok } from "./result"
+export type { LifecycleState } from "./lifecycle"
+export {
+  assertTransition,
+  canTransition,
+  isTerminal,
+  TERMINAL_STATES,
+} from "./lifecycle"
 export type {
   BorrowIntent,
   CreateBorrowIntentParams,

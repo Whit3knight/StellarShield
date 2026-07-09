@@ -50,7 +50,7 @@ describe("useBorrowFlow", () => {
       vi.advanceTimersByTime(900)
     })
 
-    expect(result.current.flow.verificationStatus).toBe("Verified")
+    expect(result.current.flow.verification.status).toBe("Verified")
     expect(result.current.flow.borrowIntent).toBeTruthy()
     expect(result.current.activity.map((item) => item.type)).toEqual(
       expect.arrayContaining(["proof_generated", "borrow_intent_prepared"])

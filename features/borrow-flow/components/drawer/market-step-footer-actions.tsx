@@ -44,18 +44,18 @@ export function MarketStepFooterActions({
   }
 
   if (step === "verification") {
-    const isChecking = isVerificationPending(flow.verificationStatus)
+    const isChecking = isVerificationPending(flow.verification.status)
     const canSubmit = canSubmitTransaction({
       metrics,
       simulationStatus: flow.simulationStatus,
-      status: flow.verificationStatus,
+      status: flow.verification.status,
       transactionPayload: flow.transactionPayload,
     })
     const verificationLabel = canSubmit
       ? "Submit transaction"
       : isChecking
-        ? flow.verificationStatus
-        : flow.verificationStatus === "Failed"
+        ? flow.verification.status
+        : flow.verification.status === "Failed"
           ? "Retry verification"
           : "Verify eligibility"
 

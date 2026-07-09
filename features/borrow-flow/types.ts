@@ -21,6 +21,14 @@ export type VerificationStatus =
   | "Expired"
   | "Failed"
 
+export type Verification =
+  | { status: "Not started" }
+  | { status: "Preparing" }
+  | { status: "Generating proof" }
+  | { status: "Verified"; proof: BorrowProof }
+  | { status: "Failed"; proof: BorrowProof }
+  | { status: "Expired"; proof: BorrowProof }
+
 export type TransactionStatus = "Draft" | ProtocolSubmitStatus
 
 export type LoanHealth = "Healthy" | "Attention" | "At risk"
@@ -104,12 +112,17 @@ export type BorrowFlowState = {
   borrowIntent: BorrowIntent | null
   collateralAmount: string
   loanAmount: string
-  proof: BorrowProof | null
   simulationStatus: ProtocolSimulationStatus
   transactionPayload: ProtocolTransactionPayload | null
   transactionReceipt: ProtocolTransactionReceipt | null
   transactionStatus: TransactionStatus
-  verificationStatus: VerificationStatus
+  verification: Verification
+}
+
+export const NO_VERIFICATION: Verification = { status: "Not started" }
+
+export function getProof(verification: Verification): BorrowProof | null {
+  return "proof" in verification ? verification.proof : null
 }
 
 export type BorrowFlowMetrics = {

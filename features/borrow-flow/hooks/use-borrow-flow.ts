@@ -20,6 +20,7 @@ import type {
   BorrowFlowMetrics,
   BorrowFlowState,
   UserPosition,
+  Verification,
 } from "../types"
 import {
   canSubmitTransaction,
@@ -121,12 +122,11 @@ export function useBorrowFlow({
         ...currentFlow,
         [field]: value,
         borrowIntent: null,
-        proof: null,
         simulationStatus: "Idle",
         transactionPayload: null,
         transactionReceipt: null,
         transactionStatus: "Draft",
-        verificationStatus: "Not started",
+        verification: { status: "Not started" },
       }))
     },
     []
@@ -141,12 +141,11 @@ export function useBorrowFlow({
       setFlow((currentFlow) => ({
         ...currentFlow,
         borrowIntent: null,
-        proof,
         simulationStatus: "Idle",
         transactionPayload: null,
         transactionReceipt: null,
         transactionStatus: "Draft",
-        verificationStatus: "Failed",
+        verification: { status: "Failed", proof },
       }))
       setActivity((currentActivity) =>
         appendBorrowActivity(
@@ -160,18 +159,17 @@ export function useBorrowFlow({
     setFlow((currentFlow) => ({
       ...currentFlow,
       borrowIntent: null,
-      proof: null,
       simulationStatus: "Idle",
       transactionPayload: null,
       transactionReceipt: null,
       transactionStatus: "Draft",
-      verificationStatus: "Preparing",
+      verification: { status: "Preparing" },
     }))
 
     const preparingTimer = setTimeout(() => {
       setFlow((currentFlow) => ({
         ...currentFlow,
-        verificationStatus: "Generating proof",
+        verification: { status: "Generating proof" },
       }))
     }, 350)
     const verifiedTimer = setTimeout(() => {
@@ -187,16 +185,19 @@ export function useBorrowFlow({
         intent,
         metrics,
       })
+      const nextVerification: Verification =
+        proof.status === "Verified"
+          ? { status: "Verified", proof }
+          : { status: "Failed", proof }
 
       setFlow((currentFlow) => ({
         ...currentFlow,
         borrowIntent: intent,
-        proof,
         simulationStatus: simulation.status,
         transactionPayload: simulation.payload,
         transactionReceipt: null,
         transactionStatus: simulation.status === "Ready" ? "Ready" : "Draft",
-        verificationStatus: proof.status,
+        verification: nextVerification,
       }))
       setActivity((currentActivity) => {
         let nextActivity = appendBorrowActivity(
@@ -229,7 +230,7 @@ export function useBorrowFlow({
     const canSubmit = canSubmitTransaction({
       metrics,
       simulationStatus: flow.simulationStatus,
-      status: flow.verificationStatus,
+      status: flow.verification.status,
       transactionPayload: flow.transactionPayload,
     })
 

@@ -28,10 +28,9 @@ export const INITIAL_FLOW_STATE: BorrowFlowState = {
   borrowIntent: null,
   collateralAmount: "3000",
   loanAmount: "220",
-  proof: null,
   simulationStatus: "Idle",
   transactionPayload: null,
   transactionReceipt: null,
   transactionStatus: "Draft",
-  verificationStatus: "Not started",
+  verification: { status: "Not started" },
 }

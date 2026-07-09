@@ -20,6 +20,7 @@ import type {
   BorrowFlowState,
   UserPosition,
 } from "../../types"
+import { getProof } from "../../types"
 import { formatAssetAmount, formatUsd } from "../../format"
 import { createTransactionPreview } from "../../preview"
 import { TimelineItem, TimelineSection } from "../flow-timeline"
@@ -146,9 +147,13 @@ export function TransactionStep({
               wide: true,
             },
           ]}
-          privateAmount={Boolean(flow.proof)}
+          privateAmount={Boolean(getProof(flow.verification))}
           privateTo
-          status={flow.proof && flow.borrowIntent ? "done" : "pending"}
+          status={
+            getProof(flow.verification) && flow.borrowIntent
+              ? "done"
+              : "pending"
+          }
           to="Borrow intent"
         />
         <TimelineItem
