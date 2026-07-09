@@ -51,7 +51,7 @@ describe("sorobanProtocolAdapter", () => {
     })
   })
 
-  it("surfaces the contract id in the not-implemented message for pending methods", async () => {
+  it("surfaces the contract id for still-pending methods", async () => {
     const payload = {
       expiresAt: "2026-07-09T00:05:00.000Z",
       fee: { amount: 0.00003, symbol: "XLM" as const, valueUsd: 0.0000036 },
@@ -70,23 +70,45 @@ describe("sorobanProtocolAdapter", () => {
       fee: payload.fee,
       intent,
     })
-    const sign = await adapter.signTransaction({
-      account: intentParams.account,
-      payload,
-    })
     const submit = await adapter.submitTransaction({
       payload,
       signedXdr: "signed",
     })
     const wait = await adapter.waitForConfirmation({ payload })
 
-    for (const result of [sim, sign, submit, wait]) {
+    for (const result of [sim, submit, wait]) {
       expect(result.ok).toBe(false)
       if (!result.ok) {
         expect(result.error.tag).toBe("Unknown")
         if (result.error.tag === "Unknown") {
           expect(result.error.message).toContain(config.contractId)
         }
+      }
+    }
+  })
+
+  it("signTransaction rejects with InvalidInput when preparedXdr is missing", async () => {
+    const payload = {
+      expiresAt: "2026-07-09T00:05:00.000Z",
+      fee: { amount: 0.00003, symbol: "XLM" as const, valueUsd: 0.0000036 },
+      id: "tx-test",
+      intentId: "intent-test",
+      memo: "test",
+      network: "stellar-testnet" as const,
+      operation: "borrow" as const,
+      status: "Ready" as const,
+    }
+
+    const result = await adapter.signTransaction({
+      account: intentParams.account,
+      payload,
+    })
+
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.error.tag).toBe("InvalidInput")
+      if (result.error.tag === "InvalidInput") {
+        expect(result.error.field).toBe("payload.preparedXdr")
       }
     }
   })

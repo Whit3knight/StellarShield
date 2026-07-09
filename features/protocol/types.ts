@@ -32,6 +32,7 @@ export type ProtocolTransactionPayload = {
   memo: string
   network: ProtocolNetwork
   operation: ProtocolOperation
+  preparedXdr?: string
   status: ProtocolSubmitStatus
 }
 

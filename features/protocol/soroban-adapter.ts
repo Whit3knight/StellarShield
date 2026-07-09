@@ -1,3 +1,4 @@
+import { signXdr } from "@/features/wallet/signer"
 import { createStableId } from "@/lib/stable-id"
 
 import { err, ok, type AdapterResult, type AdapterError } from "./result"
@@ -45,15 +46,31 @@ export function createSorobanProtocolAdapter(
         )
       )
     },
-    signTransaction: async (_params, signal) => {
+    signTransaction: async ({ account, payload }, signal) => {
       if (signal?.aborted) return abortedResult()
 
-      return err(
-        notImplemented(
-          "signTransaction",
-          "Delegate to features/wallet/signer.ts (yet to be extracted) with { xdr: payload.preparedXdr, address, networkPassphrase } and map Freighter/WalletConnect user-cancel to UserRejected."
-        )
-      )
+      if (!payload.preparedXdr) {
+        return err({
+          tag: "InvalidInput",
+          field: "payload.preparedXdr",
+          message:
+            "signTransaction requires a preparedXdr — simulateBorrow must run first for the Soroban adapter.",
+        })
+      }
+
+      const signed = await signXdr({
+        address: account,
+        networkPassphrase: config.networkPassphrase,
+        signal,
+        xdr: payload.preparedXdr,
+      })
+
+      if (!signed.ok) return signed
+
+      return ok({
+        payload: { ...payload, status: "Signing" },
+        signedXdr: signed.value.signedXdr,
+      })
     },
     submitTransaction: async (_params, signal) => {
       if (signal?.aborted) return abortedResult()
