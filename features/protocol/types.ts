@@ -27,6 +27,7 @@ export type BorrowIntent = {
 export type ProtocolTransactionPayload = {
   expiresAt: string
   fee: AssetAmount
+  hash?: string
   id: string
   intentId: string
   memo: string
