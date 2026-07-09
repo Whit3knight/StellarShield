@@ -10,6 +10,7 @@ import {
   MoonIcon,
   SearchIcon,
   SunIcon,
+  WalletCardsIcon,
 } from "lucide-react"
 import { useTheme } from "next-themes"
 import * as React from "react"
@@ -57,7 +58,7 @@ type CommandActionGroup = {
 export function CommandSearch(): React.ReactElement {
   const [open, setOpen] = React.useState(false)
   const { selectMarket } = useMarketSelection()
-  const { notifications } = useNavMenus()
+  const { notifications, walletMenu } = useNavMenus()
   const { account, disconnect } = useWalletConnection()
   const { resolvedTheme, setTheme } = useTheme()
   const isPrivacyMode = usePrivacyMode()
@@ -140,6 +141,15 @@ export function CommandSearch(): React.ReactElement {
             value: "open notifications",
           },
           {
+            icon: WalletCardsIcon,
+            label: "Open wallet menu",
+            onSelect: () => {
+              walletMenu.setOpen(true)
+              setOpen(false)
+            },
+            value: "open wallet menu",
+          },
+          {
             icon: LogOutIcon,
             label: "Disconnect wallet",
             onSelect: () => {
@@ -170,6 +180,7 @@ export function CommandSearch(): React.ReactElement {
     resolvedTheme,
     selectMarket,
     setTheme,
+    walletMenu,
   ])
 
   return (

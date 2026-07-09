@@ -56,6 +56,13 @@ export function getConfiguredHorizonUrl(): string {
   return STELLAR_NETWORKS[getConfiguredStellarNetwork()].horizonUrl
 }
 
+export function getStellarExpertAccountUrl(address: string): string {
+  const network = getConfiguredStellarNetwork()
+  const path = network === "public" ? "public" : network
+
+  return `https://stellar.expert/explorer/${path}/account/${address}`
+}
+
 export function isFreighterNetworkCompatible(
   networkDetails: FreighterNetworkDetails
 ): boolean {

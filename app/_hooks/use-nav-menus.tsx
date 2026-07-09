@@ -2,11 +2,14 @@
 
 import * as React from "react"
 
+type MenuOpenState = {
+  open: boolean
+  setOpen: (open: boolean) => void
+}
+
 type NavMenusContextValue = {
-  notifications: {
-    open: boolean
-    setOpen: (open: boolean) => void
-  }
+  notifications: MenuOpenState
+  walletMenu: MenuOpenState
 }
 
 const NavMenusContext = React.createContext<NavMenusContextValue | null>(null)
@@ -17,6 +20,7 @@ export function NavMenusProvider({
   children: React.ReactNode
 }): React.ReactElement {
   const [notificationsOpen, setNotificationsOpen] = React.useState(false)
+  const [walletMenuOpen, setWalletMenuOpen] = React.useState(false)
 
   const value = React.useMemo<NavMenusContextValue>(
     () => ({
@@ -24,8 +28,12 @@ export function NavMenusProvider({
         open: notificationsOpen,
         setOpen: setNotificationsOpen,
       },
+      walletMenu: {
+        open: walletMenuOpen,
+        setOpen: setWalletMenuOpen,
+      },
     }),
-    [notificationsOpen]
+    [notificationsOpen, walletMenuOpen]
   )
 
   return (

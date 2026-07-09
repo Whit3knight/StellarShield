@@ -2,13 +2,12 @@
 
 import {
   ArrowUpRightIcon,
-  CreditCardIcon,
+  CopyIcon,
+  ExternalLinkIcon,
   LogOutIcon,
-  SettingsIcon,
-  UserIcon,
   WalletCardsIcon,
 } from "lucide-react"
-import type * as React from "react"
+import * as React from "react"
 
 import { WalletIdentityHeader } from "@/components/molecules/wallet-identity-header"
 import { Button } from "@/components/ui/button"
@@ -23,9 +22,11 @@ import {
   MenuShortcut,
   MenuTrigger,
 } from "@/components/ui/menu"
+import { getStellarExpertAccountUrl } from "@/features/wallet/network"
 
 import type { ConnectedAccount } from "../_constants/account"
 import { userAppLinks, userResourceLinks } from "../_constants/user-menu-links"
+import { useNavMenus } from "../_hooks/use-nav-menus"
 import { PrivacyModeMenuItem } from "./privacy-mode-menu-item"
 import { ThemeModeMenuItem } from "./theme-mode-menu-item"
 
@@ -36,8 +37,17 @@ export function UserMenu({
   account: ConnectedAccount
   onDisconnect: () => void
 }): React.ReactElement {
+  const { walletMenu } = useNavMenus()
+  const explorerUrl = getStellarExpertAccountUrl(account.wallet.address)
+
+  const handleCopyAddress = React.useCallback(() => {
+    if (typeof navigator === "undefined" || !navigator.clipboard) return
+
+    void navigator.clipboard.writeText(account.wallet.address)
+  }, [account.wallet.address])
+
   return (
-    <Menu>
+    <Menu onOpenChange={walletMenu.setOpen} open={walletMenu.open}>
       <MenuTrigger
         render={
           <Button aria-label="Open wallet menu" size="icon" variant="ghost" />
@@ -53,19 +63,21 @@ export function UserMenu({
         </MenuGroup>
         <MenuSeparator />
         <MenuGroup>
-          <MenuGroupLabel>Account</MenuGroupLabel>
-          <MenuItem closeOnClick>
-            <UserIcon aria-hidden="true" />
-            Wallet
+          <MenuGroupLabel>Wallet</MenuGroupLabel>
+          <MenuItem closeOnClick onClick={handleCopyAddress}>
+            <CopyIcon aria-hidden="true" />
+            Copy address
           </MenuItem>
-          <MenuItem closeOnClick>
-            <CreditCardIcon aria-hidden="true" />
-            Positions
-          </MenuItem>
-          <MenuItem closeOnClick>
-            <SettingsIcon aria-hidden="true" />
-            Settings
-          </MenuItem>
+          <MenuLinkItem href={explorerUrl} rel="noreferrer" target="_blank">
+            <ExternalLinkIcon aria-hidden="true" />
+            View on Stellar Expert
+            <MenuShortcut
+              aria-hidden="true"
+              className="tracking-normal [&>svg]:size-3.5"
+            >
+              <ArrowUpRightIcon />
+            </MenuShortcut>
+          </MenuLinkItem>
         </MenuGroup>
         <MenuSeparator />
         <MenuGroup>
