@@ -3,6 +3,8 @@ export type StellarNetwork = "public" | "testnet" | "futurenet"
 type StellarNetworkConfig = {
   horizonUrl: string
   label: string
+  networkPassphrase: string
+  sorobanRpcUrl: string
 }
 
 type FreighterNetworkDetails = {
@@ -17,14 +19,20 @@ const STELLAR_NETWORKS: Record<StellarNetwork, StellarNetworkConfig> = {
   futurenet: {
     horizonUrl: "https://horizon-futurenet.stellar.org",
     label: "Futurenet",
+    networkPassphrase: "Test SDF Future Network ; October 2022",
+    sorobanRpcUrl: "https://rpc-futurenet.stellar.org",
   },
   public: {
     horizonUrl: "https://horizon.stellar.org",
     label: "Public",
+    networkPassphrase: "Public Global Stellar Network ; September 2015",
+    sorobanRpcUrl: "https://mainnet.sorobanrpc.com",
   },
   testnet: {
     horizonUrl: "https://horizon-testnet.stellar.org",
     label: "Testnet",
+    networkPassphrase: "Test SDF Network ; September 2015",
+    sorobanRpcUrl: "https://soroban-testnet.stellar.org",
   },
 }
 
@@ -54,6 +62,27 @@ export function getConfiguredHorizonUrl(): string {
   }
 
   return STELLAR_NETWORKS[getConfiguredStellarNetwork()].horizonUrl
+}
+
+export function getConfiguredSorobanRpcUrl(): string {
+  const rpcUrl = process.env.NEXT_PUBLIC_STELLAR_SOROBAN_RPC_URL?.trim()
+
+  if (rpcUrl) {
+    return rpcUrl.replace(/\/$/, "")
+  }
+
+  return STELLAR_NETWORKS[getConfiguredStellarNetwork()].sorobanRpcUrl
+}
+
+export function getConfiguredNetworkPassphrase(): string {
+  return STELLAR_NETWORKS[getConfiguredStellarNetwork()].networkPassphrase
+}
+
+export function getConfiguredContractId(): string | null {
+  const contractId =
+    process.env.NEXT_PUBLIC_STELLAR_SHIELD_CONTRACT_ID?.trim() ?? ""
+
+  return contractId.length > 0 ? contractId : null
 }
 
 export function getStellarExpertAccountUrl(address: string): string {

@@ -3,10 +3,17 @@
 import * as React from "react"
 
 import { mockProtocolAdapter, type ProtocolAdapter } from "@/features/protocol"
+import { createSorobanProtocolAdapter } from "@/features/protocol/soroban-adapter"
 import {
   mockBorrowProverAdapter,
   type BorrowProverAdapter,
 } from "@/features/proofs"
+import {
+  getConfiguredContractId,
+  getConfiguredHorizonUrl,
+  getConfiguredNetworkPassphrase,
+  getConfiguredSorobanRpcUrl,
+} from "@/features/wallet/network"
 
 export type AdapterContextValue = {
   protocol: ProtocolAdapter
@@ -21,9 +28,29 @@ type AdapterProviderProps = {
   prover?: BorrowProverAdapter
 }
 
+function resolveDefaultProtocolAdapter(): ProtocolAdapter {
+  const shouldUseSoroban =
+    process.env.NEXT_PUBLIC_STELLAR_SHIELD_ADAPTER === "soroban"
+
+  if (!shouldUseSoroban) return mockProtocolAdapter
+
+  const contractId = getConfiguredContractId()
+
+  if (!contractId) return mockProtocolAdapter
+
+  return createSorobanProtocolAdapter({
+    contractId,
+    horizonUrl: getConfiguredHorizonUrl(),
+    networkPassphrase: getConfiguredNetworkPassphrase(),
+    sorobanRpcUrl: getConfiguredSorobanRpcUrl(),
+  })
+}
+
+const defaultProtocolAdapter = resolveDefaultProtocolAdapter()
+
 export function AdapterProvider({
   children,
-  protocol = mockProtocolAdapter,
+  protocol = defaultProtocolAdapter,
   prover = mockBorrowProverAdapter,
 }: AdapterProviderProps): React.ReactElement {
   const value = React.useMemo<AdapterContextValue>(

@@ -19,6 +19,8 @@ const CHUNK_DIR = join(NEXT_ROOT, "static", "chunks")
 const PACKAGE_JSON_PATH = join(PROJECT_ROOT, "package.json")
 
 const FREIGHTER_PACKAGE = "@stellar/freighter-api"
+const STELLAR_SDK_PACKAGE = "@stellar/stellar-sdk"
+const ASYNC_ONLY_PACKAGES = [FREIGHTER_PACKAGE, STELLAR_SDK_PACKAGE]
 const FORBIDDEN_PACKAGES = ["radix-ui"]
 const ROOT_MAIN_UNCOMPRESSED_CEILING_BYTES = 500_000
 
@@ -86,16 +88,18 @@ async function main(): Promise<void> {
     const chunkPath = join(CHUNK_DIR, chunkFile)
     const content = readFileSync(chunkPath, "utf-8")
 
-    if (!content.includes(FREIGHTER_PACKAGE)) continue
+    for (const asyncPackage of ASYNC_ONLY_PACKAGES) {
+      if (!content.includes(asyncPackage)) continue
 
-    const isReferencedAsRoot = Array.from(rootChunkFiles).some((rootFile) =>
-      rootFile.endsWith(chunkFile)
-    )
-
-    if (isReferencedAsRoot) {
-      failures.push(
-        `${chunkFile} is a root/page chunk and still bundles ${FREIGHTER_PACKAGE}; connectFreighter must dynamic-import it`
+      const isReferencedAsRoot = Array.from(rootChunkFiles).some((rootFile) =>
+        rootFile.endsWith(chunkFile)
       )
+
+      if (isReferencedAsRoot) {
+        failures.push(
+          `${chunkFile} is a root/page chunk and still bundles ${asyncPackage}; every caller must dynamic-import it`
+        )
+      }
     }
   }
 
