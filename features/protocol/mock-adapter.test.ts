@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest"
 import {
   createBorrowIntent,
   getNextSubmitStatus,
+  refreshTransaction,
   simulateBorrowIntent,
+  submitTransaction,
 } from "."
 
 const intent = createBorrowIntent({
@@ -79,5 +81,35 @@ describe("protocol mock adapter", () => {
     expect(getNextSubmitStatus("Signing")).toBe("Submitted")
     expect(getNextSubmitStatus("Submitted")).toBe("Confirmed")
     expect(getNextSubmitStatus("Confirmed")).toBe("Confirmed")
+  })
+
+  it("submits and refreshes transactions into confirmed receipts", () => {
+    const simulation = simulateBorrowIntent({
+      fee: {
+        amount: 0.00003,
+        symbol: "XLM",
+        valueUsd: 0.0000036,
+      },
+      intent,
+      now: Date.UTC(2026, 6, 9),
+    })
+    const signing = submitTransaction({ payload: simulation.payload })
+    const submitted = refreshTransaction({ payload: signing.payload })
+    const confirmed = refreshTransaction({
+      payload: submitted.payload,
+      now: Date.UTC(2026, 6, 9, 0, 1),
+    })
+
+    expect(signing.status).toBe("Signing")
+    expect(submitted.status).toBe("Submitted")
+    expect(confirmed).toMatchObject({
+      error: null,
+      receipt: {
+        confirmedAt: "2026-07-09T00:01:00.000Z",
+        hash: "3f6d...91b2",
+        network: "stellar-testnet",
+      },
+      status: "Confirmed",
+    })
   })
 })

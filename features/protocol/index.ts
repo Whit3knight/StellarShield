@@ -1,15 +1,26 @@
 export {
   createBorrowIntent,
   getNextSubmitStatus,
+  mockProtocolAdapter,
+  refreshTransaction,
   simulateBorrowIntent,
+  submitTransaction,
 } from "./mock-adapter"
 export type {
   BorrowIntent,
+  CreateBorrowIntentParams,
+  PrepareTransactionParams,
+  ProtocolAdapter,
   ProtocolAssetAmount,
   ProtocolNetwork,
   ProtocolOperation,
+  ProtocolSubmitResult,
   ProtocolSimulationResult,
   ProtocolSimulationStatus,
   ProtocolSubmitStatus,
+  ProtocolTransactionReceipt,
   ProtocolTransactionPayload,
+  RefreshTransactionParams,
+  SimulateBorrowParams,
+  SubmitTransactionParams,
 } from "./types"

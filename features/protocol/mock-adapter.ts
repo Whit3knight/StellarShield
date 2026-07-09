@@ -1,13 +1,28 @@
 import type {
   BorrowIntent,
-  ProtocolAssetAmount,
+  CreateBorrowIntentParams,
+  PrepareTransactionParams,
+  ProtocolAdapter,
+  ProtocolSubmitResult,
   ProtocolSimulationResult,
   ProtocolSubmitStatus,
   ProtocolTransactionPayload,
+  RefreshTransactionParams,
+  SimulateBorrowParams,
+  SubmitTransactionParams,
 } from "./types"
 
 const PROTOCOL_NETWORK = "stellar-testnet"
 const TRANSACTION_TTL_MS = 5 * 60 * 1000
+const MOCK_TRANSACTION_HASH = "3f6d...91b2"
+
+export const mockProtocolAdapter: ProtocolAdapter = {
+  createBorrowIntent,
+  prepareTransaction: createTransactionPayload,
+  refreshTransaction,
+  simulateBorrow: simulateBorrowIntent,
+  submitTransaction,
+}
 
 export function createBorrowIntent({
   account,
@@ -18,7 +33,7 @@ export function createBorrowIntent({
   market,
   maxLtv,
   proofId,
-}: Omit<BorrowIntent, "id">): BorrowIntent {
+}: CreateBorrowIntentParams): BorrowIntent {
   const id = createStableId(
     "intent",
     account,
@@ -47,11 +62,7 @@ export function simulateBorrowIntent({
   fee,
   intent,
   now = Date.now(),
-}: {
-  fee: ProtocolAssetAmount
-  intent: BorrowIntent | null
-  now?: number
-}): ProtocolSimulationResult {
+}: SimulateBorrowParams): ProtocolSimulationResult {
   if (!intent) {
     return {
       error: "Borrow intent is required before simulation.",
@@ -64,6 +75,63 @@ export function simulateBorrowIntent({
     error: null,
     payload: createTransactionPayload({ fee, intent, now }),
     status: "Ready",
+  }
+}
+
+export function submitTransaction({
+  payload,
+}: SubmitTransactionParams): ProtocolSubmitResult {
+  if (!payload) {
+    return {
+      error: "Transaction payload is required before submission.",
+      payload: null,
+      receipt: null,
+      status: "Failed",
+    }
+  }
+
+  return {
+    error: null,
+    payload: {
+      ...payload,
+      status: "Signing",
+    },
+    receipt: null,
+    status: "Signing",
+  }
+}
+
+export function refreshTransaction({
+  payload,
+  now = Date.now(),
+}: RefreshTransactionParams): ProtocolSubmitResult {
+  if (!payload) {
+    return {
+      error: "Transaction payload is required before refresh.",
+      payload: null,
+      receipt: null,
+      status: "Failed",
+    }
+  }
+
+  const status = getNextSubmitStatus(payload.status)
+  const nextPayload = {
+    ...payload,
+    status,
+  }
+
+  return {
+    error: null,
+    payload: nextPayload,
+    receipt:
+      status === "Confirmed"
+        ? {
+            confirmedAt: new Date(now).toISOString(),
+            hash: MOCK_TRANSACTION_HASH,
+            network: payload.network,
+          }
+        : null,
+    status,
   }
 }
 
@@ -84,12 +152,8 @@ export function getNextSubmitStatus(
 function createTransactionPayload({
   fee,
   intent,
-  now,
-}: {
-  fee: ProtocolAssetAmount
-  intent: BorrowIntent
-  now: number
-}): ProtocolTransactionPayload {
+  now = Date.now(),
+}: PrepareTransactionParams): ProtocolTransactionPayload {
   const id = createStableId("tx", intent.id, fee.symbol, fee.amount)
 
   return {

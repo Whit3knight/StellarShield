@@ -5,21 +5,22 @@ import {
   type MarketCardData,
 } from "@/features/markets"
 import {
-  createBorrowIntent,
-  simulateBorrowIntent,
   type BorrowIntent,
+  mockProtocolAdapter,
+  type ProtocolAdapter,
   type ProtocolTransactionPayload,
 } from "@/features/protocol"
+import { generateBorrowProof } from "@/features/proofs"
 import { getWalletAssetBalance } from "@/features/wallet/utils"
 
 import {
   ESTIMATED_TRANSACTION_FEE_XLM,
+  HEALTH_FACTOR_MIN,
   LIQUIDATION_THRESHOLD,
   MARKET_STEPS,
   MAX_LOAN_TO_VALUE,
   MIN_COLLATERAL_VALUE,
   MIN_LOAN_VALUE,
-  MOCK_TRANSACTION_HASH,
 } from "./constants"
 import type {
   BorrowProof,
@@ -29,7 +30,6 @@ import type {
   LoanHealth,
   MarketStep,
   TransactionPreview,
-  UserPosition,
   VerificationStatus,
 } from "./types"
 
@@ -225,56 +225,24 @@ export function getBorrowFlowMetrics(
 }
 
 export function createBorrowProof({
+  account,
   market,
   metrics,
 }: {
+  account: ConnectedAccount | null
   market: MarketCardData
   metrics: BorrowFlowMetrics
 }): BorrowProof {
-  return {
-    claim: "Borrow eligibility verified",
-    expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
-    id: `proof-${Date.now().toString(36)}`,
-    publicInputs: {
-      healthFactorMin: "1.25",
-      market: getMarketPair(market),
-      maxLtv: `${Math.round(MAX_LOAN_TO_VALUE * 100)}%`,
-    },
-    status: metrics.isLoanValid ? "Verified" : "Failed",
-  }
-}
-
-export function createUserPosition({
-  market,
-  metrics,
-}: {
-  market: MarketCardData
-  metrics: BorrowFlowMetrics
-}): UserPosition {
-  return {
-    borrowed:
-      metrics.loanAmount > 0
-        ? [
-            {
-              amount: metrics.loanAmount,
-              symbol: market.symbol,
-              valueUsd: metrics.loanValue,
-            },
-          ]
-        : [],
-    borrowingPowerUsed: metrics.utilization,
+  return generateBorrowProof({
+    account: account?.wallet.address ?? null,
+    borrow: metrics.quote.loan,
+    collateral: metrics.quote.collateral,
     healthFactor: metrics.healthFactor,
-    supplied:
-      metrics.collateralAmount > 0
-        ? [
-            {
-              amount: metrics.collateralAmount,
-              symbol: market.collateral,
-              valueUsd: metrics.collateralValue,
-            },
-          ]
-        : [],
-  }
+    healthFactorMin: HEALTH_FACTOR_MIN,
+    isEligible: metrics.isLoanValid,
+    market: getMarketPair(market),
+    maxLtv: MAX_LOAN_TO_VALUE,
+  })
 }
 
 export function isVerificationPending(status: VerificationStatus): boolean {
@@ -302,9 +270,11 @@ export function canSubmitTransaction({
 
 export function createBorrowIntentFromFlow({
   account,
+  adapter = mockProtocolAdapter,
   metrics,
   proof,
 }: {
+  adapter?: ProtocolAdapter
   account: ConnectedAccount | null
   metrics: BorrowFlowMetrics
   proof: BorrowProof | null
@@ -318,7 +288,7 @@ export function createBorrowIntentFromFlow({
     return null
   }
 
-  return createBorrowIntent({
+  return adapter.createBorrowIntent({
     account: account.wallet.address,
     borrow: metrics.quote.loan,
     collateral: metrics.quote.collateral,
@@ -331,13 +301,15 @@ export function createBorrowIntentFromFlow({
 }
 
 export function simulateBorrowIntentFromFlow({
+  adapter = mockProtocolAdapter,
   intent,
   metrics,
 }: {
+  adapter?: ProtocolAdapter
   intent: BorrowIntent | null
   metrics: BorrowFlowMetrics
 }) {
-  return simulateBorrowIntent({
+  return adapter.simulateBorrow({
     fee: metrics.quote.estimatedFee,
     intent,
   })
@@ -358,8 +330,6 @@ export function createTransactionPreview({
   const payload = flow.transactionPayload
   const healthFactor =
     quote.healthFactor === null ? "N/A" : quote.healthFactor.toFixed(2)
-  const receipt =
-    flow.transactionStatus === "Confirmed" ? MOCK_TRANSACTION_HASH : null
 
   return {
     account: account?.wallet.shortAddress ?? "Connect wallet",
@@ -383,7 +353,7 @@ export function createTransactionPreview({
     network: payload?.network ?? "Prepared after simulation",
     operation: payload?.operation ?? "Prepared after simulation",
     proof: flow.proof?.id ?? "Required before submission",
-    receipt,
+    receipt: flow.transactionReceipt?.hash ?? null,
     simulation: flow.simulationStatus,
     status: flow.transactionStatus,
     verification: flow.verificationStatus,

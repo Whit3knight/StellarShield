@@ -14,8 +14,8 @@ export const DESKTOP_STACK_SCALE_STEP = 0.05
 export const DESKTOP_STACK_RAIL_PX =
   DESKTOP_STACK_PEEK_PX * (MARKET_STEPS.length - 1)
 
-export const MOCK_TRANSACTION_HASH = "3f6d...91b2"
 export const ESTIMATED_TRANSACTION_FEE_XLM = 0.00003
+export const HEALTH_FACTOR_MIN = 1.25
 export const MAX_LOAN_TO_VALUE = 0.625
 export const LIQUIDATION_THRESHOLD = 0.8
 export const MIN_COLLATERAL_VALUE = 10
@@ -31,6 +31,7 @@ export const INITIAL_FLOW_STATE: BorrowFlowState = {
   proof: null,
   simulationStatus: "Idle",
   transactionPayload: null,
+  transactionReceipt: null,
   transactionStatus: "Draft",
   verificationStatus: "Not started",
 }

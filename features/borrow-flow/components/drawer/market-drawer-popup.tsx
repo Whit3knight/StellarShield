@@ -21,12 +21,14 @@ type MarketDrawerPopupProps = BorrowFlowStepProps & {
 
 export function MarketDrawerPopup({
   account,
+  activity,
   children,
   flow,
   market,
   metrics,
   onFieldChange,
   onRefreshTransaction,
+  position,
   step,
 }: MarketDrawerPopupProps): React.ReactElement {
   const stepCopy = getStepCopy(market, step)
@@ -48,11 +50,13 @@ export function MarketDrawerPopup({
       <DrawerPanel className="space-y-5" hideScrollbar scrollFade>
         <DrawerStepBody
           account={account}
+          activity={activity}
           flow={flow}
           market={market}
           metrics={metrics}
           onFieldChange={onFieldChange}
           onRefreshTransaction={onRefreshTransaction}
+          position={position}
           step={step}
         />
       </DrawerPanel>

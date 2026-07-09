@@ -2,10 +2,25 @@ import * as React from "react"
 
 import type { ConnectedAccount } from "@/app/_constants/account"
 import type { MarketCardData } from "@/features/markets"
-import { getNextSubmitStatus } from "@/features/protocol"
+import { mockProtocolAdapter, type ProtocolAdapter } from "@/features/protocol"
 
 import { INITIAL_FLOW_STATE } from "../constants"
-import type { BorrowField, BorrowFlowMetrics, BorrowFlowState } from "../types"
+import {
+  appendBorrowActivity,
+  createConfirmedPositionActivity,
+  createIntentPreparedActivity,
+  createProofGeneratedActivity,
+  createTransactionSubmittedActivity,
+  createWalletConnectedActivity,
+} from "../activities"
+import { createUserPosition } from "../positions"
+import type {
+  BorrowActivity,
+  BorrowField,
+  BorrowFlowMetrics,
+  BorrowFlowState,
+  UserPosition,
+} from "../types"
 import {
   canSubmitTransaction,
   createBorrowIntentFromFlow,
@@ -15,8 +30,10 @@ import {
 } from "../utils"
 
 type BorrowFlowControls = {
+  activity: BorrowActivity[]
   flow: BorrowFlowState
   metrics: BorrowFlowMetrics
+  position: UserPosition | null
   refreshTransaction: () => void
   setFieldValue: (field: BorrowField, value: string) => void
   submitTransaction: () => void
@@ -33,9 +50,17 @@ export function useBorrowFlow({
   market,
 }: UseBorrowFlowParams): BorrowFlowControls {
   const [flow, setFlow] = React.useState<BorrowFlowState>(INITIAL_FLOW_STATE)
+  const [activity, setActivity] = React.useState<BorrowActivity[]>([])
+  const [position, setPosition] = React.useState<UserPosition | null>(null)
+  const protocolAdapter = React.useMemo<ProtocolAdapter>(
+    () => mockProtocolAdapter,
+    []
+  )
   const verificationTimerRefs = React.useRef<
     Array<ReturnType<typeof setTimeout>>
   >([])
+  const connectedWalletRef = React.useRef<string | null>(null)
+  const confirmedPayloadRef = React.useRef<string | null>(null)
   const metrics = React.useMemo(
     () => getBorrowFlowMetrics(flow, market, account),
     [account, flow, market]
@@ -47,6 +72,49 @@ export function useBorrowFlow({
     }
   }, [])
 
+  React.useEffect(() => {
+    if (!account || connectedWalletRef.current === account.wallet.address) {
+      return
+    }
+
+    connectedWalletRef.current = account.wallet.address
+    setActivity((currentActivity) =>
+      appendBorrowActivity(
+        currentActivity,
+        createWalletConnectedActivity({ account })
+      )
+    )
+  }, [account])
+
+  React.useEffect(() => {
+    const payloadId = flow.transactionPayload?.id ?? null
+
+    if (
+      flow.transactionStatus !== "Confirmed" ||
+      !flow.transactionReceipt ||
+      !payloadId ||
+      confirmedPayloadRef.current === payloadId
+    ) {
+      return
+    }
+
+    const nextPosition = createUserPosition({
+      flow,
+      market,
+      metrics,
+      receipt: flow.transactionReceipt,
+    })
+
+    confirmedPayloadRef.current = payloadId
+    setPosition(nextPosition)
+    setActivity((currentActivity) =>
+      appendBorrowActivity(
+        currentActivity,
+        createConfirmedPositionActivity({ position: nextPosition })
+      )
+    )
+  }, [flow, market, metrics])
+
   const setFieldValue = React.useCallback(
     (field: BorrowField, value: string) => {
       setFlow((currentFlow) => ({
@@ -56,6 +124,7 @@ export function useBorrowFlow({
         proof: null,
         simulationStatus: "Idle",
         transactionPayload: null,
+        transactionReceipt: null,
         transactionStatus: "Draft",
         verificationStatus: "Not started",
       }))
@@ -67,15 +136,24 @@ export function useBorrowFlow({
     clearVerificationTimers(verificationTimerRefs.current)
 
     if (!metrics.isLoanValid) {
+      const proof = createBorrowProof({ account, market, metrics })
+
       setFlow((currentFlow) => ({
         ...currentFlow,
         borrowIntent: null,
-        proof: createBorrowProof({ market, metrics }),
+        proof,
         simulationStatus: "Idle",
         transactionPayload: null,
+        transactionReceipt: null,
         transactionStatus: "Draft",
         verificationStatus: "Failed",
       }))
+      setActivity((currentActivity) =>
+        appendBorrowActivity(
+          currentActivity,
+          createProofGeneratedActivity({ proof })
+        )
+      )
       return
     }
 
@@ -85,6 +163,7 @@ export function useBorrowFlow({
       proof: null,
       simulationStatus: "Idle",
       transactionPayload: null,
+      transactionReceipt: null,
       transactionStatus: "Draft",
       verificationStatus: "Preparing",
     }))
@@ -96,9 +175,18 @@ export function useBorrowFlow({
       }))
     }, 350)
     const verifiedTimer = setTimeout(() => {
-      const proof = createBorrowProof({ market, metrics })
-      const intent = createBorrowIntentFromFlow({ account, metrics, proof })
-      const simulation = simulateBorrowIntentFromFlow({ intent, metrics })
+      const proof = createBorrowProof({ account, market, metrics })
+      const intent = createBorrowIntentFromFlow({
+        account,
+        adapter: protocolAdapter,
+        metrics,
+        proof,
+      })
+      const simulation = simulateBorrowIntentFromFlow({
+        adapter: protocolAdapter,
+        intent,
+        metrics,
+      })
 
       setFlow((currentFlow) => ({
         ...currentFlow,
@@ -106,47 +194,72 @@ export function useBorrowFlow({
         proof,
         simulationStatus: simulation.status,
         transactionPayload: simulation.payload,
+        transactionReceipt: null,
         transactionStatus: simulation.status === "Ready" ? "Ready" : "Draft",
         verificationStatus: proof.status,
       }))
+      setActivity((currentActivity) => {
+        let nextActivity = appendBorrowActivity(
+          currentActivity,
+          createProofGeneratedActivity({ proof })
+        )
+
+        if (intent) {
+          nextActivity = appendBorrowActivity(
+            nextActivity,
+            createIntentPreparedActivity({ intent })
+          )
+        }
+
+        return nextActivity
+      })
     }, 900)
 
     verificationTimerRefs.current = [preparingTimer, verifiedTimer]
-  }, [account, market, metrics])
+  }, [account, market, metrics, protocolAdapter])
 
   const refreshTransaction = React.useCallback(() => {
     setFlow((currentFlow) => ({
       ...currentFlow,
-      ...getRefreshedTransactionState(currentFlow),
+      ...getRefreshedTransactionState(currentFlow, protocolAdapter),
     }))
-  }, [])
+  }, [protocolAdapter])
 
   const submitTransaction = React.useCallback(() => {
-    setFlow((currentFlow) => {
-      const canSubmit = canSubmitTransaction({
-        metrics,
-        simulationStatus: currentFlow.simulationStatus,
-        status: currentFlow.verificationStatus,
-        transactionPayload: currentFlow.transactionPayload,
-      })
-
-      return {
-        ...currentFlow,
-        transactionPayload: canSubmit
-          ? currentFlow.transactionPayload
-            ? { ...currentFlow.transactionPayload, status: "Signing" }
-            : null
-          : currentFlow.transactionPayload,
-        transactionStatus: canSubmit
-          ? "Signing"
-          : currentFlow.transactionStatus,
-      }
+    const canSubmit = canSubmitTransaction({
+      metrics,
+      simulationStatus: flow.simulationStatus,
+      status: flow.verificationStatus,
+      transactionPayload: flow.transactionPayload,
     })
-  }, [metrics])
+
+    if (!canSubmit) {
+      return
+    }
+
+    const submitted = protocolAdapter.submitTransaction({
+      payload: flow.transactionPayload,
+    })
+
+    setFlow((currentFlow) => ({
+      ...currentFlow,
+      transactionPayload: submitted.payload,
+      transactionReceipt: submitted.receipt,
+      transactionStatus: submitted.status,
+    }))
+    setActivity((currentActivity) =>
+      appendBorrowActivity(
+        currentActivity,
+        createTransactionSubmittedActivity({ status: submitted.status })
+      )
+    )
+  }, [flow, metrics, protocolAdapter])
 
   return {
+    activity,
     flow,
     metrics,
+    position,
     refreshTransaction,
     setFieldValue,
     submitTransaction,
@@ -164,21 +277,27 @@ function clearVerificationTimers(
 }
 
 function getRefreshedTransactionState(
-  flow: BorrowFlowState
-): Pick<BorrowFlowState, "transactionPayload" | "transactionStatus"> {
+  flow: BorrowFlowState,
+  adapter: ProtocolAdapter
+): Pick<
+  BorrowFlowState,
+  "transactionPayload" | "transactionReceipt" | "transactionStatus"
+> {
   if (flow.transactionStatus === "Draft") {
     return {
       transactionPayload: flow.transactionPayload,
+      transactionReceipt: flow.transactionReceipt,
       transactionStatus: flow.transactionStatus,
     }
   }
 
-  const transactionStatus = getNextSubmitStatus(flow.transactionStatus)
+  const refreshed = adapter.refreshTransaction({
+    payload: flow.transactionPayload,
+  })
 
   return {
-    transactionPayload: flow.transactionPayload
-      ? { ...flow.transactionPayload, status: transactionStatus }
-      : null,
-    transactionStatus,
+    transactionPayload: refreshed.payload,
+    transactionReceipt: refreshed.receipt ?? flow.transactionReceipt,
+    transactionStatus: refreshed.status,
   }
 }

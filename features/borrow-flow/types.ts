@@ -1,9 +1,11 @@
 import type {
   BorrowIntent,
+  ProtocolTransactionReceipt,
   ProtocolSimulationStatus,
   ProtocolSubmitStatus,
   ProtocolTransactionPayload,
 } from "@/features/protocol"
+import type { BorrowEligibilityProof } from "@/features/proofs"
 import type { SupportedAssetSymbol } from "@/features/markets"
 
 export type MarketStep =
@@ -31,9 +33,36 @@ export type AssetAmount = {
 
 export type UserPosition = {
   borrowed: AssetAmount[]
+  borrowApr: string
   borrowingPowerUsed: number
+  id: string
   healthFactor: number | null
+  market: string
+  nextPaymentDue: string
+  openedAt: string
+  receiptHash: string
+  status: "Open"
   supplied: AssetAmount[]
+}
+
+export type BorrowActivityType =
+  | "borrow_intent_prepared"
+  | "proof_generated"
+  | "transaction_confirmed"
+  | "transaction_submitted"
+  | "wallet_connected"
+
+export type BorrowActivityStatus = "completed" | "failed" | "pending"
+
+export type BorrowActivity = {
+  description: string
+  id: string
+  privateValue?: boolean
+  status: BorrowActivityStatus
+  timestamp: string
+  title: string
+  type: BorrowActivityType
+  value?: string
 }
 
 export type BorrowQuote = {
@@ -73,17 +102,7 @@ export type TransactionPreview = {
   verification: VerificationStatus
 }
 
-export type BorrowProof = {
-  claim: string
-  expiresAt: string
-  id: string
-  publicInputs: {
-    healthFactorMin: string
-    market: string
-    maxLtv: string
-  }
-  status: VerificationStatus
-}
+export type BorrowProof = BorrowEligibilityProof
 
 export type BorrowFlowState = {
   borrowIntent: BorrowIntent | null
@@ -92,6 +111,7 @@ export type BorrowFlowState = {
   proof: BorrowProof | null
   simulationStatus: ProtocolSimulationStatus
   transactionPayload: ProtocolTransactionPayload | null
+  transactionReceipt: ProtocolTransactionReceipt | null
   transactionStatus: TransactionStatus
   verificationStatus: VerificationStatus
 }

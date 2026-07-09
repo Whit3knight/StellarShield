@@ -22,6 +22,7 @@ type DesktopMarketStepPanelProps = BorrowFlowDrawerProps & {
 export function DesktopMarketStepPanel({
   account,
   activeStep,
+  activity,
   flow,
   market,
   metrics,
@@ -31,6 +32,7 @@ export function DesktopMarketStepPanel({
   onSubmit,
   onStepChange,
   onVerify,
+  position,
   step,
 }: DesktopMarketStepPanelProps): React.ReactElement {
   const activeIndex = getStepIndex(activeStep)
@@ -76,11 +78,13 @@ export function DesktopMarketStepPanel({
         <div className="space-y-5">
           <DrawerStepBody
             account={account}
+            activity={activity}
             flow={flow}
             market={market}
             metrics={metrics}
             onFieldChange={onFieldChange}
             onRefreshTransaction={onRefreshTransaction}
+            position={position}
             step={step}
           />
         </div>

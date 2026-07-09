@@ -23,6 +23,7 @@ function MobileDrawerBackButton(): React.ReactElement {
 
 function MobileTransactionDrawer({
   account,
+  activity,
   flow,
   market,
   metrics,
@@ -30,6 +31,7 @@ function MobileTransactionDrawer({
   onFieldChange,
   onRefreshTransaction,
   onSubmit,
+  position,
 }: Omit<BorrowFlowDrawerProps, "onVerify">): React.ReactElement {
   return (
     <Drawer>
@@ -38,11 +40,13 @@ function MobileTransactionDrawer({
       </DrawerTrigger>
       <MarketDrawerPopup
         account={account}
+        activity={activity}
         flow={flow}
         market={market}
         metrics={metrics}
         onFieldChange={onFieldChange}
         onRefreshTransaction={onRefreshTransaction}
+        position={position}
         step="transaction"
       >
         <MarketDrawerFooter>
@@ -60,6 +64,7 @@ function MobileTransactionDrawer({
 
 function MobileVerificationDrawer({
   account,
+  activity,
   flow,
   market,
   metrics,
@@ -68,6 +73,7 @@ function MobileVerificationDrawer({
   onRefreshTransaction,
   onSubmit,
   onVerify,
+  position,
 }: BorrowFlowDrawerProps): React.ReactElement {
   const isChecking = isVerificationPending(flow.verificationStatus)
   const canSubmit = canSubmitTransaction({
@@ -87,11 +93,13 @@ function MobileVerificationDrawer({
       </DrawerTrigger>
       <MarketDrawerPopup
         account={account}
+        activity={activity}
         flow={flow}
         market={market}
         metrics={metrics}
         onFieldChange={onFieldChange}
         onRefreshTransaction={onRefreshTransaction}
+        position={position}
         step="verification"
       >
         <MarketDrawerFooter>
@@ -99,6 +107,7 @@ function MobileVerificationDrawer({
           {canSubmit ? (
             <MobileTransactionDrawer
               account={account}
+              activity={activity}
               flow={flow}
               market={market}
               metrics={metrics}
@@ -106,6 +115,7 @@ function MobileVerificationDrawer({
               onFieldChange={onFieldChange}
               onRefreshTransaction={onRefreshTransaction}
               onSubmit={onSubmit}
+              position={position}
             />
           ) : (
             <Button
@@ -156,8 +166,10 @@ export function MobileMarketDrawer({
   onClose,
 }: MobileMarketDrawerProps): React.ReactElement {
   const {
+    activity,
     flow,
     metrics,
+    position,
     refreshTransaction,
     setFieldValue,
     submitTransaction,
@@ -166,6 +178,7 @@ export function MobileMarketDrawer({
 
   const drawerProps = {
     account,
+    activity,
     flow,
     market,
     metrics,
@@ -174,6 +187,7 @@ export function MobileMarketDrawer({
     onRefreshTransaction: refreshTransaction,
     onSubmit: submitTransaction,
     onVerify: verifyEligibility,
+    position,
   } satisfies BorrowFlowDrawerProps
 
   return (

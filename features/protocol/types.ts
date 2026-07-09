@@ -44,3 +44,49 @@ export type ProtocolSimulationResult = {
   payload: ProtocolTransactionPayload | null
   status: ProtocolSimulationStatus
 }
+
+export type ProtocolTransactionReceipt = {
+  confirmedAt: string
+  hash: string
+  network: ProtocolNetwork
+}
+
+export type CreateBorrowIntentParams = Omit<BorrowIntent, "id">
+
+export type PrepareTransactionParams = {
+  fee: ProtocolAssetAmount
+  intent: BorrowIntent
+  now?: number
+}
+
+export type SimulateBorrowParams = {
+  fee: ProtocolAssetAmount
+  intent: BorrowIntent | null
+  now?: number
+}
+
+export type SubmitTransactionParams = {
+  payload: ProtocolTransactionPayload | null
+}
+
+export type RefreshTransactionParams = {
+  payload: ProtocolTransactionPayload | null
+  now?: number
+}
+
+export type ProtocolSubmitResult = {
+  error: string | null
+  payload: ProtocolTransactionPayload | null
+  receipt: ProtocolTransactionReceipt | null
+  status: ProtocolSubmitStatus
+}
+
+export type ProtocolAdapter = {
+  createBorrowIntent: (params: CreateBorrowIntentParams) => BorrowIntent
+  prepareTransaction: (
+    params: PrepareTransactionParams
+  ) => ProtocolTransactionPayload
+  refreshTransaction: (params: RefreshTransactionParams) => ProtocolSubmitResult
+  simulateBorrow: (params: SimulateBorrowParams) => ProtocolSimulationResult
+  submitTransaction: (params: SubmitTransactionParams) => ProtocolSubmitResult
+}

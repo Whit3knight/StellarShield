@@ -4,11 +4,11 @@ import type { ConnectedAccount } from "@/app/_constants/account"
 import { marketCards } from "@/features/markets"
 
 import { INITIAL_FLOW_STATE } from "./constants"
+import { createUserPosition } from "./positions"
 import {
   createBorrowIntentFromFlow,
   createBorrowProof,
   createTransactionPreview,
-  createUserPosition,
   formatAssetAmount,
   formatPairPrice,
   formatUsd,
@@ -190,7 +190,7 @@ describe("borrow flow utilities", () => {
       account
     )
 
-    expect(createBorrowProof({ market, metrics })).toMatchObject({
+    expect(createBorrowProof({ account, market, metrics })).toMatchObject({
       publicInputs: {
         healthFactorMin: "1.25",
         market: "USDC/XLM",
@@ -198,7 +198,7 @@ describe("borrow flow utilities", () => {
       },
       status: "Verified",
     })
-    const proof = createBorrowProof({ market, metrics })
+    const proof = createBorrowProof({ account, market, metrics })
 
     expect(
       createBorrowIntentFromFlow({ account, metrics, proof })
@@ -208,8 +208,26 @@ describe("borrow flow utilities", () => {
       market: "USDC/XLM",
       proofId: proof.id,
     })
-    expect(createUserPosition({ market, metrics })).toMatchObject({
+    expect(
+      createUserPosition({
+        flow: {
+          ...INITIAL_FLOW_STATE,
+          borrowIntent: createBorrowIntentFromFlow({ account, metrics, proof }),
+        },
+        market,
+        metrics,
+        now: Date.UTC(2026, 6, 9),
+        receipt: {
+          confirmedAt: "2026-07-09T00:00:00.000Z",
+          hash: "3f6d...91b2",
+          network: "stellar-testnet",
+        },
+      })
+    ).toMatchObject({
       borrowed: [{ amount: 50, symbol: "USDC", valueUsd: 50 }],
+      market: "USDC/XLM",
+      receiptHash: "3f6d...91b2",
+      status: "Open",
       supplied: [{ amount: 1000, symbol: "XLM", valueUsd: 120 }],
     })
   })

@@ -21,8 +21,10 @@ export function DesktopMarketDrawer({
 }: DesktopMarketDrawerProps): React.ReactElement {
   const [activeStep, setActiveStep] = React.useState<MarketStep>("detail")
   const {
+    activity,
     flow,
     metrics,
+    position,
     refreshTransaction,
     setFieldValue,
     submitTransaction,
@@ -36,6 +38,7 @@ export function DesktopMarketDrawer({
           <DesktopMarketStepPanel
             activeStep={activeStep}
             account={account}
+            activity={activity}
             flow={flow}
             key={step}
             market={market}
@@ -46,6 +49,7 @@ export function DesktopMarketDrawer({
             onSubmit={submitTransaction}
             onStepChange={setActiveStep}
             onVerify={verifyEligibility}
+            position={position}
             step={step}
           />
         ))}
