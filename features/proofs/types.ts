@@ -1,4 +1,4 @@
-import type { ProtocolAssetAmount } from "@/features/protocol"
+import type { AssetAmount } from "@/features/shared/asset-amount"
 
 export type BorrowProofStatus = "Failed" | "Verified"
 
@@ -18,8 +18,8 @@ export type BorrowEligibilityProof = {
 
 export type GenerateBorrowProofParams = {
   account: string | null
-  borrow: ProtocolAssetAmount
-  collateral: ProtocolAssetAmount
+  borrow: AssetAmount
+  collateral: AssetAmount
   healthFactor: number | null
   healthFactorMin: number
   isEligible: boolean

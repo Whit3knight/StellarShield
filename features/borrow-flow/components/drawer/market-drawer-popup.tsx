@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/drawer"
 
 import type { MarketStep } from "../../types"
-import { getStepCopy } from "../../utils"
+import { getStepCopy } from "../../steps"
 import { DrawerStepBody } from "./drawer-step-body"
 import type { BorrowFlowStepProps } from "./types"
 

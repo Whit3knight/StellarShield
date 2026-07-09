@@ -25,9 +25,9 @@ import {
   canSubmitTransaction,
   createBorrowIntentFromFlow,
   createBorrowProof,
-  getBorrowFlowMetrics,
   simulateBorrowIntentFromFlow,
-} from "../utils"
+} from "../flow-actions"
+import { getBorrowFlowMetrics } from "../quote"
 
 type BorrowFlowControls = {
   activity: BorrowActivity[]

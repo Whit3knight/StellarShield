@@ -8,7 +8,7 @@ import {
   DESKTOP_STACK_SCALE_STEP,
 } from "../../constants"
 import type { MarketStep } from "../../types"
-import { getStepCopy, getStepIndex } from "../../utils"
+import { getStepCopy, getStepIndex } from "../../steps"
 import { DrawerStepBody } from "./drawer-step-body"
 import { DesktopMarketFooter } from "./market-drawer-footer"
 import type { BorrowFlowDrawerProps } from "./types"

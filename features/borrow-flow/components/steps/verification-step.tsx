@@ -10,7 +10,7 @@ import type { ConnectedAccount } from "@/app/_constants/account"
 import { getMarketPair, type MarketCardData } from "@/features/markets"
 
 import type { BorrowFlowMetrics, BorrowFlowState } from "../../types"
-import { formatAssetAmount, formatUsd } from "../../utils"
+import { formatAssetAmount, formatUsd } from "../../format"
 import { TimelineItem, TimelineSection } from "../flow-timeline"
 
 type VerificationStepProps = {

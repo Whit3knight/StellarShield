@@ -32,9 +32,11 @@ import {
   formatAssetAmount,
   formatPairPrice,
   formatUsd,
+} from "../../format"
+import {
   getCollateralValidationError,
   getLoanValidationError,
-} from "../../utils"
+} from "../../validation"
 
 type BorrowTermsStepProps = {
   account: ConnectedAccount | null

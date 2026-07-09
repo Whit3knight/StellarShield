@@ -6,7 +6,9 @@ import type {
   ProtocolTransactionPayload,
 } from "@/features/protocol"
 import type { BorrowEligibilityProof } from "@/features/proofs"
-import type { SupportedAssetSymbol } from "@/features/markets"
+import type { AssetAmount } from "@/features/shared/asset-amount"
+
+export type { AssetAmount } from "@/features/shared/asset-amount"
 
 export type MarketStep =
   "detail" | "collateral" | "verification" | "transaction"
@@ -24,12 +26,6 @@ export type TransactionStatus = "Draft" | ProtocolSubmitStatus
 export type LoanHealth = "Healthy" | "Attention" | "At risk"
 
 export type BorrowField = "collateralAmount" | "loanAmount"
-
-export type AssetAmount = {
-  amount: number
-  symbol: SupportedAssetSymbol
-  valueUsd: number
-}
 
 export type UserPosition = {
   borrowed: AssetAmount[]

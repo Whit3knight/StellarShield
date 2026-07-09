@@ -7,7 +7,7 @@ import { Card, CardPanel } from "@/components/ui/card"
 import { type MarketCardData } from "@/features/markets"
 import { getWalletAssetBalanceDisplay } from "@/features/wallet/utils"
 
-import { formatPairPrice } from "../../utils"
+import { formatPairPrice } from "../../format"
 
 type MarketDetailStepProps = {
   account: ConnectedAccount | null

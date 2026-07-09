@@ -8,7 +8,8 @@ import type {
   BorrowFlowState,
   MarketStep,
 } from "../../types"
-import { canSubmitTransaction, isVerificationPending } from "../../utils"
+import { canSubmitTransaction } from "../../flow-actions"
+import { isVerificationPending } from "../../steps"
 
 type MarketStepFooterActionsProps = {
   flow: BorrowFlowState

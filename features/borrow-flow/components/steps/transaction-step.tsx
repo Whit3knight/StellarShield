@@ -20,11 +20,8 @@ import type {
   BorrowFlowState,
   UserPosition,
 } from "../../types"
-import {
-  createTransactionPreview,
-  formatAssetAmount,
-  formatUsd,
-} from "../../utils"
+import { formatAssetAmount, formatUsd } from "../../format"
+import { createTransactionPreview } from "../../preview"
 import { TimelineItem, TimelineSection } from "../flow-timeline"
 
 type TransactionStepProps = {

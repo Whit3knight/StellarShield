@@ -11,7 +11,6 @@ export type {
   CreateBorrowIntentParams,
   PrepareTransactionParams,
   ProtocolAdapter,
-  ProtocolAssetAmount,
   ProtocolNetwork,
   ProtocolOperation,
   ProtocolSubmitResult,

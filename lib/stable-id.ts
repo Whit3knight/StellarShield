@@ -1,6 +1,8 @@
-export function createStableFlowId(
+export type StableIdPart = boolean | number | string
+
+export function createStableId(
   prefix: string,
-  ...parts: Array<number | string>
+  ...parts: Array<StableIdPart>
 ): string {
   const input = parts.join("|")
   let hash = 0

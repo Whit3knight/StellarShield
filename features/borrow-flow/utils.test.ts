@@ -8,15 +8,19 @@ import { createUserPosition } from "./positions"
 import {
   createBorrowIntentFromFlow,
   createBorrowProof,
-  createTransactionPreview,
+} from "./flow-actions"
+import {
   formatAssetAmount,
   formatPairPrice,
   formatUsd,
-  getBorrowFlowMetrics,
+  parseAmount,
+} from "./format"
+import { createTransactionPreview } from "./preview"
+import { getBorrowFlowMetrics } from "./quote"
+import {
   getCollateralValidationError,
   getLoanValidationError,
-  parseAmount,
-} from "./utils"
+} from "./validation"
 
 const account: ConnectedAccount = {
   wallet: {

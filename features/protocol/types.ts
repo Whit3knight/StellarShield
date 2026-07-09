@@ -1,4 +1,4 @@
-import type { SupportedAssetSymbol } from "@/features/markets"
+import type { AssetAmount } from "@/features/shared/asset-amount"
 
 export type ProtocolNetwork = "stellar-testnet"
 
@@ -10,16 +10,10 @@ export type ProtocolSimulationStatus =
 export type ProtocolSubmitStatus =
   "Ready" | "Signing" | "Submitted" | "Confirmed" | "Failed"
 
-export type ProtocolAssetAmount = {
-  amount: number
-  symbol: SupportedAssetSymbol
-  valueUsd: number
-}
-
 export type BorrowIntent = {
   account: string
-  borrow: ProtocolAssetAmount
-  collateral: ProtocolAssetAmount
+  borrow: AssetAmount
+  collateral: AssetAmount
   expiresAt: string
   healthFactor: number | null
   id: string
@@ -30,7 +24,7 @@ export type BorrowIntent = {
 
 export type ProtocolTransactionPayload = {
   expiresAt: string
-  fee: ProtocolAssetAmount
+  fee: AssetAmount
   id: string
   intentId: string
   memo: string
@@ -54,13 +48,13 @@ export type ProtocolTransactionReceipt = {
 export type CreateBorrowIntentParams = Omit<BorrowIntent, "id">
 
 export type PrepareTransactionParams = {
-  fee: ProtocolAssetAmount
+  fee: AssetAmount
   intent: BorrowIntent
   now?: number
 }
 
 export type SimulateBorrowParams = {
-  fee: ProtocolAssetAmount
+  fee: AssetAmount
   intent: BorrowIntent | null
   now?: number
 }

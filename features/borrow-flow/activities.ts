@@ -9,7 +9,7 @@ import type {
   BorrowProof,
   UserPosition,
 } from "./types"
-import { createStableFlowId } from "./ids"
+import { createStableId } from "@/lib/stable-id"
 
 export function createBorrowActivity({
   description,
@@ -30,7 +30,7 @@ export function createBorrowActivity({
 }): BorrowActivity {
   return {
     description,
-    id: createStableFlowId("activity", type, title, timestamp, value ?? ""),
+    id: createStableId("activity", type, title, timestamp, value ?? ""),
     privateValue,
     status,
     timestamp,
