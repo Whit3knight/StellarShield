@@ -221,20 +221,35 @@ describe("borrow flow utilities", () => {
       market: "USDC/XLM",
       proofId: proof.id,
     })
+    const receipt = {
+      confirmedAt: "2026-07-09T00:00:00.000Z",
+      hash: "3f6d...91b2",
+      network: "stellar-testnet",
+    } as const
     expect(
       createUserPosition({
         flow: {
           ...INITIAL_FLOW_STATE,
-          borrowIntent: intent,
+          transaction: {
+            status: "Confirmed",
+            intent,
+            payload: {
+              expiresAt: "2026-07-09T00:05:00.000Z",
+              fee: metrics.quote.estimatedFee,
+              id: "tx-test",
+              intentId: intent.id,
+              memo: "test",
+              network: "stellar-testnet",
+              operation: "borrow",
+              status: "Confirmed",
+            },
+            receipt,
+          },
         },
         market,
         metrics,
         now: Date.UTC(2026, 6, 9),
-        receipt: {
-          confirmedAt: "2026-07-09T00:00:00.000Z",
-          hash: "3f6d...91b2",
-          network: "stellar-testnet",
-        },
+        receipt,
       })
     ).toMatchObject({
       borrowed: [{ amount: 50, symbol: "USDC", valueUsd: 50 }],

@@ -5,8 +5,8 @@ import type {
   BorrowActivity,
   BorrowActivityStatus,
   BorrowActivityType,
-  BorrowFlowState,
   BorrowProof,
+  TransactionStatus,
   UserPosition,
 } from "./types"
 import { createStableId } from "@/lib/stable-id"
@@ -125,7 +125,7 @@ export function createTransactionSubmittedActivity({
   status,
   timestamp,
 }: {
-  status: BorrowFlowState["transactionStatus"]
+  status: TransactionStatus
   timestamp?: string
 }): BorrowActivity {
   return createBorrowActivity({

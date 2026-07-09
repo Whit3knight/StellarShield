@@ -19,6 +19,7 @@ import type {
   BorrowField,
   BorrowFlowMetrics,
   BorrowFlowState,
+  Transaction,
   UserPosition,
   Verification,
 } from "../types"
@@ -95,22 +96,17 @@ export function useBorrowFlow({
   }, [account])
 
   React.useEffect(() => {
-    const payloadId = flow.transactionPayload?.id ?? null
+    if (flow.transaction.status !== "Confirmed") return
 
-    if (
-      flow.transactionStatus !== "Confirmed" ||
-      !flow.transactionReceipt ||
-      !payloadId ||
-      confirmedPayloadRef.current === payloadId
-    ) {
-      return
-    }
+    const payloadId = flow.transaction.payload.id
+
+    if (confirmedPayloadRef.current === payloadId) return
 
     const nextPosition = createUserPosition({
       flow,
       market,
       metrics,
-      receipt: flow.transactionReceipt,
+      receipt: flow.transaction.receipt,
     })
 
     confirmedPayloadRef.current = payloadId
@@ -130,11 +126,7 @@ export function useBorrowFlow({
       setFlow((currentFlow) => ({
         ...currentFlow,
         [field]: value,
-        borrowIntent: null,
-        simulationStatus: "Idle",
-        transactionPayload: null,
-        transactionReceipt: null,
-        transactionStatus: "Draft",
+        transaction: { status: "Draft" },
         verification: { status: "Not started" },
       }))
     },
@@ -149,11 +141,7 @@ export function useBorrowFlow({
 
     setFlow((currentFlow) => ({
       ...currentFlow,
-      borrowIntent: null,
-      simulationStatus: "Idle",
-      transactionPayload: null,
-      transactionReceipt: null,
-      transactionStatus: "Draft",
+      transaction: { status: "Draft" },
       verification: {
         status: metrics.isLoanValid ? "Preparing" : "Generating proof",
       },
@@ -218,14 +206,14 @@ export function useBorrowFlow({
       proof.status === "Verified"
         ? { status: "Verified", proof }
         : { status: "Failed", proof }
+    const nextTransaction: Transaction =
+      intent && payload
+        ? { status: "Ready", intent, payload }
+        : { status: "Draft" }
 
     setFlow((currentFlow) => ({
       ...currentFlow,
-      borrowIntent: intent,
-      simulationStatus: payload ? "Ready" : "Idle",
-      transactionPayload: payload,
-      transactionReceipt: null,
-      transactionStatus: payload ? "Ready" : "Draft",
+      transaction: nextTransaction,
       verification: nextVerification,
     }))
     setActivity((currentActivity) => {
@@ -248,18 +236,17 @@ export function useBorrowFlow({
   const submitTransaction = React.useCallback(async () => {
     if (
       !account ||
+      flow.transaction.status !== "Ready" ||
       !canSubmitTransaction({
         metrics,
-        simulationStatus: flow.simulationStatus,
         status: flow.verification.status,
-        transactionPayload: flow.transactionPayload,
+        transaction: flow.transaction,
       })
     ) {
       return
     }
 
-    const payload = flow.transactionPayload
-    if (!payload) return
+    const { intent, payload } = flow.transaction
 
     submitAbortRef.current?.abort()
     const controller = new AbortController()
@@ -268,7 +255,7 @@ export function useBorrowFlow({
 
     setFlow((currentFlow) => ({
       ...currentFlow,
-      transactionStatus: "Signing",
+      transaction: { status: "Signing", intent, payload },
     }))
 
     const signResult = await protocolAdapter.signTransaction(
@@ -280,7 +267,12 @@ export function useBorrowFlow({
     if (!signResult.ok) {
       setFlow((currentFlow) => ({
         ...currentFlow,
-        transactionStatus: "Failed",
+        transaction: {
+          status: "Failed",
+          intent,
+          payload,
+          error: signResult.error.tag,
+        },
       }))
       return
     }
@@ -297,7 +289,12 @@ export function useBorrowFlow({
     if (!submitResult.ok) {
       setFlow((currentFlow) => ({
         ...currentFlow,
-        transactionStatus: "Failed",
+        transaction: {
+          status: "Failed",
+          intent,
+          payload: signResult.value.payload,
+          error: submitResult.error.tag,
+        },
       }))
       return
     }
@@ -306,8 +303,7 @@ export function useBorrowFlow({
 
     setFlow((currentFlow) => ({
       ...currentFlow,
-      transactionPayload: submittedPayload,
-      transactionStatus: "Submitted",
+      transaction: { status: "Submitted", intent, payload: submittedPayload },
     }))
     setActivity((currentActivity) =>
       appendBorrowActivity(
@@ -325,15 +321,24 @@ export function useBorrowFlow({
     if (!waitResult.ok) {
       setFlow((currentFlow) => ({
         ...currentFlow,
-        transactionStatus: "Failed",
+        transaction: {
+          status: "Failed",
+          intent,
+          payload: submittedPayload,
+          error: waitResult.error.tag,
+        },
       }))
       return
     }
 
     setFlow((currentFlow) => ({
       ...currentFlow,
-      transactionReceipt: waitResult.value,
-      transactionStatus: "Confirmed",
+      transaction: {
+        status: "Confirmed",
+        intent,
+        payload: submittedPayload,
+        receipt: waitResult.value,
+      },
     }))
   }, [account, flow, metrics, protocolAdapter])
 

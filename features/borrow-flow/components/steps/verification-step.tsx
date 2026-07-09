@@ -14,7 +14,7 @@ import type {
   BorrowFlowState,
   VerificationStatus,
 } from "../../types"
-import { getProof } from "../../types"
+import { getIntent, getProof } from "../../types"
 import { formatAssetAmount, formatUsd } from "../../format"
 import { TimelineItem, TimelineSection } from "../flow-timeline"
 
@@ -50,7 +50,9 @@ export function VerificationStep({
   const verificationStatus = getVerificationTimelineStatus(
     flow.verification.status
   )
-  const borrowIntentStatus = flow.borrowIntent
+  const intent = getIntent(flow.transaction)
+  const simulationLabel = getSimulationLabel(flow.transaction.status)
+  const borrowIntentStatus = intent
     ? "done"
     : flow.verification.status === "Verified"
       ? "active"
@@ -119,7 +121,7 @@ export function VerificationStep({
         to="Protocol simulation"
       />
       <TimelineItem
-        amount={flow.borrowIntent?.id ?? "Prepared after verification"}
+        amount={intent?.id ?? "Prepared after verification"}
         from="Verified proof"
         icon={FileCheckIcon}
         info="The borrow intent binds the verified proof, market pair, and requested amounts before transaction review."
@@ -128,7 +130,7 @@ export function VerificationStep({
         meta={[
           {
             label: "Simulation",
-            value: flow.simulationStatus,
+            value: simulationLabel,
           },
           {
             label: "Loan health",
@@ -143,12 +145,18 @@ export function VerificationStep({
             wide: true,
           },
         ]}
-        privateAmount={Boolean(flow.borrowIntent)}
+        privateAmount={Boolean(intent)}
         status={borrowIntentStatus}
         to="Review transaction"
       />
     </TimelineSection>
   )
+}
+
+function getSimulationLabel(status: BorrowFlowState["transaction"]["status"]): string {
+  if (status === "Ready") return "Ready"
+  if (status === "Draft") return "Idle"
+  return "Simulating"
 }
 
 function getVerificationTimelineStatus(

@@ -17,8 +17,8 @@ import {
 import { HEALTH_FACTOR_MIN, MAX_LOAN_TO_VALUE } from "./constants"
 import type {
   BorrowFlowMetrics,
-  BorrowFlowState,
   BorrowProof,
+  Transaction,
   VerificationStatus,
 } from "./types"
 
@@ -52,20 +52,17 @@ export async function generateProof({
 
 export function canSubmitTransaction({
   metrics,
-  simulationStatus,
   status,
-  transactionPayload,
+  transaction,
 }: {
   metrics: BorrowFlowMetrics
-  simulationStatus: BorrowFlowState["simulationStatus"]
   status: VerificationStatus
-  transactionPayload: ProtocolTransactionPayload | null
+  transaction: Transaction
 }): boolean {
   return (
     status === "Verified" &&
     metrics.isLoanValid &&
-    simulationStatus === "Ready" &&
-    transactionPayload !== null
+    transaction.status === "Ready"
   )
 }
 

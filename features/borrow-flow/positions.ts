@@ -3,6 +3,7 @@ import { getMarketPair } from "@/features/markets"
 import type { ProtocolTransactionReceipt } from "@/features/protocol"
 import { createStableId } from "@/lib/stable-id"
 
+import { getIntent } from "./types"
 import type { BorrowFlowMetrics, BorrowFlowState, UserPosition } from "./types"
 
 const NEXT_PAYMENT_DAYS = 30
@@ -41,7 +42,7 @@ export function createUserPosition({
     healthFactor: metrics.healthFactor,
     id: createStableId(
       "position",
-      flow.borrowIntent?.id ?? "missing-intent",
+      getIntent(flow.transaction)?.id ?? "missing-intent",
       receipt.hash
     ),
     market: getMarketPair(market),

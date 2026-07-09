@@ -2,7 +2,7 @@ import type { ConnectedAccount } from "@/app/_constants/account"
 import type { MarketCardData } from "@/features/markets"
 
 import { formatAssetAmount, formatUsd } from "./format"
-import { getProof } from "./types"
+import { getIntent, getPayload, getProof, getReceipt } from "./types"
 import type {
   BorrowFlowMetrics,
   BorrowFlowState,
@@ -21,7 +21,9 @@ export function createTransactionPreview({
   metrics: BorrowFlowMetrics
 }): TransactionPreview {
   const quote = metrics.quote
-  const payload = flow.transactionPayload
+  const intent = getIntent(flow.transaction)
+  const payload = getPayload(flow.transaction)
+  const receipt = getReceipt(flow.transaction)
   const healthFactor =
     quote.healthFactor === null ? "N/A" : quote.healthFactor.toFixed(2)
 
@@ -38,7 +40,7 @@ export function createTransactionPreview({
       quote.estimatedFee.symbol
     ),
     healthFactor,
-    intentId: flow.borrowIntent?.id ?? "Prepared after verification",
+    intentId: intent?.id ?? "Prepared after verification",
     loan: formatAssetAmount(quote.loan.amount, quote.loan.symbol),
     loanHealth: quote.loanHealth,
     loanValue: formatUsd(quote.loan.valueUsd),
@@ -47,9 +49,8 @@ export function createTransactionPreview({
     network: payload?.network ?? "Prepared after simulation",
     operation: payload?.operation ?? "Prepared after simulation",
     proof: getProof(flow.verification)?.id ?? "Required before submission",
-    receipt: flow.transactionReceipt?.hash ?? null,
-    simulation: flow.simulationStatus,
-    status: flow.transactionStatus,
+    receipt: receipt?.hash ?? null,
+    status: flow.transaction.status,
     verification: flow.verification.status,
   }
 }

@@ -20,7 +20,7 @@ import type {
   BorrowFlowState,
   UserPosition,
 } from "../../types"
-import { getProof } from "../../types"
+import { getIntent, getProof } from "../../types"
 import { formatAssetAmount, formatUsd } from "../../format"
 import { createTransactionPreview } from "../../preview"
 import { TimelineItem, TimelineSection } from "../flow-timeline"
@@ -69,15 +69,16 @@ export function TransactionStep({
   position,
 }: TransactionStepProps): React.ReactElement {
   const showRefresh =
-    flow.transactionStatus === "Signing" ||
-    flow.transactionStatus === "Submitted"
+    flow.transaction.status === "Signing" ||
+    flow.transaction.status === "Submitted"
   const preview = React.useMemo(
     () => createTransactionPreview({ account, flow, market, metrics }),
     [account, flow, market, metrics]
   )
   const marketVault = `${market.collateral} vault`
   const marketPool = `${market.symbol} pool`
-  const signStatus = getTransactionTimelineStatus(flow.transactionStatus)
+  const intent = getIntent(flow.transaction)
+  const signStatus = getTransactionTimelineStatus(flow.transaction.status)
 
   return (
     <>
@@ -132,12 +133,8 @@ export function TransactionStep({
           meta={[
             {
               label: "Intent",
-              privateValue: Boolean(flow.borrowIntent),
+              privateValue: Boolean(intent),
               value: preview.intentId,
-            },
-            {
-              label: "Simulation",
-              value: preview.simulation,
             },
             {
               label: "Operation",
@@ -152,11 +149,7 @@ export function TransactionStep({
           ]}
           privateAmount={Boolean(getProof(flow.verification))}
           privateTo
-          status={
-            getProof(flow.verification) && flow.borrowIntent
-              ? "done"
-              : "pending"
-          }
+          status={getProof(flow.verification) && intent ? "done" : "pending"}
           to="Borrow intent"
         />
         <TimelineItem
@@ -391,7 +384,7 @@ function formatShortTime(value: string): string {
 }
 
 function getTransactionTimelineStatus(
-  status: BorrowFlowState["transactionStatus"]
+  status: BorrowFlowState["transaction"]["status"]
 ): "active" | "done" | "failed" | "pending" {
   if (status === "Confirmed") {
     return "done"

@@ -54,7 +54,7 @@ describe("useBorrowFlow", () => {
     })
 
     expect(result.current.flow.verification.status).toBe("Verified")
-    expect(result.current.flow.borrowIntent).toBeTruthy()
+    expect(result.current.flow.transaction.status).toBe("Ready")
     expect(result.current.activity.map((item) => item.type)).toEqual(
       expect.arrayContaining(["proof_generated", "borrow_intent_prepared"])
     )
@@ -63,7 +63,7 @@ describe("useBorrowFlow", () => {
       await result.current.submitTransaction()
     })
 
-    expect(result.current.flow.transactionStatus).toBe("Confirmed")
+    expect(result.current.flow.transaction.status).toBe("Confirmed")
     expect(result.current.position).toMatchObject({
       borrowed: [{ amount: 220, symbol: "USDC" }],
       market: "USDC/XLM",
@@ -97,8 +97,7 @@ describe("useBorrowFlow", () => {
     })
 
     expect(result.current.flow.verification.status).toBe("Failed")
-    expect(result.current.flow.borrowIntent).toBeNull()
-    expect(result.current.flow.transactionPayload).toBeNull()
+    expect(result.current.flow.transaction.status).toBe("Draft")
     expect(result.current.activity.map((item) => item.type)).toContain(
       "proof_generated"
     )
@@ -115,7 +114,7 @@ describe("useBorrowFlow", () => {
       await result.current.submitTransaction()
     })
 
-    expect(result.current.flow.transactionStatus).toBe("Draft")
+    expect(result.current.flow.transaction.status).toBe("Draft")
     expect(
       result.current.activity.some(
         (item) => item.type === "transaction_submitted"

@@ -25,12 +25,8 @@ export const DESKTOP_FOOTER_CLASS =
   "flex w-full flex-row items-center justify-between gap-2 border-t bg-muted/72 px-6 pt-4 pb-[calc(env(safe-area-inset-bottom,0px)+--spacing(4))]"
 
 export const INITIAL_FLOW_STATE: BorrowFlowState = {
-  borrowIntent: null,
   collateralAmount: "3000",
   loanAmount: "220",
-  simulationStatus: "Idle",
-  transactionPayload: null,
-  transactionReceipt: null,
-  transactionStatus: "Draft",
+  transaction: { status: "Draft" },
   verification: { status: "Not started" },
 }

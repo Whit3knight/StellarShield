@@ -1,9 +1,7 @@
 import type {
   BorrowIntent,
-  ProtocolTransactionReceipt,
-  ProtocolSimulationStatus,
-  ProtocolSubmitStatus,
   ProtocolTransactionPayload,
+  ProtocolTransactionReceipt,
 } from "@/features/protocol"
 import type { BorrowEligibilityProof } from "@/features/proofs"
 import type { AssetAmount } from "@/features/shared/asset-amount"
@@ -29,7 +27,43 @@ export type Verification =
   | { status: "Failed"; proof: BorrowProof }
   | { status: "Expired"; proof: BorrowProof }
 
-export type TransactionStatus = "Draft" | ProtocolSubmitStatus
+export type TransactionStatus =
+  | "Draft"
+  | "Ready"
+  | "Signing"
+  | "Submitted"
+  | "Confirmed"
+  | "Failed"
+
+export type Transaction =
+  | { status: "Draft" }
+  | {
+      status: "Ready"
+      intent: BorrowIntent
+      payload: ProtocolTransactionPayload
+    }
+  | {
+      status: "Signing"
+      intent: BorrowIntent
+      payload: ProtocolTransactionPayload
+    }
+  | {
+      status: "Submitted"
+      intent: BorrowIntent
+      payload: ProtocolTransactionPayload
+    }
+  | {
+      status: "Confirmed"
+      intent: BorrowIntent
+      payload: ProtocolTransactionPayload
+      receipt: ProtocolTransactionReceipt
+    }
+  | {
+      status: "Failed"
+      intent?: BorrowIntent
+      payload?: ProtocolTransactionPayload
+      error?: string
+    }
 
 export type LoanHealth = "Healthy" | "Attention" | "At risk"
 
@@ -101,7 +135,6 @@ export type TransactionPreview = {
   operation: string
   proof: string
   receipt: string | null
-  simulation: ProtocolSimulationStatus
   status: TransactionStatus
   verification: VerificationStatus
 }
@@ -109,20 +142,33 @@ export type TransactionPreview = {
 export type BorrowProof = BorrowEligibilityProof
 
 export type BorrowFlowState = {
-  borrowIntent: BorrowIntent | null
   collateralAmount: string
   loanAmount: string
-  simulationStatus: ProtocolSimulationStatus
-  transactionPayload: ProtocolTransactionPayload | null
-  transactionReceipt: ProtocolTransactionReceipt | null
-  transactionStatus: TransactionStatus
+  transaction: Transaction
   verification: Verification
 }
 
 export const NO_VERIFICATION: Verification = { status: "Not started" }
+export const NO_TRANSACTION: Transaction = { status: "Draft" }
 
 export function getProof(verification: Verification): BorrowProof | null {
   return "proof" in verification ? verification.proof : null
+}
+
+export function getIntent(transaction: Transaction): BorrowIntent | null {
+  return "intent" in transaction ? transaction.intent ?? null : null
+}
+
+export function getPayload(
+  transaction: Transaction
+): ProtocolTransactionPayload | null {
+  return "payload" in transaction ? transaction.payload ?? null : null
+}
+
+export function getReceipt(
+  transaction: Transaction
+): ProtocolTransactionReceipt | null {
+  return transaction.status === "Confirmed" ? transaction.receipt : null
 }
 
 export type BorrowFlowMetrics = {
