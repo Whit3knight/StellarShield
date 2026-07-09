@@ -1,10 +1,16 @@
 import { act, renderHook } from "@testing-library/react"
+import type * as React from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { ConnectedAccount } from "@/app/_constants/account"
 import { marketCards } from "@/features/markets"
+import { AdapterProvider } from "@/features/shared/adapter-provider"
 
 import { useBorrowFlow } from "./use-borrow-flow"
+
+function wrapper({ children }: { children: React.ReactNode }) {
+  return <AdapterProvider>{children}</AdapterProvider>
+}
 
 const account: ConnectedAccount = {
   wallet: {
@@ -30,8 +36,9 @@ describe("useBorrowFlow", () => {
   })
 
   it("creates proof, intent, activity, and position after confirmation", async () => {
-    const { result } = renderHook(() =>
-      useBorrowFlow({ account, market: marketCards[0] })
+    const { result } = renderHook(
+      () => useBorrowFlow({ account, market: marketCards[0] }),
+      { wrapper }
     )
 
     await act(async () => undefined)

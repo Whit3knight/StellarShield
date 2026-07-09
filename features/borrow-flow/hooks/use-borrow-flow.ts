@@ -2,7 +2,8 @@ import * as React from "react"
 
 import type { ConnectedAccount } from "@/app/_constants/account"
 import type { MarketCardData } from "@/features/markets"
-import { mockProtocolAdapter, type ProtocolAdapter } from "@/features/protocol"
+import type { ProtocolAdapter } from "@/features/protocol"
+import { useAdapters } from "@/features/shared/adapter-provider"
 
 import { INITIAL_FLOW_STATE } from "../constants"
 import {
@@ -53,10 +54,7 @@ export function useBorrowFlow({
   const [flow, setFlow] = React.useState<BorrowFlowState>(INITIAL_FLOW_STATE)
   const [activity, setActivity] = React.useState<BorrowActivity[]>([])
   const [position, setPosition] = React.useState<UserPosition | null>(null)
-  const protocolAdapter = React.useMemo<ProtocolAdapter>(
-    () => mockProtocolAdapter,
-    []
-  )
+  const { protocol: protocolAdapter, prover } = useAdapters()
   const verificationTimerRefs = React.useRef<
     Array<ReturnType<typeof setTimeout>>
   >([])
@@ -136,7 +134,7 @@ export function useBorrowFlow({
     clearVerificationTimers(verificationTimerRefs.current)
 
     if (!metrics.isLoanValid) {
-      const proof = createBorrowProof({ account, market, metrics })
+      const proof = createBorrowProof({ account, market, metrics, prover })
 
       setFlow((currentFlow) => ({
         ...currentFlow,
@@ -173,7 +171,7 @@ export function useBorrowFlow({
       }))
     }, 350)
     const verifiedTimer = setTimeout(() => {
-      const proof = createBorrowProof({ account, market, metrics })
+      const proof = createBorrowProof({ account, market, metrics, prover })
       const intent = createBorrowIntentFromFlow({
         account,
         adapter: protocolAdapter,
@@ -217,7 +215,7 @@ export function useBorrowFlow({
     }, 900)
 
     verificationTimerRefs.current = [preparingTimer, verifiedTimer]
-  }, [account, market, metrics, protocolAdapter])
+  }, [account, market, metrics, protocolAdapter, prover])
 
   const refreshTransaction = React.useCallback(() => {
     setFlow((currentFlow) => ({

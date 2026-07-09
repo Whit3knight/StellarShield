@@ -6,7 +6,10 @@ import {
   type ProtocolAdapter,
   type ProtocolTransactionPayload,
 } from "@/features/protocol"
-import { generateBorrowProof } from "@/features/proofs"
+import {
+  type BorrowProverAdapter,
+  mockBorrowProverAdapter,
+} from "@/features/proofs"
 
 import { HEALTH_FACTOR_MIN, MAX_LOAN_TO_VALUE } from "./constants"
 import type {
@@ -20,12 +23,14 @@ export function createBorrowProof({
   account,
   market,
   metrics,
+  prover = mockBorrowProverAdapter,
 }: {
   account: ConnectedAccount | null
   market: MarketCardData
   metrics: BorrowFlowMetrics
+  prover?: BorrowProverAdapter
 }): BorrowProof {
-  return generateBorrowProof({
+  return prover.generateBorrowProof({
     account: account?.wallet.address ?? null,
     borrow: metrics.quote.loan,
     collateral: metrics.quote.collateral,

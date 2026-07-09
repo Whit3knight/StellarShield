@@ -4,6 +4,7 @@ import "./globals.css"
 import { appPreferenceKeys } from "./_constants/preferences"
 
 import { ThemeProvider } from "@/components/theme-provider"
+import { AdapterProvider } from "@/features/shared/adapter-provider"
 import { cn } from "@/lib/utils"
 
 const manropeHeading = Manrope({
@@ -41,7 +42,9 @@ export default function RootLayout({
           dangerouslySetInnerHTML={{ __html: privacyModeScript }}
           suppressHydrationWarning
         />
-        <ThemeProvider>{children}</ThemeProvider>
+        <ThemeProvider>
+          <AdapterProvider>{children}</AdapterProvider>
+        </ThemeProvider>
       </body>
     </html>
   )
