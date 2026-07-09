@@ -2,10 +2,14 @@
 
 import * as React from "react"
 
+import { ActivityDrawer } from "@/components/organisms/activity-drawer"
 import { ConnectWalletDialog } from "@/components/organisms/connect-wallet-dialog"
+import { ProofsDrawer } from "@/components/organisms/proofs-drawer"
+import { useBorrowSession } from "@/features/borrow-flow/session-store"
 import { useWalletConnection } from "@/features/wallet/use-wallet-connection"
 
 import { walletProviders, type WalletProvider } from "../_constants/account"
+import { useNavMenus } from "../_hooks/use-nav-menus"
 import { NotificationMenu } from "./notification-menu"
 import { UserMenu } from "./user-menu"
 
@@ -42,23 +46,44 @@ export function WalletNavActions(): React.ReactElement {
     [connect]
   )
 
-  if (!account) {
-    return (
-      <ConnectWalletDialog
-        error={error}
-        onConnect={handleConnect}
-        onOpenChange={handleOpenChange}
-        open={open}
-        pendingProviderId={pendingProviderId}
-        providers={walletProviders}
-      />
-    )
-  }
+  return (
+    <>
+      {account ? (
+        <>
+          <NotificationMenu />
+          <UserMenu account={account} onDisconnect={disconnect} />
+        </>
+      ) : (
+        <ConnectWalletDialog
+          error={error}
+          onConnect={handleConnect}
+          onOpenChange={handleOpenChange}
+          open={open}
+          pendingProviderId={pendingProviderId}
+          providers={walletProviders}
+        />
+      )}
+      <SessionDrawers />
+    </>
+  )
+}
+
+function SessionDrawers(): React.ReactElement {
+  const { activityDrawer, proofsDrawer } = useNavMenus()
+  const { activities, proofs } = useBorrowSession()
 
   return (
     <>
-      <NotificationMenu />
-      <UserMenu account={account} onDisconnect={disconnect} />
+      <ActivityDrawer
+        activities={activities}
+        onOpenChange={activityDrawer.setOpen}
+        open={activityDrawer.open}
+      />
+      <ProofsDrawer
+        onOpenChange={proofsDrawer.setOpen}
+        open={proofsDrawer.open}
+        proofs={proofs}
+      />
     </>
   )
 }

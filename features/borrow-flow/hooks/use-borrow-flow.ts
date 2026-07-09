@@ -14,6 +14,7 @@ import {
   createWalletConnectedActivity,
 } from "../activities"
 import { createUserPosition } from "../positions"
+import { borrowSession } from "../session-store"
 import type {
   BorrowActivity,
   BorrowField,
@@ -86,12 +87,12 @@ export function useBorrowFlow({
     }
 
     connectedWalletRef.current = account.wallet.address
+    const walletConnectedActivity = createWalletConnectedActivity({ account })
+
     setActivity((currentActivity) =>
-      appendBorrowActivity(
-        currentActivity,
-        createWalletConnectedActivity({ account })
-      )
+      appendBorrowActivity(currentActivity, walletConnectedActivity)
     )
+    borrowSession.appendActivity(walletConnectedActivity)
   }, [account])
 
   React.useEffect(() => {
@@ -110,12 +111,14 @@ export function useBorrowFlow({
 
     confirmedPayloadRef.current = payloadId
     setPosition(nextPosition)
+    const confirmedActivity = createConfirmedPositionActivity({
+      position: nextPosition,
+    })
+
     setActivity((currentActivity) =>
-      appendBorrowActivity(
-        currentActivity,
-        createConfirmedPositionActivity({ position: nextPosition })
-      )
+      appendBorrowActivity(currentActivity, confirmedActivity)
     )
+    borrowSession.appendActivity(confirmedActivity)
   }, [flow, market, metrics])
 
   const setFieldValue = React.useCallback(
@@ -170,12 +173,13 @@ export function useBorrowFlow({
         ...currentFlow,
         verification: { status: "Failed", proof },
       }))
+      const proofActivity = createProofGeneratedActivity({ proof })
+
       setActivity((currentActivity) =>
-        appendBorrowActivity(
-          currentActivity,
-          createProofGeneratedActivity({ proof })
-        )
+        appendBorrowActivity(currentActivity, proofActivity)
       )
+      borrowSession.appendActivity(proofActivity)
+      borrowSession.appendProof(proof)
       return
     }
 
@@ -215,21 +219,23 @@ export function useBorrowFlow({
       transaction: nextTransaction,
       verification: nextVerification,
     }))
-    setActivity((currentActivity) => {
-      let next = appendBorrowActivity(
-        currentActivity,
-        createProofGeneratedActivity({ proof })
-      )
+    const proofActivity = createProofGeneratedActivity({ proof })
+    const intentActivity = intent
+      ? createIntentPreparedActivity({ intent })
+      : null
 
-      if (intent) {
-        next = appendBorrowActivity(
-          next,
-          createIntentPreparedActivity({ intent })
-        )
+    setActivity((currentActivity) => {
+      let next = appendBorrowActivity(currentActivity, proofActivity)
+
+      if (intentActivity) {
+        next = appendBorrowActivity(next, intentActivity)
       }
 
       return next
     })
+    borrowSession.appendActivity(proofActivity)
+    if (intentActivity) borrowSession.appendActivity(intentActivity)
+    borrowSession.appendProof(proof)
   }, [account, market, metrics, protocolAdapter, prover])
 
   const submitTransaction = React.useCallback(async () => {
@@ -304,12 +310,14 @@ export function useBorrowFlow({
       ...currentFlow,
       transaction: { status: "Submitted", intent, payload: submittedPayload },
     }))
+    const submittedActivity = createTransactionSubmittedActivity({
+      status: submittedPayload.status,
+    })
+
     setActivity((currentActivity) =>
-      appendBorrowActivity(
-        currentActivity,
-        createTransactionSubmittedActivity({ status: submittedPayload.status })
-      )
+      appendBorrowActivity(currentActivity, submittedActivity)
     )
+    borrowSession.appendActivity(submittedActivity)
 
     const waitResult = await protocolAdapter.waitForConfirmation(
       { payload: submittedPayload },

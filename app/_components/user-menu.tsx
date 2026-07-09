@@ -1,9 +1,11 @@
 "use client"
 
 import {
+  ActivityIcon,
   ArrowUpRightIcon,
   ExternalLinkIcon,
   LogOutIcon,
+  ShieldCheckIcon,
   WalletCardsIcon,
   WalletIcon,
 } from "lucide-react"
@@ -29,7 +31,7 @@ import { WalletDetailPanel } from "@/components/organisms/wallet-detail-panel"
 import { getStellarExpertAccountUrl } from "@/features/wallet/network"
 
 import type { ConnectedAccount } from "../_constants/account"
-import { userAppLinks, userResourceLinks } from "../_constants/user-menu-links"
+import { userResourceLinks } from "../_constants/user-menu-links"
 import { useNavMenus } from "../_hooks/use-nav-menus"
 import { PrivacyModeMenuItem } from "./privacy-mode-menu-item"
 import { ThemeModeMenuItem } from "./theme-mode-menu-item"
@@ -41,7 +43,7 @@ export function UserMenu({
   account: ConnectedAccount
   onDisconnect: () => void
 }): React.ReactElement {
-  const { walletMenu } = useNavMenus()
+  const { activityDrawer, proofsDrawer, walletMenu } = useNavMenus()
   const explorerUrl = getStellarExpertAccountUrl(account.wallet.address)
 
   return (
@@ -89,16 +91,20 @@ export function UserMenu({
         <MenuSeparator />
         <MenuGroup>
           <MenuGroupLabel>App</MenuGroupLabel>
-          {userAppLinks.map((link) => {
-            const Icon = link.icon
-
-            return (
-              <MenuLinkItem href={link.href} key={link.label}>
-                <Icon aria-hidden="true" />
-                {link.label}
-              </MenuLinkItem>
-            )
-          })}
+          <MenuItem
+            closeOnClick
+            onClick={() => proofsDrawer.setOpen(true)}
+          >
+            <ShieldCheckIcon aria-hidden="true" />
+            Proofs
+          </MenuItem>
+          <MenuItem
+            closeOnClick
+            onClick={() => activityDrawer.setOpen(true)}
+          >
+            <ActivityIcon aria-hidden="true" />
+            Activity
+          </MenuItem>
         </MenuGroup>
         <MenuSeparator />
         <MenuGroup>
