@@ -7,6 +7,7 @@ import {
   initialNotifications,
   type Notification,
 } from "../_constants/notifications"
+import { useNavMenus } from "../_hooks/use-nav-menus"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -48,6 +49,7 @@ function NotificationIcon({
 
 export function NotificationMenu(): React.ReactElement {
   const [notifications, setNotifications] = React.useState(initialNotifications)
+  const { notifications: notificationsMenu } = useNavMenus()
   const unreadCount = notifications.filter((notification) => {
     return notification.unread
   }).length
@@ -74,7 +76,10 @@ export function NotificationMenu(): React.ReactElement {
   }, [])
 
   return (
-    <Popover>
+    <Popover
+      onOpenChange={notificationsMenu.setOpen}
+      open={notificationsMenu.open}
+    >
       <PopoverTrigger
         render={
           <Button

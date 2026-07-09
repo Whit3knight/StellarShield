@@ -7,6 +7,8 @@ import { ThemeProvider } from "@/components/theme-provider"
 import { AdapterProvider } from "@/features/shared/adapter-provider"
 import { cn } from "@/lib/utils"
 
+import { NavMenusProvider } from "./_hooks/use-nav-menus"
+
 const manropeHeading = Manrope({
   subsets: ["latin"],
   variable: "--font-heading",
@@ -43,7 +45,9 @@ export default function RootLayout({
           suppressHydrationWarning
         />
         <ThemeProvider>
-          <AdapterProvider>{children}</AdapterProvider>
+          <AdapterProvider>
+            <NavMenusProvider>{children}</NavMenusProvider>
+          </AdapterProvider>
         </ThemeProvider>
       </body>
     </html>

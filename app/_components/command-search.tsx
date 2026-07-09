@@ -1,6 +1,17 @@
 "use client"
 
-import { ArrowUpRightIcon, LandmarkIcon, SearchIcon } from "lucide-react"
+import {
+  ArrowUpRightIcon,
+  BellIcon,
+  EyeIcon,
+  EyeOffIcon,
+  LandmarkIcon,
+  LogOutIcon,
+  MoonIcon,
+  SearchIcon,
+  SunIcon,
+} from "lucide-react"
+import { useTheme } from "next-themes"
 import * as React from "react"
 
 import {
@@ -23,10 +34,15 @@ import {
   marketCards,
   type MarketCardData,
 } from "@/features/markets"
+import { useWalletConnection } from "@/features/wallet/use-wallet-connection"
+import { setPrivacyMode, usePrivacyMode } from "@/hooks/use-privacy-mode"
 
 import { useMarketSelection } from "../_hooks/use-market-selection"
+import { useNavMenus } from "../_hooks/use-nav-menus"
 
 type CommandActionItem = {
+  hint?: string
+  icon: React.ComponentType<React.SVGProps<SVGSVGElement>>
   label: string
   onSelect: () => void
   value: string
@@ -41,6 +57,10 @@ type CommandActionGroup = {
 export function CommandSearch(): React.ReactElement {
   const [open, setOpen] = React.useState(false)
   const { selectMarket } = useMarketSelection()
+  const { notifications } = useNavMenus()
+  const { account, disconnect } = useWalletConnection()
+  const { resolvedTheme, setTheme } = useTheme()
+  const isPrivacyMode = usePrivacyMode()
 
   React.useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -59,6 +79,7 @@ export function CommandSearch(): React.ReactElement {
 
   const groups = React.useMemo<CommandActionGroup[]>(() => {
     const marketItems = marketCards.map<CommandActionItem>((market) => ({
+      icon: LandmarkIcon,
       label: getMarketPair(market),
       onSelect: () => {
         selectMarket(market)
@@ -67,8 +88,33 @@ export function CommandSearch(): React.ReactElement {
       value: getMarketSearchValue(market),
     }))
 
+    const isDark = resolvedTheme === "dark"
+    const preferenceItems: CommandActionItem[] = [
+      {
+        hint: isDark ? "Currently dark" : "Currently light",
+        icon: isDark ? SunIcon : MoonIcon,
+        label: isDark ? "Switch to light theme" : "Switch to dark theme",
+        onSelect: () => {
+          setTheme(isDark ? "light" : "dark")
+          setOpen(false)
+        },
+        value: `toggle theme ${isDark ? "light" : "dark"}`,
+      },
+      {
+        hint: isPrivacyMode ? "Currently on" : "Currently off",
+        icon: isPrivacyMode ? EyeIcon : EyeOffIcon,
+        label: isPrivacyMode ? "Turn off privacy mode" : "Turn on privacy mode",
+        onSelect: () => {
+          setPrivacyMode(!isPrivacyMode)
+          setOpen(false)
+        },
+        value: "toggle privacy mode",
+      },
+    ]
+
     const navigationItems: CommandActionItem[] = [
       {
+        icon: ArrowUpRightIcon,
         label: "Go to markets",
         onSelect: () => {
           if (typeof window !== "undefined") {
@@ -82,11 +128,49 @@ export function CommandSearch(): React.ReactElement {
       },
     ]
 
-    return [
+    const accountItems: CommandActionItem[] = account
+      ? [
+          {
+            icon: BellIcon,
+            label: "Open notifications",
+            onSelect: () => {
+              notifications.setOpen(true)
+              setOpen(false)
+            },
+            value: "open notifications",
+          },
+          {
+            icon: LogOutIcon,
+            label: "Disconnect wallet",
+            onSelect: () => {
+              disconnect()
+              setOpen(false)
+            },
+            value: "disconnect wallet",
+          },
+        ]
+      : []
+
+    const result: CommandActionGroup[] = [
       { items: marketItems, key: "markets", label: "Markets" },
       { items: navigationItems, key: "navigation", label: "Navigation" },
+      { items: preferenceItems, key: "preferences", label: "Preferences" },
     ]
-  }, [selectMarket])
+
+    if (accountItems.length > 0) {
+      result.push({ items: accountItems, key: "account", label: "Account" })
+    }
+
+    return result
+  }, [
+    account,
+    disconnect,
+    isPrivacyMode,
+    notifications,
+    resolvedTheme,
+    selectMarket,
+    setTheme,
+  ])
 
   return (
     <CommandDialog onOpenChange={setOpen} open={open}>
@@ -110,9 +194,9 @@ export function CommandSearch(): React.ReactElement {
       </div>
       <CommandDialogPopup>
         <Command items={groups}>
-          <CommandInput placeholder="Search markets by pair or asset name..." />
+          <CommandInput placeholder="Search markets, jump to menus, toggle preferences..." />
           <CommandPanel>
-            <CommandEmpty>No markets match.</CommandEmpty>
+            <CommandEmpty>No matching commands.</CommandEmpty>
             <CommandList>
               {(group: CommandActionGroup) => (
                 <React.Fragment key={group.key}>
@@ -120,6 +204,7 @@ export function CommandSearch(): React.ReactElement {
                     <CommandGroupLabel>{group.label}</CommandGroupLabel>
                     <CommandCollection>
                       {(item: CommandActionItem) => {
+                        const Icon = item.icon
                         const isMarket = group.key === "markets"
                         const market = isMarket
                           ? marketCards.find(
@@ -135,20 +220,17 @@ export function CommandSearch(): React.ReactElement {
                             onClick={item.onSelect}
                             value={item.value}
                           >
-                            {isMarket ? (
-                              <LandmarkIcon
-                                aria-hidden="true"
-                                className="size-4 opacity-60"
-                              />
-                            ) : (
-                              <ArrowUpRightIcon
-                                aria-hidden="true"
-                                className="size-4 opacity-60"
-                              />
-                            )}
+                            <Icon
+                              aria-hidden="true"
+                              className="size-4 opacity-60"
+                            />
                             <span className="flex-1">{item.label}</span>
                             {market ? (
                               <MarketBadges market={market} />
+                            ) : item.hint ? (
+                              <span className="text-xs text-muted-foreground">
+                                {item.hint}
+                              </span>
                             ) : null}
                           </CommandItem>
                         )
