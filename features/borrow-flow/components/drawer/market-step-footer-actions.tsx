@@ -9,7 +9,7 @@ import type {
   MarketStep,
 } from "../../types"
 import { canSubmitTransaction } from "../../flow-actions"
-import { isVerificationPending } from "../../steps"
+import { isSubmitPending, isVerificationPending } from "../../steps"
 
 type MarketStepFooterActionsProps = {
   flow: BorrowFlowState
@@ -45,13 +45,16 @@ export function MarketStepFooterActions({
 
   if (step === "verification") {
     const isChecking = isVerificationPending(flow.verification.status)
+    const isSubmitting = isSubmitPending(flow.transaction)
     const canSubmit = canSubmitTransaction({
       metrics,
       status: flow.verification.status,
       transaction: flow.transaction,
     })
     const verificationLabel = canSubmit
-      ? "Submit transaction"
+      ? isSubmitting
+        ? flow.transaction.status
+        : "Submit transaction"
       : isChecking
         ? flow.verification.status
         : flow.verification.status === "Failed"
@@ -71,8 +74,8 @@ export function MarketStepFooterActions({
           Back
         </Button>
         <Button
-          disabled={isChecking || !metrics.isLoanValid}
-          loading={isChecking}
+          disabled={isChecking || isSubmitting || !metrics.isLoanValid}
+          loading={isChecking || isSubmitting}
           onClick={() => {
             if (canSubmit) {
               onSubmit()
@@ -85,7 +88,9 @@ export function MarketStepFooterActions({
           type="button"
         >
           {verificationLabel}
-          {!canSubmit ? null : <ArrowRightIcon aria-hidden="true" />}
+          {!canSubmit || isSubmitting ? null : (
+            <ArrowRightIcon aria-hidden="true" />
+          )}
         </Button>
       </>
     )

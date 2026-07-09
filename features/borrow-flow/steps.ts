@@ -1,10 +1,16 @@
 import { getMarketPair, type MarketCardData } from "@/features/markets"
 
 import { MARKET_STEPS } from "./constants"
-import type { MarketStep, VerificationStatus } from "./types"
+import type { MarketStep, Transaction, VerificationStatus } from "./types"
 
 export function isVerificationPending(status: VerificationStatus): boolean {
   return status === "Preparing" || status === "Generating proof"
+}
+
+export function isSubmitPending(transaction: Transaction): boolean {
+  return (
+    transaction.status === "Signing" || transaction.status === "Submitted"
+  )
 }
 
 export function getStepCopy(

@@ -8,7 +8,7 @@ import type { MarketCardData } from "@/features/markets"
 
 import { useBorrowFlow } from "../../hooks/use-borrow-flow"
 import { canSubmitTransaction } from "../../flow-actions"
-import { isVerificationPending } from "../../steps"
+import { isSubmitPending, isVerificationPending } from "../../steps"
 import { MarketDrawerFooter } from "./market-drawer-footer"
 import { MarketDrawerPopup } from "./market-drawer-popup"
 import type { BorrowFlowDrawerProps } from "./types"
@@ -33,10 +33,16 @@ function MobileTransactionDrawer({
   onSubmit,
   position,
 }: Omit<BorrowFlowDrawerProps, "onVerify">): React.ReactElement {
+  const isSubmitting = isSubmitPending(flow.transaction)
+
   return (
     <Drawer>
-      <DrawerTrigger onClick={onSubmit} render={<Button type="button" />}>
-        Submit transaction
+      <DrawerTrigger
+        disabled={isSubmitting}
+        onClick={onSubmit}
+        render={<Button loading={isSubmitting} type="button" />}
+      >
+        {isSubmitting ? flow.transaction.status : "Submit transaction"}
       </DrawerTrigger>
       <MarketDrawerPopup
         account={account}
