@@ -1,10 +1,14 @@
 "use client"
 
-import { ExternalLinkIcon, LogOutIcon } from "lucide-react"
+import {
+  CheckIcon,
+  CopyIcon,
+  ExternalLinkIcon,
+  LogOutIcon,
+} from "lucide-react"
 import * as React from "react"
 
 import { PrivateValue } from "@/components/atoms/private-value"
-import { WalletIdentityHeader } from "@/components/molecules/wallet-identity-header"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import type { ConnectedAccount } from "@/app/_constants/account"
@@ -24,12 +28,30 @@ export function WalletDetailPanel({
   onClose,
   onDisconnect,
 }: WalletDetailPanelProps): React.ReactElement {
+  const [copied, setCopied] = React.useState(false)
   const explorerUrl = getStellarExpertAccountUrl(account.wallet.address)
   const networkLabel = getConfiguredNetworkLabel()
 
   const balanceEntries = account.wallet.balances
     ? Object.entries(account.wallet.balances)
     : []
+
+  React.useEffect(() => {
+    if (!copied) return
+
+    const timer = window.setTimeout(() => setCopied(false), 1_200)
+
+    return () => window.clearTimeout(timer)
+  }, [copied])
+
+  const handleCopy = React.useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(account.wallet.address)
+      setCopied(true)
+    } catch {
+      setCopied(false)
+    }
+  }, [account.wallet.address])
 
   const handleDisconnect = React.useCallback(() => {
     onDisconnect()
@@ -38,18 +60,28 @@ export function WalletDetailPanel({
 
   return (
     <div className="flex flex-col gap-4 p-3">
-      <div className="rounded-md border bg-muted/32 p-1">
-        <WalletIdentityHeader account={account} />
-      </div>
-
       <section className="flex flex-col gap-2">
         <span className="text-xs font-medium text-muted-foreground">
           Address
         </span>
-        <div className="rounded-md border bg-background p-3">
-          <PrivateValue className="font-mono text-sm break-all">
+        <div className="flex items-start gap-2 rounded-md border bg-background p-3">
+          <PrivateValue className="flex-1 font-mono text-sm break-all">
             {account.wallet.address}
           </PrivateValue>
+          <Button
+            aria-label={copied ? "Address copied" : "Copy address"}
+            onClick={handleCopy}
+            size="icon-sm"
+            title={copied ? "Copied" : "Copy address"}
+            type="button"
+            variant="ghost"
+          >
+            {copied ? (
+              <CheckIcon aria-hidden="true" />
+            ) : (
+              <CopyIcon aria-hidden="true" />
+            )}
+          </Button>
         </div>
       </section>
 
