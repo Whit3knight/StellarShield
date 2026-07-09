@@ -18,6 +18,7 @@ import {
 } from "./connectors"
 
 const walletConnectionChangeEvent = "stellar-shield:wallet-connection-change"
+const WALLET_BALANCE_REFRESH_MS = 20_000
 let cachedStoredAccount: ConnectedAccount | null = null
 let cachedStoredAccountValue: string | null = null
 
@@ -32,7 +33,6 @@ type WalletConnectionState = {
 
 export function useWalletConnection(): WalletConnectionState {
   const connectionAttemptRef = React.useRef(0)
-  const refreshedAccountKeyRef = React.useRef<string | null>(null)
   const account = React.useSyncExternalStore(
     subscribeToWalletConnection,
     readStoredAccount,
@@ -41,50 +41,78 @@ export function useWalletConnection(): WalletConnectionState {
   const [error, setError] = React.useState<string | null>(null)
   const [pendingProviderId, setPendingProviderId] =
     React.useState<WalletProviderId | null>(null)
+  const accountKey = account
+    ? `${account.wallet.providerId}:${account.wallet.address}`
+    : null
 
   React.useEffect(() => {
-    if (!account) {
-      refreshedAccountKeyRef.current = null
+    if (!accountKey) {
       return
     }
 
-    const accountKey = `${account.wallet.providerId}:${account.wallet.address}`
-
-    if (refreshedAccountKeyRef.current === accountKey) {
-      return
-    }
-
-    refreshedAccountKeyRef.current = accountKey
     let active = true
+    let inFlight = false
 
-    refreshConnectedAccountBalances(account)
-      .then((refreshedAccount) => {
-        if (!active) {
-          return
-        }
+    const refreshOnce = async () => {
+      if (inFlight) return
+      if (
+        typeof document !== "undefined" &&
+        document.visibilityState === "hidden"
+      ) {
+        return
+      }
 
-        const currentAccount = readStoredAccount()
+      const current = readStoredAccount()
+      const currentKey = current
+        ? `${current.wallet.providerId}:${current.wallet.address}`
+        : null
 
-        if (
-          !currentAccount ||
-          currentAccount.wallet.address !== account.wallet.address ||
-          currentAccount.wallet.providerId !== account.wallet.providerId
-        ) {
-          return
-        }
+      if (currentKey !== accountKey || !current) return
 
-        if (JSON.stringify(currentAccount) === JSON.stringify(refreshedAccount)) {
-          return
-        }
+      inFlight = true
 
-        setStoredAccount(refreshedAccount)
-      })
-      .catch(() => undefined)
+      try {
+        const refreshed = await refreshConnectedAccountBalances(current)
+
+        if (!active) return
+
+        const latest = readStoredAccount()
+        const latestKey = latest
+          ? `${latest.wallet.providerId}:${latest.wallet.address}`
+          : null
+
+        if (latestKey !== accountKey || !latest) return
+
+        if (JSON.stringify(latest) === JSON.stringify(refreshed)) return
+
+        setStoredAccount(refreshed)
+      } catch {
+        // swallow refresh errors; next tick retries
+      } finally {
+        inFlight = false
+      }
+    }
+
+    void refreshOnce()
+
+    const intervalId = window.setInterval(
+      refreshOnce,
+      WALLET_BALANCE_REFRESH_MS
+    )
+    const visibilityHandler = () => {
+      if (document.visibilityState === "visible") {
+        void refreshOnce()
+      }
+    }
+
+    document.addEventListener("visibilitychange", visibilityHandler)
 
     return () => {
       active = false
+      window.clearInterval(intervalId)
+      document.removeEventListener("visibilitychange", visibilityHandler)
     }
-  }, [account])
+  }, [accountKey])
 
   const connect = React.useCallback(async (provider: WalletProvider) => {
     const attemptId = connectionAttemptRef.current + 1
