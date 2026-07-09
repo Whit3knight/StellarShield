@@ -1,7 +1,7 @@
 "use client"
 
 import { ActivityIcon } from "lucide-react"
-import type * as React from "react"
+import * as React from "react"
 
 import { PrivateValue } from "@/components/atoms/private-value"
 import { Badge } from "@/components/ui/badge"
@@ -13,7 +13,20 @@ import {
   DrawerPopup,
   DrawerTitle,
 } from "@/components/ui/drawer"
-import type { BorrowActivity } from "@/features/borrow-flow/types"
+import {
+  Select,
+  SelectItem,
+  SelectPopup,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { ACTIVITY_TYPE_LABELS } from "@/features/borrow-flow/activities"
+import type {
+  BorrowActivity,
+  BorrowActivityType,
+} from "@/features/borrow-flow/types"
+
+const ALL_VALUE = "all"
 
 type ActivityDrawerProps = {
   activities: BorrowActivity[]
@@ -26,8 +39,24 @@ export function ActivityDrawer({
   onOpenChange,
   open,
 }: ActivityDrawerProps): React.ReactElement {
+  const [type, setType] = React.useState<BorrowActivityType | null>(null)
+
+  const handleOpenChange = React.useCallback(
+    (next: boolean) => {
+      if (!next) setType(null)
+      onOpenChange(next)
+    },
+    [onOpenChange]
+  )
+
+  // ponytail: inline predicate; extract to features/borrow-flow/activities.ts
+  // when a second surface (positions page, history export) needs it.
+  const filtered = type
+    ? activities.filter((item) => item.type === type)
+    : activities
+
   return (
-    <Drawer onOpenChange={onOpenChange} open={open} position="right">
+    <Drawer onOpenChange={handleOpenChange} open={open} position="right">
       <DrawerPopup>
         <DrawerHeader>
           <DrawerTitle>Activity</DrawerTitle>
@@ -35,11 +64,41 @@ export function ActivityDrawer({
             Everything that happened during this borrow session.
           </DrawerDescription>
         </DrawerHeader>
-        <DrawerPanel className="flex flex-col gap-2" hideScrollbar>
+        <DrawerPanel className="flex flex-col gap-3" hideScrollbar>
+          <Select
+            onValueChange={(value: unknown) => {
+              setType(
+                value === ALL_VALUE ? null : (value as BorrowActivityType)
+              )
+            }}
+            value={type ?? ALL_VALUE}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="Filter by type" />
+            </SelectTrigger>
+            <SelectPopup>
+              <SelectItem value={ALL_VALUE}>All types</SelectItem>
+              {(
+                Object.entries(ACTIVITY_TYPE_LABELS) as [
+                  BorrowActivityType,
+                  string,
+                ][]
+              ).map(([value, label]) => (
+                <SelectItem key={value} value={value}>
+                  {label}
+                </SelectItem>
+              ))}
+            </SelectPopup>
+          </Select>
+
           {activities.length === 0 ? (
-            <EmptyState />
+            <EmptyState filtered={false} />
+          ) : filtered.length === 0 ? (
+            <EmptyState filtered />
           ) : (
-            activities.map((item) => <ActivityRow item={item} key={item.id} />)
+            filtered.map((item) => (
+              <ActivityRow item={item} key={item.id} />
+            ))
           )}
         </DrawerPanel>
       </DrawerPopup>
@@ -47,14 +106,20 @@ export function ActivityDrawer({
   )
 }
 
-function EmptyState(): React.ReactElement {
+function EmptyState({ filtered }: { filtered: boolean }): React.ReactElement {
   return (
     <div className="flex flex-col items-center gap-2 rounded-md border bg-muted/16 px-4 py-8 text-center text-sm text-muted-foreground">
       <ActivityIcon aria-hidden="true" className="size-6 opacity-60" />
-      <span>No activity yet.</span>
-      <span className="text-xs">
-        Open a market and start a borrow flow to see events appear here.
-      </span>
+      {filtered ? (
+        <span>No activity matches this filter.</span>
+      ) : (
+        <>
+          <span>No activity yet.</span>
+          <span className="text-xs">
+            Open a market and start a borrow flow to see events appear here.
+          </span>
+        </>
+      )}
     </div>
   )
 }

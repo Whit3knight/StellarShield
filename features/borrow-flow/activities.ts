@@ -11,6 +11,17 @@ import type {
 } from "./types"
 import { createStableId } from "@/lib/stable-id"
 
+// ponytail: create* factories below still hardcode these strings.
+// Migrate factories to read from this map when a second string source
+// (i18n, template renderer) shows up.
+export const ACTIVITY_TYPE_LABELS: Record<BorrowActivityType, string> = {
+  borrow_intent_prepared: "Borrow intent prepared",
+  proof_generated: "Proof generated",
+  transaction_confirmed: "Transaction confirmed",
+  transaction_submitted: "Transaction submitted",
+  wallet_connected: "Wallet connected",
+}
+
 export function createBorrowActivity({
   description,
   privateValue = false,
