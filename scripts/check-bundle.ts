@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs"
+import { existsSync, readFileSync, statSync } from "node:fs"
 import { readdir } from "node:fs/promises"
 import { join } from "node:path"
 
@@ -13,16 +13,14 @@ type PackageJson = {
 }
 
 const PROJECT_ROOT = process.cwd()
-const BUILD_MANIFEST_PATH = join(
-  PROJECT_ROOT,
-  ".next",
-  "build-manifest.json"
-)
-const CHUNK_DIR = join(PROJECT_ROOT, ".next", "static", "chunks")
+const NEXT_ROOT = join(PROJECT_ROOT, ".next")
+const BUILD_MANIFEST_PATH = join(NEXT_ROOT, "build-manifest.json")
+const CHUNK_DIR = join(NEXT_ROOT, "static", "chunks")
 const PACKAGE_JSON_PATH = join(PROJECT_ROOT, "package.json")
 
 const FREIGHTER_PACKAGE = "@stellar/freighter-api"
 const FORBIDDEN_PACKAGES = ["radix-ui"]
+const ROOT_MAIN_UNCOMPRESSED_CEILING_BYTES = 500_000
 
 async function main(): Promise<void> {
   const failures: string[] = []
@@ -69,6 +67,17 @@ async function main(): Promise<void> {
     }
   }
 
+  const rootMainBytes = (manifest.rootMainFiles ?? []).reduce(
+    (total, file) => total + statOrZero(join(NEXT_ROOT, file)),
+    0
+  )
+
+  if (rootMainBytes > ROOT_MAIN_UNCOMPRESSED_CEILING_BYTES) {
+    failures.push(
+      `root main JS is ${rootMainBytes} bytes (uncompressed), ceiling ${ROOT_MAIN_UNCOMPRESSED_CEILING_BYTES}; investigate the newest addition before shipping`
+    )
+  }
+
   const chunkFileNames = await readdir(CHUNK_DIR).catch(() => [] as string[])
 
   for (const chunkFile of chunkFileNames) {
@@ -97,6 +106,14 @@ async function main(): Promise<void> {
   }
 
   console.log("check-bundle: ok")
+}
+
+function statOrZero(path: string): number {
+  try {
+    return statSync(path).size
+  } catch {
+    return 0
+  }
 }
 
 main().catch((error) => {
