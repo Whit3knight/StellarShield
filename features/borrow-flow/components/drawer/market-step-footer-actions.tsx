@@ -46,7 +46,9 @@ export function MarketStepFooterActions({
     const isChecking = isVerificationPending(flow.verificationStatus)
     const canSubmit = canSubmitTransaction({
       metrics,
+      simulationStatus: flow.simulationStatus,
       status: flow.verificationStatus,
+      transactionPayload: flow.transactionPayload,
     })
     const verificationLabel = canSubmit
       ? "Submit transaction"

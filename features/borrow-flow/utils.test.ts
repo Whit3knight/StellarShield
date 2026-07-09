@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest"
 import type { ConnectedAccount } from "@/app/_constants/account"
 import { marketCards } from "@/features/markets"
 
+import { INITIAL_FLOW_STATE } from "./constants"
 import {
+  createBorrowIntentFromFlow,
   createBorrowProof,
   createTransactionPreview,
   createUserPosition,
@@ -107,9 +109,6 @@ describe("borrow flow utilities", () => {
         {
           collateralAmount: "3000",
           loanAmount: "180",
-          proof: null,
-          transactionStatus: "Draft",
-          verificationStatus: "Not started",
         },
         market,
         account
@@ -142,9 +141,6 @@ describe("borrow flow utilities", () => {
         {
           collateralAmount: "3000",
           loanAmount: "220",
-          proof: null,
-          transactionStatus: "Draft",
-          verificationStatus: "Not started",
         },
         market,
         account
@@ -159,9 +155,6 @@ describe("borrow flow utilities", () => {
         {
           collateralAmount: "3000",
           loanAmount: "230",
-          proof: null,
-          transactionStatus: "Draft",
-          verificationStatus: "Not started",
         },
         market,
         account
@@ -177,9 +170,6 @@ describe("borrow flow utilities", () => {
         {
           collateralAmount: "3000",
           loanAmount: "180",
-          proof: null,
-          transactionStatus: "Draft",
-          verificationStatus: "Not started",
         },
         market,
         null
@@ -195,9 +185,6 @@ describe("borrow flow utilities", () => {
       {
         collateralAmount: "1000",
         loanAmount: "50",
-        proof: null,
-        transactionStatus: "Draft",
-        verificationStatus: "Not started",
       },
       market,
       account
@@ -211,6 +198,16 @@ describe("borrow flow utilities", () => {
       },
       status: "Verified",
     })
+    const proof = createBorrowProof({ market, metrics })
+
+    expect(
+      createBorrowIntentFromFlow({ account, metrics, proof })
+    ).toMatchObject({
+      borrow: { amount: 50, symbol: "USDC", valueUsd: 50 },
+      collateral: { amount: 1000, symbol: "XLM", valueUsd: 120 },
+      market: "USDC/XLM",
+      proofId: proof.id,
+    })
     expect(createUserPosition({ market, metrics })).toMatchObject({
       borrowed: [{ amount: 50, symbol: "USDC", valueUsd: 50 }],
       supplied: [{ amount: 1000, symbol: "XLM", valueUsd: 120 }],
@@ -219,11 +216,9 @@ describe("borrow flow utilities", () => {
 
   it("creates transaction previews from quote state", () => {
     const flow = {
+      ...INITIAL_FLOW_STATE,
       collateralAmount: "1000",
       loanAmount: "50",
-      proof: null,
-      transactionStatus: "Draft" as const,
-      verificationStatus: "Not started" as const,
     }
     const metrics = getBorrowFlowMetrics(flow, market, account)
 

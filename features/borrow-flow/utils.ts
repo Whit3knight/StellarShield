@@ -4,6 +4,12 @@ import {
   getMarketPair,
   type MarketCardData,
 } from "@/features/markets"
+import {
+  createBorrowIntent,
+  simulateBorrowIntent,
+  type BorrowIntent,
+  type ProtocolTransactionPayload,
+} from "@/features/protocol"
 import { getWalletAssetBalance } from "@/features/wallet/utils"
 
 import {
@@ -119,7 +125,7 @@ export function createBorrowQuote({
   market,
 }: {
   account: ConnectedAccount | null
-  flow: BorrowFlowState
+  flow: Pick<BorrowFlowState, "collateralAmount" | "loanAmount">
   market: MarketCardData
 }): BorrowQuote {
   const collateralAmount = parseAmount(flow.collateralAmount)
@@ -188,7 +194,7 @@ export function createBorrowQuote({
 }
 
 export function getBorrowFlowMetrics(
-  flow: BorrowFlowState,
+  flow: Pick<BorrowFlowState, "collateralAmount" | "loanAmount">,
   market: MarketCardData,
   account: ConnectedAccount | null
 ): BorrowFlowMetrics {
@@ -277,12 +283,64 @@ export function isVerificationPending(status: VerificationStatus): boolean {
 
 export function canSubmitTransaction({
   metrics,
+  simulationStatus,
   status,
+  transactionPayload,
 }: {
   metrics: BorrowFlowMetrics
+  simulationStatus: BorrowFlowState["simulationStatus"]
   status: VerificationStatus
+  transactionPayload: ProtocolTransactionPayload | null
 }): boolean {
-  return status === "Verified" && metrics.isLoanValid
+  return (
+    status === "Verified" &&
+    metrics.isLoanValid &&
+    simulationStatus === "Ready" &&
+    transactionPayload !== null
+  )
+}
+
+export function createBorrowIntentFromFlow({
+  account,
+  metrics,
+  proof,
+}: {
+  account: ConnectedAccount | null
+  metrics: BorrowFlowMetrics
+  proof: BorrowProof | null
+}): BorrowIntent | null {
+  if (
+    !account ||
+    !proof ||
+    proof.status !== "Verified" ||
+    !metrics.isLoanValid
+  ) {
+    return null
+  }
+
+  return createBorrowIntent({
+    account: account.wallet.address,
+    borrow: metrics.quote.loan,
+    collateral: metrics.quote.collateral,
+    expiresAt: proof.expiresAt,
+    healthFactor: metrics.quote.healthFactor,
+    market: metrics.quote.market,
+    maxLtv: MAX_LOAN_TO_VALUE,
+    proofId: proof.id,
+  })
+}
+
+export function simulateBorrowIntentFromFlow({
+  intent,
+  metrics,
+}: {
+  intent: BorrowIntent | null
+  metrics: BorrowFlowMetrics
+}) {
+  return simulateBorrowIntent({
+    fee: metrics.quote.estimatedFee,
+    intent,
+  })
 }
 
 export function createTransactionPreview({
@@ -297,6 +355,7 @@ export function createTransactionPreview({
   metrics: BorrowFlowMetrics
 }): TransactionPreview {
   const quote = metrics.quote
+  const payload = flow.transactionPayload
   const healthFactor =
     quote.healthFactor === null ? "N/A" : quote.healthFactor.toFixed(2)
   const receipt =
@@ -315,12 +374,17 @@ export function createTransactionPreview({
       quote.estimatedFee.symbol
     ),
     healthFactor,
+    intentId: flow.borrowIntent?.id ?? "Prepared after verification",
     loan: formatAssetAmount(quote.loan.amount, quote.loan.symbol),
     loanHealth: quote.loanHealth,
     loanValue: formatUsd(quote.loan.valueUsd),
     market: quote.market,
+    memo: payload?.memo ?? "Prepared after simulation",
+    network: payload?.network ?? "Prepared after simulation",
+    operation: payload?.operation ?? "Prepared after simulation",
     proof: flow.proof?.id ?? "Required before submission",
     receipt,
+    simulation: flow.simulationStatus,
     status: flow.transactionStatus,
     verification: flow.verificationStatus,
   }

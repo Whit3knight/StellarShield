@@ -1,3 +1,11 @@
+import type {
+  BorrowIntent,
+  ProtocolSimulationStatus,
+  ProtocolSubmitStatus,
+  ProtocolTransactionPayload,
+} from "@/features/protocol"
+import type { SupportedAssetSymbol } from "@/features/markets"
+
 export type MarketStep =
   "detail" | "collateral" | "verification" | "transaction"
 
@@ -9,7 +17,7 @@ export type VerificationStatus =
   | "Expired"
   | "Failed"
 
-export type TransactionStatus = "Draft" | "Submitted" | "Confirmed"
+export type TransactionStatus = "Draft" | ProtocolSubmitStatus
 
 export type LoanHealth = "Healthy" | "Attention" | "At risk"
 
@@ -17,7 +25,7 @@ export type BorrowField = "collateralAmount" | "loanAmount"
 
 export type AssetAmount = {
   amount: number
-  symbol: string
+  symbol: SupportedAssetSymbol
   valueUsd: number
 }
 
@@ -50,12 +58,17 @@ export type TransactionPreview = {
   collateralValue: string
   estimatedFee: string
   healthFactor: string
+  intentId: string
   loan: string
   loanHealth: LoanHealth
   loanValue: string
   market: string
+  memo: string
+  network: string
+  operation: string
   proof: string
   receipt: string | null
+  simulation: ProtocolSimulationStatus
   status: TransactionStatus
   verification: VerificationStatus
 }
@@ -73,9 +86,12 @@ export type BorrowProof = {
 }
 
 export type BorrowFlowState = {
+  borrowIntent: BorrowIntent | null
   collateralAmount: string
   loanAmount: string
   proof: BorrowProof | null
+  simulationStatus: ProtocolSimulationStatus
+  transactionPayload: ProtocolTransactionPayload | null
   transactionStatus: TransactionStatus
   verificationStatus: VerificationStatus
 }

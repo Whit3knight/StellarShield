@@ -19,11 +19,11 @@ type TransactionStepProps = {
 }
 
 function TransactionStatusRow({
-  isConfirmed,
+  showRefresh,
   onRefreshTransaction,
   status,
 }: {
-  isConfirmed: boolean
+  showRefresh: boolean
   onRefreshTransaction: () => void
   status: string
 }): React.ReactElement {
@@ -32,16 +32,17 @@ function TransactionStatusRow({
       <span className="text-muted-foreground">Transaction status</span>
       <div className="flex min-w-0 items-center gap-2">
         <span className="truncate font-medium">{status}</span>
-        <Button
-          aria-label="Refresh transaction status"
-          disabled={isConfirmed}
-          onClick={onRefreshTransaction}
-          size="icon-sm"
-          type="button"
-          variant="ghost"
-        >
-          <RefreshCwIcon aria-hidden="true" />
-        </Button>
+        {showRefresh ? (
+          <Button
+            aria-label="Refresh transaction status"
+            onClick={onRefreshTransaction}
+            size="icon-sm"
+            type="button"
+            variant="ghost"
+          >
+            <RefreshCwIcon aria-hidden="true" />
+          </Button>
+        ) : null}
       </div>
     </div>
   )
@@ -54,7 +55,9 @@ export function TransactionStep({
   metrics,
   onRefreshTransaction,
 }: TransactionStepProps): React.ReactElement {
-  const isConfirmed = flow.transactionStatus === "Confirmed"
+  const showRefresh =
+    flow.transactionStatus === "Signing" ||
+    flow.transactionStatus === "Submitted"
   const preview = createTransactionPreview({ account, flow, market, metrics })
 
   return (
@@ -71,10 +74,15 @@ export function TransactionStep({
           <DetailRow label="Health factor" value={preview.healthFactor} />
           <DetailRow label="Loan health" value={preview.loanHealth} />
           <DetailRow label="Verification" value={preview.verification} />
+          <DetailRow label="Simulation" value={preview.simulation} />
+          <DetailRow label="Intent" privateValue value={preview.intentId} />
+          <DetailRow label="Operation" value={preview.operation} />
+          <DetailRow label="Network" value={preview.network} />
+          <DetailRow label="Memo" value={preview.memo} />
           <DetailRow label="Proof" privateValue value={preview.proof} />
           <TransactionStatusRow
-            isConfirmed={isConfirmed}
             onRefreshTransaction={onRefreshTransaction}
+            showRefresh={showRefresh}
             status={preview.status}
           />
           <DetailRow label="Estimated fee" value={preview.estimatedFee} />

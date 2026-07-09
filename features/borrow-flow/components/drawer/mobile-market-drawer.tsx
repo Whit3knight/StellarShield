@@ -72,7 +72,9 @@ function MobileVerificationDrawer({
   const isChecking = isVerificationPending(flow.verificationStatus)
   const canSubmit = canSubmitTransaction({
     metrics,
+    simulationStatus: flow.simulationStatus,
     status: flow.verificationStatus,
+    transactionPayload: flow.transactionPayload,
   })
 
   return (

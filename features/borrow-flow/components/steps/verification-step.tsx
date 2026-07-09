@@ -62,9 +62,15 @@ export function VerificationStep({
             label="Private verification"
             value={flow.verificationStatus}
           />
+          <DetailRow label="Simulation" value={flow.simulationStatus} />
           <DetailRow
             label="Proof claim"
             value={flow.proof?.claim ?? "Not generated"}
+          />
+          <DetailRow
+            label="Borrow intent"
+            privateValue
+            value={flow.borrowIntent?.id ?? "Prepared after verification"}
           />
           <DetailRow
             label="Expires"

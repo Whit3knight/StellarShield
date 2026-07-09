@@ -2,13 +2,16 @@ import * as React from "react"
 
 import type { ConnectedAccount } from "@/app/_constants/account"
 import type { MarketCardData } from "@/features/markets"
+import { getNextSubmitStatus } from "@/features/protocol"
 
 import { INITIAL_FLOW_STATE } from "../constants"
 import type { BorrowField, BorrowFlowMetrics, BorrowFlowState } from "../types"
 import {
   canSubmitTransaction,
+  createBorrowIntentFromFlow,
   createBorrowProof,
   getBorrowFlowMetrics,
+  simulateBorrowIntentFromFlow,
 } from "../utils"
 
 type BorrowFlowControls = {
@@ -49,7 +52,10 @@ export function useBorrowFlow({
       setFlow((currentFlow) => ({
         ...currentFlow,
         [field]: value,
+        borrowIntent: null,
         proof: null,
+        simulationStatus: "Idle",
+        transactionPayload: null,
         transactionStatus: "Draft",
         verificationStatus: "Not started",
       }))
@@ -63,7 +69,11 @@ export function useBorrowFlow({
     if (!metrics.isLoanValid) {
       setFlow((currentFlow) => ({
         ...currentFlow,
+        borrowIntent: null,
         proof: createBorrowProof({ market, metrics }),
+        simulationStatus: "Idle",
+        transactionPayload: null,
+        transactionStatus: "Draft",
         verificationStatus: "Failed",
       }))
       return
@@ -71,7 +81,11 @@ export function useBorrowFlow({
 
     setFlow((currentFlow) => ({
       ...currentFlow,
+      borrowIntent: null,
       proof: null,
+      simulationStatus: "Idle",
+      transactionPayload: null,
+      transactionStatus: "Draft",
       verificationStatus: "Preparing",
     }))
 
@@ -83,37 +97,51 @@ export function useBorrowFlow({
     }, 350)
     const verifiedTimer = setTimeout(() => {
       const proof = createBorrowProof({ market, metrics })
+      const intent = createBorrowIntentFromFlow({ account, metrics, proof })
+      const simulation = simulateBorrowIntentFromFlow({ intent, metrics })
 
       setFlow((currentFlow) => ({
         ...currentFlow,
+        borrowIntent: intent,
         proof,
+        simulationStatus: simulation.status,
+        transactionPayload: simulation.payload,
+        transactionStatus: simulation.status === "Ready" ? "Ready" : "Draft",
         verificationStatus: proof.status,
       }))
     }, 900)
 
     verificationTimerRefs.current = [preparingTimer, verifiedTimer]
-  }, [market, metrics])
+  }, [account, market, metrics])
 
   const refreshTransaction = React.useCallback(() => {
     setFlow((currentFlow) => ({
       ...currentFlow,
-      transactionStatus:
-        currentFlow.transactionStatus === "Submitted"
-          ? "Confirmed"
-          : currentFlow.transactionStatus,
+      ...getRefreshedTransactionState(currentFlow),
     }))
   }, [])
 
   const submitTransaction = React.useCallback(() => {
-    setFlow((currentFlow) => ({
-      ...currentFlow,
-      transactionStatus: canSubmitTransaction({
+    setFlow((currentFlow) => {
+      const canSubmit = canSubmitTransaction({
         metrics,
+        simulationStatus: currentFlow.simulationStatus,
         status: currentFlow.verificationStatus,
+        transactionPayload: currentFlow.transactionPayload,
       })
-        ? "Submitted"
-        : currentFlow.transactionStatus,
-    }))
+
+      return {
+        ...currentFlow,
+        transactionPayload: canSubmit
+          ? currentFlow.transactionPayload
+            ? { ...currentFlow.transactionPayload, status: "Signing" }
+            : null
+          : currentFlow.transactionPayload,
+        transactionStatus: canSubmit
+          ? "Signing"
+          : currentFlow.transactionStatus,
+      }
+    })
   }, [metrics])
 
   return {
@@ -133,4 +161,24 @@ function clearVerificationTimers(
     clearTimeout(timer)
   })
   timers.length = 0
+}
+
+function getRefreshedTransactionState(
+  flow: BorrowFlowState
+): Pick<BorrowFlowState, "transactionPayload" | "transactionStatus"> {
+  if (flow.transactionStatus === "Draft") {
+    return {
+      transactionPayload: flow.transactionPayload,
+      transactionStatus: flow.transactionStatus,
+    }
+  }
+
+  const transactionStatus = getNextSubmitStatus(flow.transactionStatus)
+
+  return {
+    transactionPayload: flow.transactionPayload
+      ? { ...flow.transactionPayload, status: transactionStatus }
+      : null,
+    transactionStatus,
+  }
 }
