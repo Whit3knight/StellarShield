@@ -1,6 +1,7 @@
 "use client"
 
 import {
+  ActivityIcon,
   ArrowUpRightIcon,
   BellIcon,
   EyeIcon,
@@ -9,6 +10,7 @@ import {
   LogOutIcon,
   MoonIcon,
   SearchIcon,
+  ShieldCheckIcon,
   SunIcon,
   WalletCardsIcon,
 } from "lucide-react"
@@ -58,7 +60,12 @@ type CommandActionGroup = {
 export function CommandSearch(): React.ReactElement {
   const [open, setOpen] = React.useState(false)
   const { selectMarket } = useMarketSelection()
-  const { notifications, walletMenu } = useNavMenus()
+  const {
+    activityDrawer,
+    notifications,
+    proofsDrawer,
+    walletMenu,
+  } = useNavMenus()
   const { account, disconnect } = useWalletConnection()
   const { resolvedTheme, setTheme } = useTheme()
   const isPrivacyMode = usePrivacyMode()
@@ -127,6 +134,24 @@ export function CommandSearch(): React.ReactElement {
         },
         value: "go to markets",
       },
+      {
+        icon: ActivityIcon,
+        label: "Open activity",
+        onSelect: () => {
+          activityDrawer.setOpen(true)
+          setOpen(false)
+        },
+        value: "open activity",
+      },
+      {
+        icon: ShieldCheckIcon,
+        label: "Open proofs",
+        onSelect: () => {
+          proofsDrawer.setOpen(true)
+          setOpen(false)
+        },
+        value: "open proofs",
+      },
     ]
 
     const accountItems: CommandActionItem[] = account
@@ -174,9 +199,11 @@ export function CommandSearch(): React.ReactElement {
     return result
   }, [
     account,
+    activityDrawer,
     disconnect,
     isPrivacyMode,
     notifications,
+    proofsDrawer,
     resolvedTheme,
     selectMarket,
     setTheme,
