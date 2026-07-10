@@ -1,6 +1,12 @@
 "use client"
 
-import { SparklesIcon } from "lucide-react"
+import {
+  LandmarkIcon,
+  type LucideIcon,
+  SearchIcon,
+  WalletCardsIcon,
+  XIcon,
+} from "lucide-react"
 import * as React from "react"
 
 import { Button } from "@/components/ui/button"
@@ -10,6 +16,7 @@ import {
   PopoverPrimitive,
 } from "@/components/ui/popover"
 import { useWalletConnection } from "@/features/wallet/use-wallet-connection"
+import { cn } from "@/lib/utils"
 
 import {
   markOnboardingTourSeen,
@@ -19,6 +26,7 @@ import {
 
 type TourStep = {
   body: string
+  icon: LucideIcon
   selector: string
   side: "top" | "bottom" | "left" | "right"
   title: string
@@ -28,25 +36,22 @@ type TourStep = {
 // (settings page, help center) needs the same list.
 const TOUR_STEPS: TourStep[] = [
   {
-    body: "Press ⌘K anytime to search markets, jump between menus, and toggle preferences.",
+    body: "Press ⌘K to search markets, jump between drawers, and toggle preferences. Every action is one keystroke away.",
+    icon: SearchIcon,
     selector: '[data-tour="palette"]',
     side: "bottom",
     title: "Command palette",
   },
   {
-    body: "Browse all public markets here. Pick one to open the borrow flow.",
+    body: "Public Stellar markets. Pick one to open the borrow flow with a live quote and a ZK eligibility proof.",
+    icon: LandmarkIcon,
     selector: '[data-tour="markets"]',
     side: "top",
     title: "Markets grid",
   },
   {
-    body: "Session-wide notifications land under the bell — protocol events and wallet activity.",
-    selector: '[data-tour="notifications"]',
-    side: "bottom",
-    title: "Notifications",
-  },
-  {
-    body: "Wallet identity, balances, Proofs, Activity, and preferences all live behind the wallet menu.",
+    body: "Wallet identity, Proofs history, and the session Activity feed all live here — plus a shortcut to Stellar Expert.",
+    icon: WalletCardsIcon,
     selector: '[data-tour="wallet"]',
     side: "bottom",
     title: "Wallet menu",
@@ -142,36 +147,57 @@ export function OnboardingTour(): React.ReactElement | null {
   if (!open || !anchor) return null
 
   const isLast = currentTip === TOUR_STEPS.length - 1
+  const StepIcon = step.icon
 
   return (
     <Popover onOpenChange={handleOpenChange} open={open}>
       <PopoverPrimitive.Portal>
         <PopoverPrimitive.Backdrop
-          className="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm transition-opacity data-ending-style:opacity-0 data-starting-style:opacity-0"
+          className="fixed inset-0 z-40 bg-background/60 backdrop-blur transition-opacity data-ending-style:opacity-0 data-starting-style:opacity-0"
           data-slot="onboarding-tour-backdrop"
         />
       </PopoverPrimitive.Portal>
       <PopoverPopup
         anchor={anchor}
-        className="max-w-[280px]"
+        className="max-w-sm"
         side={step.side}
         sideOffset={12}
       >
-        <div className="space-y-3">
-          <div className="flex items-start gap-2">
-            <SparklesIcon
-              aria-hidden="true"
-              className="size-4 shrink-0 text-primary"
-            />
+        <div className="relative space-y-4 pr-6">
+          <button
+            aria-label="Dismiss tour"
+            className="absolute right-0 top-0 rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            onClick={handleFinish}
+            type="button"
+          >
+            <XIcon aria-hidden="true" className="size-3.5" />
+          </button>
+
+          <div className="flex items-start gap-2.5">
+            <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md border bg-muted/32 text-primary">
+              <StepIcon aria-hidden="true" className="size-3.5" />
+            </span>
             <div className="space-y-1">
-              <p className="font-medium text-sm">{step.title}</p>
-              <p className="text-muted-foreground text-xs">{step.body}</p>
+              <p className="font-medium text-sm leading-tight">{step.title}</p>
+              <p className="text-muted-foreground text-xs leading-relaxed">
+                {step.body}
+              </p>
             </div>
           </div>
+
           <div className="flex items-center justify-between gap-2">
-            <span className="text-muted-foreground text-xs">
-              {currentTip + 1}/{TOUR_STEPS.length}
-            </span>
+            <div className="flex items-center gap-1.5">
+              {TOUR_STEPS.map((_, index) => (
+                <span
+                  aria-hidden="true"
+                  className={cn(
+                    "size-1.5 rounded-full transition-colors",
+                    index === currentTip ? "bg-primary" : "bg-muted"
+                  )}
+                  key={index}
+                />
+              ))}
+            </div>
             <div className="flex items-center gap-2">
               <Button
                 onClick={handleFinish}
