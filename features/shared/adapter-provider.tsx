@@ -6,6 +6,7 @@ import { mockProtocolAdapter, type ProtocolAdapter } from "@/features/protocol"
 import { createSorobanProtocolAdapter } from "@/features/protocol/soroban-adapter"
 import {
   createNoirBorrowProverAdapter,
+  createSnarkjsBorrowProverAdapter,
   mockBorrowProverAdapter,
   type BorrowProverAdapter,
 } from "@/features/proofs"
@@ -30,9 +31,10 @@ type AdapterProviderProps = {
 }
 
 function resolveDefaultProverAdapter(): BorrowProverAdapter {
-  const shouldUseNoir = process.env.NEXT_PUBLIC_STELLAR_SHIELD_PROVER === "noir"
-  if (!shouldUseNoir) return mockBorrowProverAdapter
-  return createNoirBorrowProverAdapter()
+  const prover = process.env.NEXT_PUBLIC_STELLAR_SHIELD_PROVER
+  if (prover === "noir") return createNoirBorrowProverAdapter()
+  if (prover === "snarkjs") return createSnarkjsBorrowProverAdapter()
+  return mockBorrowProverAdapter
 }
 
 function resolveDefaultProtocolAdapter(): ProtocolAdapter {
