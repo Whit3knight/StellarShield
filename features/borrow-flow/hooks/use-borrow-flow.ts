@@ -3,6 +3,10 @@ import * as React from "react"
 import type { ConnectedAccount } from "@/app/_constants/account"
 import { toastManager } from "@/components/ui/toast"
 import type { MarketCardData } from "@/features/markets"
+import type {
+  BorrowIntent,
+  ProtocolTransactionPayload,
+} from "@/features/protocol"
 import { formatAdapterError } from "@/features/protocol"
 import { useAdapters } from "@/features/shared/adapter-provider"
 import { getStellarExpertTxUrl } from "@/features/wallet/network"
@@ -365,19 +369,34 @@ export function useBorrowFlow({
   ])
 
   const submitTransaction = React.useCallback(async () => {
-    if (
-      !account ||
-      flow.transaction.status !== "Ready" ||
-      !canSubmitTransaction({
+    if (!account) return
+    if (flow.verification.status !== "Verified") return
+
+    // Accept a Failed transaction as a retry seed as long as the
+    // intent + payload from the original simulation are still around.
+    // Any other non-Ready state (Draft, Signing, Submitted…) is a nop.
+    let intent: BorrowIntent
+    let payload: ProtocolTransactionPayload
+    if (flow.transaction.status === "Ready") {
+      if (!canSubmitTransaction({
         metrics,
         status: flow.verification.status,
         transaction: flow.transaction,
-      })
+      })) {
+        return
+      }
+      intent = flow.transaction.intent
+      payload = flow.transaction.payload
+    } else if (
+      flow.transaction.status === "Failed" &&
+      flow.transaction.intent &&
+      flow.transaction.payload
     ) {
+      intent = flow.transaction.intent
+      payload = flow.transaction.payload
+    } else {
       return
     }
-
-    const { intent, payload } = flow.transaction
 
     submitAbortRef.current?.abort()
     const controller = new AbortController()

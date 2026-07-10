@@ -23,16 +23,13 @@ export function MarketCard({
   const marketPair = getMarketPair(market)
   const isComingSoon = market.status === "comingSoon"
   const borrowPrice = getAssetPriceUsd(market.symbol)
-  const collateralPrice = getAssetPriceUsd(market.collateral)
-  const pairRate =
-    collateralPrice > 0 ? borrowPrice / collateralPrice : 0
   const marketMetrics = [
     { label: "Supply APY", value: market.supplyApy },
     {
       label: `${market.symbol} price`,
-      value: `${pairRate.toLocaleString("en-US", {
-        maximumFractionDigits: pairRate >= 10 ? 2 : 4,
-      })} ${market.collateral}`,
+      value: `$${borrowPrice.toLocaleString("en-US", {
+        maximumFractionDigits: borrowPrice >= 10 ? 2 : 4,
+      })}`,
     },
     { label: "Available funds", value: market.availableFunds },
     { label: "Utilization", value: market.utilization },
