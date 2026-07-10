@@ -1,9 +1,16 @@
-import { ReceiptTextIcon, ShieldCheckIcon } from "lucide-react"
+import {
+  PenLineIcon,
+  ReceiptTextIcon,
+  ShieldAlertIcon,
+  ShieldCheckIcon,
+  type LucideIcon,
+} from "lucide-react"
 import * as React from "react"
 
 import type { ConnectedAccount } from "@/app/_constants/account"
 import { MetricTile } from "@/components/atoms/metric-tile"
 import { PrivateValue } from "@/components/atoms/private-value"
+import { Badge } from "@/components/ui/badge"
 import type { MarketCardData } from "@/features/markets"
 
 import type {
@@ -23,6 +30,8 @@ type TransactionStepProps = {
   position: UserPosition | null
 }
 
+type RowStatus = "active" | "done" | "failed" | "pending"
+
 export function TransactionStep({
   account,
   flow,
@@ -34,35 +43,37 @@ export function TransactionStep({
     () => createTransactionPreview({ account, flow, market, metrics }),
     [account, flow, market, metrics]
   )
-  const settlement = getSettlementCopy(flow.transaction.status)
+  const rows = getTimelineRows(flow.transaction.status)
+  const signingCopy = getSigningCopy(rows.signing)
+  const settleCopy = getSettleCopy(rows.settle)
 
   return (
     <>
       {position ? null : <RiskSummary market={market} metrics={metrics} />}
       <TimelineSection>
         <TimelineItem
-          amount={preview.receipt ?? settlement.pendingCaption}
+          from="Wallet"
+          icon={pickSigningIcon(rows.signing)}
+          info={signingCopy.info}
+          label={signingCopy.label}
+          meta={[{ label: "Fee", value: preview.estimatedFee }]}
+          status={rows.signing}
+          to="Wallet signature"
+        />
+        <TimelineItem
+          amount={preview.receipt ?? settleCopy.pendingCaption}
           from="Wallet signature"
-          icon={settlement.status === "failed" ? ShieldCheckIcon : ReceiptTextIcon}
-          info={settlement.info}
+          icon={pickSettleIcon(rows.settle)}
+          info={settleCopy.info}
           isLast
-          label={settlement.label}
+          label={settleCopy.label}
           meta={
             preview.error
-              ? [
-                  {
-                    label: "Reason",
-                    value: preview.error,
-                    wide: true,
-                  },
-                ]
-              : [
-                  { label: "Fee", value: preview.estimatedFee },
-                  { label: "Network", value: preview.network },
-                ]
+              ? [{ label: "Reason", value: preview.error, wide: true }]
+              : [{ label: "Network", value: preview.network }]
           }
           privateAmount={Boolean(preview.receipt)}
-          status={settlement.status}
+          status={rows.settle}
           to="Stellar ledger"
         />
       </TimelineSection>
@@ -112,17 +123,15 @@ function OpenPositionSummary({
   const borrowed = position.borrowed[0]
 
   return (
-    <section className="rounded-lg border bg-success/8 border-success/32 p-4">
+    <section className="rounded-lg border bg-background/72 p-4">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h3 className="font-medium text-sm text-success">Position open</h3>
+          <h3 className="font-medium text-sm">Position open</h3>
           <p className="mt-1 text-muted-foreground text-xs">
             {position.market}
           </p>
         </div>
-        <span className="rounded-md border border-success/40 bg-success/12 px-2 py-1 text-success text-xs">
-          {position.status}
-        </span>
+        <Badge variant="success">{position.status}</Badge>
       </div>
       <div className="mt-3 grid gap-2 text-sm">
         <PositionRow
@@ -149,10 +158,15 @@ function OpenPositionSummary({
               : position.healthFactor.toFixed(2)
           }
         />
-        <PositionRow label="Receipt" privateValue value={position.receiptHash} />
+        <PositionRow label="Receipt" privateValue value={shortHash(position.receiptHash)} />
       </div>
     </section>
   )
+}
+
+function shortHash(hash: string): string {
+  if (hash.length <= 20) return hash
+  return `${hash.slice(0, 8)}…${hash.slice(-6)}`
 }
 
 function PositionRow({
@@ -165,7 +179,7 @@ function PositionRow({
   value: string
 }): React.ReactElement {
   return (
-    <div className="flex items-start justify-between gap-3 border-b border-success/16 pb-2 last:border-b-0 last:pb-0">
+    <div className="flex items-start justify-between gap-3 border-b pb-2 last:border-b-0 last:pb-0">
       <span className="text-muted-foreground">{label}</span>
       {privateValue ? (
         <PrivateValue className="max-w-[60%] text-right font-medium break-words">
@@ -180,52 +194,79 @@ function PositionRow({
   )
 }
 
-type SettlementCopy = {
+function getTimelineRows(
+  status: BorrowFlowState["transaction"]["status"]
+): { signing: RowStatus; settle: RowStatus } {
+  if (status === "Confirmed") return { settle: "done", signing: "done" }
+  if (status === "Submitted") return { settle: "active", signing: "done" }
+  if (status === "Signing") return { settle: "pending", signing: "active" }
+  if (status === "Failed") return { settle: "failed", signing: "failed" }
+  return { settle: "pending", signing: "pending" }
+}
+
+function pickSigningIcon(status: RowStatus): LucideIcon {
+  if (status === "failed") return ShieldAlertIcon
+  if (status === "done") return ShieldCheckIcon
+  return PenLineIcon
+}
+
+function pickSettleIcon(status: RowStatus): LucideIcon {
+  if (status === "failed") return ShieldAlertIcon
+  if (status === "done") return ShieldCheckIcon
+  return ReceiptTextIcon
+}
+
+function getSigningCopy(status: RowStatus): { info: string; label: string } {
+  if (status === "done") {
+    return { info: "Wallet signed the transaction.", label: "Signed" }
+  }
+  if (status === "active") {
+    return {
+      info: "Confirm the transaction in your wallet extension.",
+      label: "Signing",
+    }
+  }
+  if (status === "failed") {
+    return {
+      info: "Signing did not complete. See reason below.",
+      label: "Signing failed",
+    }
+  }
+  return {
+    info: "Wallet will be prompted after you hit Submit.",
+    label: "Sign",
+  }
+}
+
+function getSettleCopy(status: RowStatus): {
   info: string
   label: string
   pendingCaption: string
-  status: "active" | "done" | "failed" | "pending"
-}
-
-function getSettlementCopy(
-  status: BorrowFlowState["transaction"]["status"]
-): SettlementCopy {
-  if (status === "Confirmed") {
+} {
+  if (status === "done") {
     return {
       info: "Position opened. Receipt hash pinned to the Stellar ledger.",
       label: "Confirmed",
       pendingCaption: "",
-      status: "done",
     }
   }
-  if (status === "Failed") {
-    return {
-      info: "Something went wrong. Fix the reason below and try again.",
-      label: "Failed",
-      pendingCaption: "Not settled",
-      status: "failed",
-    }
-  }
-  if (status === "Submitted") {
+  if (status === "active") {
     return {
       info: "Broadcast to the Soroban RPC. Waiting for ledger inclusion.",
       label: "Awaiting ledger",
       pendingCaption: "Waiting for the next ledger…",
-      status: "active",
     }
   }
-  if (status === "Signing") {
+  if (status === "failed") {
     return {
-      info: "Confirm the transaction in your wallet extension.",
-      label: "Signing",
-      pendingCaption: "Waiting for wallet signature…",
-      status: "active",
+      info: "Something went wrong. Fix the reason below and try again.",
+      label: "Not settled",
+      pendingCaption: "Not settled",
     }
   }
   return {
-    info: "Signature and settlement will happen after you hit Submit.",
-    label: "Ready to submit",
-    pendingCaption: "After confirmation",
-    status: "pending",
+    info: "Ledger settlement happens after signing.",
+    label: "Confirm",
+    pendingCaption: "After signing",
   }
 }
