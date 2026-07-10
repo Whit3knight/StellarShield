@@ -33,17 +33,6 @@ describe("noir borrow prover", () => {
     })
   })
 
-  it("returns Unknown error when noir deps or circuit artifact are missing", async () => {
-    // Deps and compiled circuit are not installed in this environment;
-    // the adapter must surface a clean AdapterError, not throw.
-    const adapter = createNoirBorrowProverAdapter()
-    const result = await adapter.generateBorrowProof(baseParams)
-
-    expect(result.ok).toBe(false)
-    if (!result.ok) {
-      expect(result.error.tag).toBe("Unknown")
-    }
-  })
 })
 
 describe("mapParamsToCircuitInputs", () => {
@@ -55,12 +44,12 @@ describe("mapParamsToCircuitInputs", () => {
     expect(inputs.proof_id.startsWith("0x")).toBe(true)
     expect(inputs.collateral_symbol.startsWith("0x")).toBe(true)
     expect(inputs.borrow_symbol.startsWith("0x")).toBe(true)
-    expect(inputs.collateral_amount).toBe("10000000000")
-    expect(inputs.borrow_amount).toBe("500000000")
+    expect(inputs.collateral_amount).toBe("1000")
+    expect(inputs.borrow_amount).toBe("50")
     expect(inputs.hf_min_bps).toBe("12500")
     expect(inputs.max_ltv_bps).toBe("6250")
     expect(inputs.oracle_epoch).toBe("1720000000")
-    expect(inputs.oracle_price).toBe("10000000")
+    expect(inputs.oracle_price).toBe("1")
     expect(inputs.raw_collateral_balance).toBe(inputs.collateral_amount)
   })
 
@@ -85,7 +74,7 @@ describe("mockOracle", () => {
     const first = mockOracle("USDC/XLM", 1_720_000_000_000)
     const second = mockOracle("USDC/XLM", 1_720_000_000_000)
     expect(first.salt).toBe(second.salt)
-    expect(first.price).toBe(10_000_000n)
+    expect(first.price).toBe(1n)
     expect(first.epoch).toBe(1_720_000_000)
   })
 

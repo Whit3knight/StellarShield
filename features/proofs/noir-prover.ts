@@ -13,8 +13,11 @@ const PROOF_TTL_MS = 10 * 60 * 1000
 // Circuit constants — must match contracts/circuits/borrow-eligibility/src/main.nr.
 const HEALTH_FACTOR_BPS_SCALE = 10_000
 const LTV_BPS_SCALE = 10_000
-// Stellar amounts are stored with 7 fractional digits ("stroops" for XLM).
-const AMOUNT_FIXED_POINT_SCALE = 10_000_000
+// Circuit works in whole asset units (integer XLM / USDC), not stroops.
+// bb.js 5.0.0-nightly UltraHonk doesn't yet handle u128 opcodes so we
+// keep the circuit in u64 with reduced scale. Restore stroop precision
+// once upstream ships u128 support.
+const WHOLE_UNIT_SCALE = 1
 
 /**
  * Real Noir + Barretenberg prover. Runs entirely in the browser via
@@ -77,8 +80,16 @@ export function createNoirBorrowProverAdapter(
           return err({ tag: "Aborted", message: "Proof generation aborted." })
         }
 
+        // Preserve the concrete failure so the UI can render it and
+        // console.error keeps the full stack for devtools.
+        // eslint-disable-next-line no-console
+        console.error("noir prover failure", cause)
+        const name =
+          cause instanceof Error && cause.name ? `${cause.name}: ` : ""
         const message =
-          cause instanceof Error ? cause.message : "Noir prover failed."
+          cause instanceof Error && cause.message
+            ? `${name}${cause.message}`
+            : `Noir prover failed: ${String(cause)}`
         return err({ tag: "Unknown", message })
       }
     },
@@ -103,6 +114,7 @@ async function runNoirCircuit(
   const Noir = (noirModule as { Noir: unknown }).Noir
   const UltraHonkBackend = (bbModule as { UltraHonkBackend: unknown })
     .UltraHonkBackend
+  const Barretenberg = (bbModule as { Barretenberg: unknown }).Barretenberg
 
   const circuit = (circuitModule as { default: unknown }).default
   const noir = new (Noir as unknown as new (c: unknown) => {
@@ -111,13 +123,27 @@ async function runNoirCircuit(
     ) => Promise<{ witness: Uint8Array; returnValue: string | string[] }>
   })(circuit)
 
+  // UltraHonkBackend needs a live Barretenberg WASM handle. Singleton
+  // reuses the same instance across calls so the first proof pays the
+  // init cost and subsequent proofs are fast. Pin threads to 1 —
+  // multi-threaded WASM under COOP/COEP has been flaky and triggers
+  // `RuntimeError: unreachable` inside bb's builder in this build.
+  const api = await (
+    Barretenberg as unknown as {
+      initSingleton: (opts?: Record<string, unknown>) => Promise<unknown>
+    }
+  ).initSingleton({ threads: 1 })
+
   const backend = new (
-    UltraHonkBackend as unknown as new (bytecode: unknown) => {
+    UltraHonkBackend as unknown as new (
+      bytecode: unknown,
+      api: unknown
+    ) => {
       generateProof: (
         witness: Uint8Array
       ) => Promise<{ proof: Uint8Array; publicInputs: string[] }>
     }
-  )((circuit as { bytecode: unknown }).bytecode)
+  )((circuit as { bytecode: unknown }).bytecode, api)
 
   const oracleEpoch = mockOracleEpoch(nowMs)
   const inputs = mapParamsToCircuitInputs(params, oracleEpoch)
@@ -155,7 +181,8 @@ export function mockOracle(marketSymbol: string, nowMs: number): {
   const salt = fieldFromString(`${marketSymbol}:${epoch}`)
   return {
     epoch,
-    price: BigInt(1 * AMOUNT_FIXED_POINT_SCALE),
+    // Whole-number exchange rate (matches circuit's u64 scale).
+    price: 1n,
     salt,
   }
 }
@@ -170,8 +197,8 @@ export function mapParamsToCircuitInputs(
 ): CircuitInputs {
   const oracle = mockOracle(params.market, oracleEpoch * 1000)
 
-  const collateralAmount = toFixedPointBigInt(params.collateral.amount)
-  const borrowAmount = toFixedPointBigInt(params.borrow.amount)
+  const collateralAmount = toWholeUnitBigInt(params.collateral.amount)
+  const borrowAmount = toWholeUnitBigInt(params.borrow.amount)
 
   return {
     account: fieldFromString(params.account ?? "disconnected"),
@@ -204,8 +231,9 @@ export function mapParamsToCircuitInputs(
   }
 }
 
-function toFixedPointBigInt(amount: number): bigint {
-  return BigInt(Math.round(amount * AMOUNT_FIXED_POINT_SCALE))
+function toWholeUnitBigInt(amount: number): bigint {
+  const whole = Math.max(1, Math.floor(amount * WHOLE_UNIT_SCALE))
+  return BigInt(whole)
 }
 
 /**

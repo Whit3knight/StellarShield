@@ -12,9 +12,19 @@
 //
 // Verifier lives on-chain in the borrow-pool contract via Soroban's
 // BLS12-381 host functions (CAP-0059).
+//
+// Unit convention: the circuit works in **whole asset units** (integer
+// XLM / integer USDC), not stroops. `oracle_price` is a whole-number
+// exchange rate. Contract-side stroop amounts must be divided down
+// (or the intent's whole-unit view fed) before cross-checking against
+// the proof's public inputs.
+//
+// Rationale: bb.js 5.0.0-nightly UltraHonk does not yet support u128
+// ACIR opcodes cleanly (bare u128 mul triggers a WASM `unreachable`
+// panic in Barretenberg). Skeleton stays u64 with reduced scale; when
+// bb ships u128 support, restore stroop-precision inputs.
 
-// Basis points (1/10000). Health factor and LTV are quoted in bps to stay
-// integer-only inside the circuit.
+// Basis points (1/10000).
 global BPS: u64 = 10_000;
 
 fn main(
@@ -42,71 +52,56 @@ fn main(
     assert(collateral_amount > 0);
     assert(borrow_amount > 0);
 
-    // 3. Health factor: collateral_value * BPS / borrow_amount >= hf_min_bps.
-    // Multiply first to preserve precision; u64 range enforced by types.
+    // 3. Health factor: collateral_value * BPS >= hf_min_bps * borrow_amount.
+    // Multiplied form dodges u64 division opcodes which some bb.js
+    // UltraHonk builds reject at runtime.
     let collateral_value: u64 = collateral_amount * oracle_price;
-    let hf_bps: u64 = collateral_value * BPS / borrow_amount;
-    assert(hf_bps >= hf_min_bps);
+    assert(collateral_value * BPS >= hf_min_bps * borrow_amount);
 
-    // 4. LTV: borrow_amount * BPS / collateral_value <= max_ltv_bps.
-    let ltv_bps: u64 = borrow_amount * BPS / collateral_value;
-    assert(ltv_bps <= max_ltv_bps);
+    // 4. LTV: borrow_amount * BPS <= max_ltv_bps * collateral_value.
+    assert(borrow_amount * BPS <= max_ltv_bps * collateral_value);
 
-    // 5. Bind unused-looking public inputs so they cannot be swapped.
-    // Noir strips truly unused public inputs; touching them with
-    // trivial constraints locks them into the verifier's public-input
-    // vector.
-    assert(account == account);
-    assert(market == market);
-    assert(proof_id == proof_id);
-    assert(collateral_symbol == collateral_symbol);
-    assert(borrow_symbol == borrow_symbol);
-    assert(oracle_epoch == oracle_epoch);
+    // 5. Bind public inputs into the return value so bb can't strip
+    // them from the verifier key. Sum-into-return is a lightweight
+    // way to reference every binding once without emitting trivial
+    // `x == x` constraints (which some bb.js UltraHonk builds trip
+    // on with `RuntimeError: unreachable`).
+    let bindings_sum: Field = account
+        + market
+        + proof_id
+        + collateral_symbol
+        + borrow_symbol
+        + oracle_epoch as Field;
 
-    // 6. Oracle price commitment as public output. Contract reads this
-    // from the proof's public-inputs vector and cross-checks against
-    // the on-chain oracle snapshot for (market, oracle_epoch).
+    // 6. Oracle price commitment as public output. Trivial addition
+    // for skeleton; swap for a real hash once bb.js UltraHonk supports
+    // the desired primitive cleanly.
     let price_field = oracle_price as Field;
-    std::hash::pedersen_hash([price_field, oracle_price_salt])
+    price_field + oracle_price_salt + bindings_sum
 }
 
 #[test]
 fn happy_path() {
-    // collateral: 1_000 units at price 2 → value 2_000
-    // borrow: 500 → HF = 2_000 * 10_000 / 500 = 40_000 bps
-    // LTV = 500 * 10_000 / 2_000 = 2_500 bps
     let _ = main(
-        0x01,           // account
-        0x02,           // market
-        0x03,           // proof_id
-        0x04,           // collateral_symbol
-        0x05,           // borrow_symbol
-        1_000,          // collateral_amount
-        500,            // borrow_amount
-        20_000,         // hf_min_bps = 200%
-        6_300,          // max_ltv_bps = 63%
-        42,             // oracle_epoch
-        2,              // private: oracle_price
-        0xdeadbeef,     // private: salt
-        1_000,          // private: raw_collateral_balance
+        0x01, 0x02, 0x03, 0x04, 0x05,
+        1_000, 500, 20_000, 6_300, 42,
+        2, 0xdeadbeef,
+        1_000,
     );
 }
 
 #[test(should_fail)]
 fn rejects_underfunded_borrower() {
-    // Claims 1_000 collateral but only owns 500.
     let _ = main(
         0x01, 0x02, 0x03, 0x04, 0x05,
         1_000, 500, 20_000, 6_300, 42,
         2, 0x1,
-        500,  // raw < claimed
+        500,
     );
 }
 
 #[test(should_fail)]
 fn rejects_hf_below_min() {
-    // price 1, collateral 1_000 → value 1_000; borrow 900 → HF ≈ 11_111 bps
-    // hf_min = 20_000 bps → should fail.
     let _ = main(
         0x01, 0x02, 0x03, 0x04, 0x05,
         1_000, 900, 20_000, 6_300, 42,
@@ -117,11 +112,23 @@ fn rejects_hf_below_min() {
 
 #[test(should_fail)]
 fn rejects_ltv_above_max() {
-    // borrow 800 vs value 1_000 → LTV 8_000 bps > 6_300 max.
     let _ = main(
         0x01, 0x02, 0x03, 0x04, 0x05,
         1_000, 800, 10_000, 6_300, 42,
         1, 0x1,
         1_000,
+    );
+}
+
+#[test]
+fn realistic_whole_units() {
+    // 3_000 XLM collateral, 220 USDC borrow, price = 1 USDC per XLM.
+    // value = 3_000; hf_bps = 3_000 * 10_000 / 220 = 136_363
+    // ltv_bps = 220 * 10_000 / 3_000 = 733
+    let _ = main(
+        0x01, 0x02, 0x03, 0x04, 0x05,
+        3_000, 220, 12_500, 6_300, 1_720_000_000,
+        1, 0xcafebabe,
+        3_000,
     );
 }
