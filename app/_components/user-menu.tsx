@@ -4,6 +4,7 @@ import {
   ActivityIcon,
   ArrowUpRightIcon,
   LayersIcon,
+  LogOutIcon,
   ShieldCheckIcon,
   WalletCardsIcon,
   WalletIcon,
@@ -69,11 +70,7 @@ export function UserMenu({
               Account
             </MenuSubTrigger>
             <MenuSubPopup className="w-80">
-              <WalletDetailPanel
-                account={account}
-                onClose={() => walletMenu.setOpen(false)}
-                onDisconnect={onDisconnect}
-              />
+              <WalletDetailPanel account={account} />
             </MenuSubPopup>
           </MenuSub>
         </MenuGroup>
@@ -128,6 +125,11 @@ export function UserMenu({
           <ThemeModeMenuItem />
           <PrivacyModeMenuItem />
         </MenuGroup>
+        <MenuSeparator />
+        <MenuItem closeOnClick onClick={onDisconnect} variant="destructive">
+          <LogOutIcon aria-hidden="true" />
+          Disconnect
+        </MenuItem>
       </MenuPopup>
     </Menu>
   )

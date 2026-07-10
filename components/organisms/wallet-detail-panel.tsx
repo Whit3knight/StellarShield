@@ -1,11 +1,6 @@
 "use client"
 
-import {
-  CheckIcon,
-  CopyIcon,
-  ExternalLinkIcon,
-  LogOutIcon,
-} from "lucide-react"
+import { CheckIcon, CopyIcon, ExternalLinkIcon } from "lucide-react"
 import * as React from "react"
 
 import { PrivateValue } from "@/components/atoms/private-value"
@@ -19,14 +14,10 @@ import {
 
 type WalletDetailPanelProps = {
   account: ConnectedAccount
-  onClose: () => void
-  onDisconnect: () => void
 }
 
 export function WalletDetailPanel({
   account,
-  onClose,
-  onDisconnect,
 }: WalletDetailPanelProps): React.ReactElement {
   const [copied, setCopied] = React.useState(false)
   const explorerUrl = getStellarExpertAccountUrl(account.wallet.address)
@@ -52,11 +43,6 @@ export function WalletDetailPanel({
       setCopied(false)
     }
   }, [account.wallet.address])
-
-  const handleDisconnect = React.useCallback(() => {
-    onDisconnect()
-    onClose()
-  }, [onClose, onDisconnect])
 
   return (
     <div className="flex flex-col gap-4 p-3">
@@ -125,17 +111,6 @@ export function WalletDetailPanel({
           variant="ghost"
         />
       </section>
-
-      <div className="flex justify-end border-t pt-3">
-        <Button
-          onClick={handleDisconnect}
-          type="button"
-          variant="destructive"
-        >
-          <LogOutIcon aria-hidden="true" />
-          Disconnect
-        </Button>
-      </div>
     </div>
   )
 }
