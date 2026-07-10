@@ -4,25 +4,36 @@ import { Badge } from "@/components/ui/badge"
 import { RateTrendChart } from "@/components/molecules/rate-trend-chart"
 import { Card, CardPanel } from "@/components/ui/card"
 import { Frame, FrameHeader, FrameTitle } from "@/components/ui/frame"
-import { getMarketPair, type MarketCardData } from "@/features/markets"
+import {
+  getAssetPriceUsd,
+  getMarketPair,
+  type MarketCardData,
+} from "@/features/markets"
 import { cn } from "@/lib/utils"
 
 export function MarketCard({
   active,
   market,
   onViewMarket,
-  yourBalance,
 }: {
   active: boolean
   market: MarketCardData
   onViewMarket: () => void
-  yourBalance: string
 }): React.ReactElement {
   const marketPair = getMarketPair(market)
   const isComingSoon = market.status === "comingSoon"
+  const borrowPrice = getAssetPriceUsd(market.symbol)
+  const collateralPrice = getAssetPriceUsd(market.collateral)
+  const pairRate =
+    collateralPrice > 0 ? borrowPrice / collateralPrice : 0
   const marketMetrics = [
     { label: "Supply APY", value: market.supplyApy },
-    { label: `${market.symbol} balance`, value: yourBalance },
+    {
+      label: `${market.symbol} price`,
+      value: `${pairRate.toLocaleString("en-US", {
+        maximumFractionDigits: pairRate >= 10 ? 2 : 4,
+      })} ${market.collateral}`,
+    },
     { label: "Available funds", value: market.availableFunds },
     { label: "Utilization", value: market.utilization },
   ]

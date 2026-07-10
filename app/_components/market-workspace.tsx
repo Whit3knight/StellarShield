@@ -4,7 +4,6 @@ import type * as React from "react"
 
 import { getMarketPair, marketCards } from "@/features/markets"
 import { useWalletConnection } from "@/features/wallet/use-wallet-connection"
-import { getMarketWalletBalance } from "@/features/wallet/utils"
 
 import { useMarketSelection } from "../_hooks/use-market-selection"
 import { MarketCard } from "./market-card"
@@ -52,7 +51,6 @@ export function MarketWorkspace(): React.ReactElement {
                 onViewMarket={() => {
                   selectMarket(market)
                 }}
-                yourBalance={getMarketWalletBalance(account, market)}
               />
             )
 
