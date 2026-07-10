@@ -43,3 +43,6 @@ next-env.d.ts
 /contracts/target
 /contracts/**/target
 Cargo.lock
+
+# playwright mcp scratch
+/.playwright-mcp
