@@ -3,9 +3,7 @@
 import {
   ActivityIcon,
   ArrowUpRightIcon,
-  ExternalLinkIcon,
   LayersIcon,
-  LogOutIcon,
   ShieldCheckIcon,
   WalletCardsIcon,
   WalletIcon,
@@ -29,7 +27,6 @@ import {
   MenuTrigger,
 } from "@/components/ui/menu"
 import { WalletDetailPanel } from "@/components/organisms/wallet-detail-panel"
-import { getStellarExpertAccountUrl } from "@/features/wallet/network"
 
 import type { ConnectedAccount } from "../_constants/account"
 import { userResourceLinks } from "../_constants/user-menu-links"
@@ -46,7 +43,6 @@ export function UserMenu({
 }): React.ReactElement {
   const { activityDrawer, positionsDrawer, proofsDrawer, walletMenu } =
     useNavMenus()
-  const explorerUrl = getStellarExpertAccountUrl(account.wallet.address)
 
   return (
     <Menu onOpenChange={walletMenu.setOpen} open={walletMenu.open}>
@@ -66,11 +62,11 @@ export function UserMenu({
         </MenuGroup>
         <MenuSeparator />
         <MenuGroup>
-          <MenuGroupLabel>Wallet</MenuGroupLabel>
+          <MenuGroupLabel>Account</MenuGroupLabel>
           <MenuSub>
             <MenuSubTrigger>
               <WalletIcon aria-hidden="true" />
-              Wallet
+              Account
             </MenuSubTrigger>
             <MenuSubPopup className="w-80">
               <WalletDetailPanel
@@ -80,16 +76,6 @@ export function UserMenu({
               />
             </MenuSubPopup>
           </MenuSub>
-          <MenuLinkItem href={explorerUrl} rel="noreferrer" target="_blank">
-            <ExternalLinkIcon aria-hidden="true" />
-            View on Stellar Expert
-            <MenuShortcut
-              aria-hidden="true"
-              className="tracking-normal [&>svg]:size-3.5"
-            >
-              <ArrowUpRightIcon />
-            </MenuShortcut>
-          </MenuLinkItem>
         </MenuGroup>
         <MenuSeparator />
         <MenuGroup>
@@ -142,11 +128,6 @@ export function UserMenu({
           <ThemeModeMenuItem />
           <PrivacyModeMenuItem />
         </MenuGroup>
-        <MenuSeparator />
-        <MenuItem closeOnClick onClick={onDisconnect} variant="destructive">
-          <LogOutIcon aria-hidden="true" />
-          Disconnect
-        </MenuItem>
       </MenuPopup>
     </Menu>
   )
