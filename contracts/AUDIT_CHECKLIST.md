@@ -11,7 +11,7 @@ Frozen artefacts:
 - [ ] `SPEC.md` v1 (public inputs, private inputs, constraints, out-of-scope)
 - [ ] `src/main.nr` — `nargo check` clean, `nargo test` all green
 - [ ] Compiled artefact hash pinned (SHA-256 of `borrow-eligibility.compiled.json`)
-- [ ] Verifying key hash pinned (SHA-256 of `vk.bin`)
+- [ ] Verifying key hash pinned (`bb write_vk` `vk_hash.bin` — committed at `contracts/borrow-pool/src/vk_hash.bin`)
 - [ ] Reproducible build script (`nargo compile` + `bb write_vk`) documented
 
 Audit prompts:

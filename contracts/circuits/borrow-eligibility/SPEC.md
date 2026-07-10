@@ -12,9 +12,21 @@ Commitment hash: **`std::hash::pedersen_hash`** — Noir 1.0 stdlib only
 ships pedersen inline; Poseidon2 lives in an external package and
 lands after gas profiling shows it is worth the extra dependency.
 
-Scheme lock: skeleton uses UltraHonk (Barretenberg default). Swap to
-Groth16 only if the verifier gas profile on Soroban favours it enough
-to justify the extra tooling.
+Scheme lock: skeleton uses UltraHonk (Barretenberg default). Real
+on-chain verify blocked on tooling: `bb 5.0.0-nightly` only exports
+UltraHonk verification keys (targets: `evm`, `noir-recursive`,
+`noir-rollup`, `starknet`) — no Groth16 export, no Soroban target,
+and no mature UltraHonk-over-BLS12-381 Rust verifier crate for
+Soroban host fns. Paths forward are one of:
+1. Custom UltraHonk Rust port targeting Soroban BLS12-381 host fns.
+2. Switch prover to Circom + snarkjs Groth16 over BN254 (Nethermind
+   / SDF supported verifier crate).
+3. RISC Zero zkVM Groth16 wrapper (heavier prover, off-the-shelf
+   verifier).
+
+VK artefact is committed at `contracts/borrow-pool/src/vk.bin` +
+`vk_hash.bin` so any of the three paths can pin against the current
+circuit without regenerating.
 
 ## Statement
 

@@ -1,53 +1,60 @@
-//! Groth16 verifier scaffolding over BLS12-381 for the borrow-eligibility
+//! UltraHonk-over-BLS12-381 verifier scaffolding for the borrow-eligibility
 //! circuit.
 //!
-//! The pairing equation is
+//! Scheme: **UltraHonk**. Noir 1.0.0-beta.22 + Barretenberg 5.0.0-nightly
+//! only export UltraHonk verification keys — no direct Groth16 export.
+//! No mature UltraHonk Rust verifier crate targets Soroban BLS12-381 host
+//! functions yet, so this module ships the *shape* + *VK pinning* and
+//! leaves the pairing-check math for the next audit-gated round.
 //!
-//!     e(A, B) = e(alpha_g1, beta_g2)
-//!             * e(vk_x, gamma_g2)
-//!             * e(C, delta_g2)
+//! The verifying key artefact was produced by:
 //!
-//! where `vk_x = sum_i (vk_ic[i] * public_input[i])`.
+//!     cd contracts/circuits/borrow-eligibility
+//!     nargo compile
+//!     bb write_vk -b target/borrow_eligibility.json -o target/vk
 //!
-//! ponytail: the verifying key constants (alpha_g1, beta_g2, gamma_g2,
-//! delta_g2, vk_ic) come from the Noir circuit build artifact
-//! (`contracts/circuits/borrow-eligibility`). They land here once the
-//! circuit is frozen and compiled — Phase 6. Until then, this module
-//! exposes only the API shape and the non-crypto cross-checks so the
-//! contract carries the full audit surface today.
+//! `vk.bin` is the raw VK bytes. `vk_hash.bin` is the 32-byte SHA-256-ish
+//! digest bb produced; the contract pins that hash so any drift between
+//! the circuit and the on-chain verifier is caught at deploy time.
+//!
+//! ponytail: real body pending
+//!   - path A: port a minimal UltraHonk-over-BLS12-381 verifier to Rust
+//!     using `env.crypto().bls12_381()` host fns; big audit item
+//!   - path B: switch prover to Circom+snarkjs Groth16; 3-pairing verify
+//!     is 50 Rust lines, but rewires the whole prover pipeline
+//!   - path C: RISC Zero zkVM Groth16 wrapper; heavy prover, off-the-shelf
+//!     Nethermind/SDF Soroban verifier
+//! Decision gates on gas measurement + auditor availability.
 
 use soroban_sdk::Env;
 
 use crate::{BorrowIntent, BorrowProof};
 
-/// Groth16 verification with all cross-checks required by the circuit
-/// public inputs.
-///
-/// Returns `true` iff the proof is well-formed, binds to every field
-/// on the `intent`, and the pairing equation holds against the pinned
-/// verifying key.
-///
-/// Phase 2 stub: everything except the pairing check is wired. The
-/// pairing math itself is inserted in Phase 6 after the circuit is
-/// frozen and its verifying key is committed as a constant.
+/// Pinned UltraHonk verifying key bytes (produced by `bb write_vk`).
+/// Any change to the circuit invalidates this — recompile, regenerate,
+/// and re-embed via `include_bytes!` before redeploying.
+pub const PINNED_VK: &[u8] = include_bytes!("vk.bin");
+
+/// 32-byte digest of `PINNED_VK` as produced by `bb write_vk`. Contracts
+/// can expose this via a view function so operators can verify their
+/// off-chain circuit matches the on-chain expectation.
+pub const PINNED_VK_HASH: &[u8; 32] = include_bytes!("vk_hash.bin");
+
+/// Groth16-style structure of a would-be verifier. Signature preserved
+/// so the pairing math can drop in without touching call sites.
 pub fn verify_groth16(_env: &Env, intent: &BorrowIntent, proof: &BorrowProof) -> bool {
-    // 1. Proof size sanity: A (48 bytes G1 compressed) + B (96 bytes G2
-    //    compressed) + C (48 bytes G1 compressed) = 192 bytes.
-    if proof.proof_bytes.len() != 192 {
+    // 1. Proof size sanity. UltraHonk proofs sit around ~10 kB; a
+    //    real Groth16 swap would tighten this to 192 bytes.
+    if proof.proof_bytes.len() < 1_024 {
         return false;
     }
 
-    // 2. Threshold sanity: proof-side threshold cannot be weaker than
-    //    the intent's declared thresholds. Circuit already binds these
-    //    as public inputs, but the check here is a belt-and-braces
-    //    audit signal.
+    // 2. Amount/threshold sanity checks. Circuit binds these as public
+    //    inputs, but a belt-and-braces check gives auditors a signal
+    //    the contract knows what it should be verifying.
     if intent.health_factor_bps == 0 || intent.max_ltv_bps == 0 {
         return false;
     }
-
-    // 3. Amount sanity: circuit uses u64; contract stores i128 and
-    //    checks positivity in the caller. Reject sizes the circuit
-    //    cannot express.
     if intent.borrow_amount as u128 > u64::MAX as u128 {
         return false;
     }
@@ -55,20 +62,7 @@ pub fn verify_groth16(_env: &Env, intent: &BorrowIntent, proof: &BorrowProof) ->
         return false;
     }
 
-    // 4. Pairing check.
-    //
-    // ponytail: real body pending. Shape:
-    //
-    //     let bls = env.crypto().bls12_381();
-    //     let public_inputs = pack_public_inputs(intent, proof);
-    //     let vk_x = bls.g1_msm(&VK_IC, &public_inputs);
-    //     let lhs = bls.pairing(A, B);
-    //     let rhs = bls.pairing_check(&[
-    //         (ALPHA_G1, BETA_G2),
-    //         (vk_x,    GAMMA_G2),
-    //         (C,       DELTA_G2),
-    //     ]);
-    //     lhs == rhs
+    // 3. Pairing check — real body pending, see module docs.
     //
     // Placeholder: reject every proof. Prevents accidentally deploying
     // a "verifier" that accepts anything before real math lands.
