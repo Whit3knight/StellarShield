@@ -4,6 +4,13 @@ import { formatAdapterError } from "@/features/protocol"
 
 import { formatAssetAmount, formatUsd } from "./format"
 import { getIntent, getPayload, getProof, getReceipt } from "./types"
+
+function shortHash(hash: string): string {
+  // 64-char tx hashes overflow a timeline row; keep the first + last
+  // few chars so users can eyeball match against Stellar Expert.
+  if (hash.length <= 20) return hash
+  return `${hash.slice(0, 8)}…${hash.slice(-6)}`
+}
 import type {
   BorrowFlowMetrics,
   BorrowFlowState,
@@ -55,7 +62,7 @@ export function createTransactionPreview({
     network: payload?.network ?? "Prepared after simulation",
     operation: payload?.operation ?? "Prepared after simulation",
     proof: getProof(flow.verification)?.id ?? "Required before submission",
-    receipt: receipt?.hash ?? null,
+    receipt: receipt?.hash ? shortHash(receipt.hash) : null,
     status: flow.transaction.status,
     verification: flow.verification.status,
   }
