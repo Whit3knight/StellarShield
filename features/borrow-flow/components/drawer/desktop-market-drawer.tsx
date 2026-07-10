@@ -38,6 +38,17 @@ export function DesktopMarketDrawer({
 
   const { positionsDrawer } = useNavMenus()
 
+  // Latch the callbacks in refs so the confirmed handoff effect only
+  // depends on the transaction status. Otherwise a new onClose or
+  // positionsDrawer object each render would keep resetting the
+  // timer and it would never fire.
+  const onCloseRef = React.useRef(onClose)
+  const positionsDrawerRef = React.useRef(positionsDrawer)
+  React.useEffect(() => {
+    onCloseRef.current = onClose
+    positionsDrawerRef.current = positionsDrawer
+  })
+
   // On Confirmed: hand off the flow to the Positions drawer. Fires
   // once per unique receipt hash so re-renders don't re-open.
   const handedOffHashRef = React.useRef<string | null>(null)
@@ -48,12 +59,12 @@ export function DesktopMarketDrawer({
     handedOffHashRef.current = hash
 
     const timer = window.setTimeout(() => {
-      positionsDrawer.setOpen(true)
-      onClose()
+      positionsDrawerRef.current.setOpen(true)
+      onCloseRef.current()
     }, CONFIRMED_CLOSE_DELAY_MS)
 
     return () => window.clearTimeout(timer)
-  }, [flow.transaction, onClose, positionsDrawer])
+  }, [flow.transaction])
 
   // Auto-advance the drawer step to keep in sync with the flow state.
   // When verification lands as Verified + transaction becomes Ready,

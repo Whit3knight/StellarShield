@@ -167,7 +167,10 @@ function Toasts({
                     {toast.actionProps && (
                       <div>
                         <Toast.Action
-                          className={buttonVariants({ size: "xs" })}
+                          className={cn(
+                            buttonVariants({ variant: "link", size: "xs" }),
+                            "h-auto p-0 text-xs",
+                          )}
                           data-slot="toast-action"
                         >
                           {toast.actionProps.children}
