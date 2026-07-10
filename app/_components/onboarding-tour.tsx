@@ -128,6 +128,27 @@ export function OnboardingTour(): React.ReactElement | null {
     }
   }, [rect])
 
+  const spotlightClipPath = React.useMemo(() => {
+    if (!rect || typeof window === "undefined") return undefined
+
+    const PAD = 12
+    const RADIUS = 8
+    const W = window.innerWidth
+    const H = window.innerHeight
+    const x1 = Math.max(0, rect.x - PAD)
+    const y1 = Math.max(0, rect.y - PAD)
+    const x2 = Math.min(W, rect.right + PAD)
+    const y2 = Math.min(H, rect.bottom + PAD)
+    const r = Math.max(0, Math.min(RADIUS, (x2 - x1) / 2, (y2 - y1) / 2))
+
+    const hole =
+      `M${x1 + r},${y1} H${x2 - r} A${r},${r} 0 0 1 ${x2},${y1 + r} ` +
+      `V${y2 - r} A${r},${r} 0 0 1 ${x2 - r},${y2} H${x1 + r} ` +
+      `A${r},${r} 0 0 1 ${x1},${y2 - r} V${y1 + r} A${r},${r} 0 0 1 ${x1 + r},${y1} Z`
+
+    return `path(evenodd, "M0,0 H${W} V${H} H0 Z ${hole}")`
+  }, [rect])
+
   const handleOpenChange = React.useCallback((next: boolean) => {
     setOpen(next)
     if (!next) markOnboardingTourSeen()
@@ -152,9 +173,15 @@ export function OnboardingTour(): React.ReactElement | null {
   return (
     <Popover onOpenChange={handleOpenChange} open={open}>
       <PopoverPrimitive.Portal>
-        <PopoverPrimitive.Backdrop
-          className="fixed inset-0 z-[55] bg-background/60 backdrop-blur transition-opacity data-ending-style:opacity-0 data-starting-style:opacity-0"
+        <div
+          aria-hidden="true"
+          className="fixed inset-0 z-[55] bg-background/60 backdrop-blur transition-opacity"
           data-slot="onboarding-tour-backdrop"
+          onClick={handleFinish}
+          style={{
+            clipPath: spotlightClipPath,
+            WebkitClipPath: spotlightClipPath,
+          }}
         />
       </PopoverPrimitive.Portal>
       <PopoverPopup
