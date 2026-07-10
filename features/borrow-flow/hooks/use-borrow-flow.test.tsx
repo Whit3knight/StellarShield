@@ -253,6 +253,50 @@ describe("useBorrowFlow", () => {
     }
   })
 
+  it("auto-precomputes verification 300ms after amounts stabilise", async () => {
+    const { result } = renderHook(
+      () => useBorrowFlow({ account, market: marketCards[0] }),
+      { wrapper }
+    )
+
+    await act(async () => undefined)
+
+    expect(result.current.flow.verification.status).toBe("Not started")
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300)
+    })
+
+    expect(result.current.flow.verification.status).toBe("Verified")
+    expect(result.current.flow.transaction.status).toBe("Ready")
+  })
+
+  it("does not auto-retry after a failed prover attempt for the same amounts", async () => {
+    const attempts: number[] = []
+    const prover: BorrowProverAdapter = {
+      generateBorrowProof: async () => {
+        attempts.push(Date.now())
+        return err({ tag: "ProofGenerationFailed", reason: "boom" })
+      },
+    }
+
+    const { result } = renderHook(
+      () => useBorrowFlow({ account, market: marketCards[0] }),
+      { wrapper: makeWrapper({ prover }) }
+    )
+
+    await act(async () => undefined)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300)
+    })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000)
+    })
+
+    expect(attempts).toHaveLength(1)
+    expect(result.current.flow.verification.status).toBe("Not started")
+  })
+
   it("routes wait failure to Failed(TransactionFailed) after submitted activity", async () => {
     const waitError: AdapterError = {
       tag: "TransactionFailed",

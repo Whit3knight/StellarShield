@@ -7,6 +7,7 @@ import { ConnectWalletDialog } from "@/components/organisms/connect-wallet-dialo
 import { PositionsDrawer } from "@/components/organisms/positions-drawer"
 import { ProofsDrawer } from "@/components/organisms/proofs-drawer"
 import { useBorrowSession } from "@/features/borrow-flow/session-store"
+import { preloadProver } from "@/features/proofs"
 import { useWalletConnection } from "@/features/wallet/use-wallet-connection"
 
 import { walletProviders, type WalletProvider } from "../_constants/account"
@@ -24,6 +25,14 @@ export function WalletNavActions(): React.ReactElement {
     pendingProviderId,
   } = useWalletConnection()
   const { connectDialog } = useNavMenus()
+
+  // Warm up the prover WASM the moment a wallet connects so the first
+  // borrow flow skips module parse + init cost. Fire-and-forget.
+  const isConnected = Boolean(account)
+  React.useEffect(() => {
+    if (!isConnected) return
+    void preloadProver()
+  }, [isConnected])
 
   const handleOpenChange = React.useCallback(
     (nextOpen: boolean) => {

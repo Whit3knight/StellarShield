@@ -59,6 +59,7 @@ export function useBorrowFlow({
   const submitAbortRef = React.useRef<AbortController | null>(null)
   const connectedWalletRef = React.useRef<string | null>(null)
   const confirmedPayloadRef = React.useRef<string | null>(null)
+  const autoVerifyKeyRef = React.useRef<string | null>(null)
   const deferredCollateralAmount = React.useDeferredValue(flow.collateralAmount)
   const deferredLoanAmount = React.useDeferredValue(flow.loanAmount)
   const metrics = React.useMemo(
@@ -128,6 +129,7 @@ export function useBorrowFlow({
     (field: BorrowField, value: string) => {
       verifyAbortRef.current?.abort()
       submitAbortRef.current?.abort()
+      autoVerifyKeyRef.current = null
       setFlow((currentFlow) => ({
         ...currentFlow,
         [field]: value,
@@ -240,6 +242,36 @@ export function useBorrowFlow({
     if (intentActivity) borrowSession.appendActivity(intentActivity)
     borrowSession.appendProof(proof)
   }, [account, market, metrics, protocolAdapter, prover])
+
+  // Precompute the eligibility proof + intent + simulation in the
+  // background as soon as the amount fields settle. When the user
+  // clicks Verify, the flow already sits at `Ready` and only signing +
+  // submit remain. Debounce 300ms to avoid firing on every keystroke.
+  // Attempts are keyed on (collateralAmount, loanAmount) so a failed
+  // attempt does not loop — the user must edit to retry.
+  React.useEffect(() => {
+    if (!metrics.hasWallet || !metrics.isLoanValid) return
+    if (flow.verification.status !== "Not started") return
+    if (flow.transaction.status !== "Draft") return
+
+    const key = `${deferredCollateralAmount}|${deferredLoanAmount}`
+    if (autoVerifyKeyRef.current === key) return
+
+    const timer = window.setTimeout(() => {
+      autoVerifyKeyRef.current = key
+      void verifyEligibility()
+    }, 300)
+
+    return () => window.clearTimeout(timer)
+  }, [
+    deferredCollateralAmount,
+    deferredLoanAmount,
+    flow.transaction.status,
+    flow.verification.status,
+    metrics.hasWallet,
+    metrics.isLoanValid,
+    verifyEligibility,
+  ])
 
   const submitTransaction = React.useCallback(async () => {
     if (
