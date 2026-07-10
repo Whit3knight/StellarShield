@@ -27,7 +27,6 @@ export function MarketWorkspace(): React.ReactElement {
     >
       <section
         className="min-h-0 min-w-0 scrollbar-none overflow-y-auto p-4 md:p-6"
-        data-tour="markets"
         id="markets"
       >
         <div>
@@ -43,10 +42,9 @@ export function MarketWorkspace(): React.ReactElement {
               : "mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4"
           }
         >
-          {marketCards.map((market) => {
+          {marketCards.map((market, index) => {
             const marketPair = getMarketPair(market)
-
-            return (
+            const card = (
               <MarketCard
                 active={selectedMarketPair === marketPair}
                 key={marketPair}
@@ -57,6 +55,16 @@ export function MarketWorkspace(): React.ReactElement {
                 yourBalance={getMarketWalletBalance(account, market)}
               />
             )
+
+            if (index === 0) {
+              return (
+                <div data-tour="markets" key={marketPair}>
+                  {card}
+                </div>
+              )
+            }
+
+            return card
           })}
         </div>
       </section>

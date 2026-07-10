@@ -88,15 +88,19 @@ export function CommandSearch(): React.ReactElement {
   }, [])
 
   const groups = React.useMemo<CommandActionGroup[]>(() => {
-    const marketItems = marketCards.map<CommandActionItem>((market) => ({
-      icon: LandmarkIcon,
-      label: getMarketPair(market),
-      onSelect: () => {
-        selectMarket(market)
-        setOpen(false)
-      },
-      value: getMarketSearchValue(market),
-    }))
+    // ponytail: hide coming-soon markets from the palette so they can't be
+    // opened. The markets grid still shows them with a disabled card.
+    const marketItems = marketCards
+      .filter((market) => market.status !== "comingSoon")
+      .map<CommandActionItem>((market) => ({
+        icon: LandmarkIcon,
+        label: getMarketPair(market),
+        onSelect: () => {
+          selectMarket(market)
+          setOpen(false)
+        },
+        value: getMarketSearchValue(market),
+      }))
 
     const isDark = resolvedTheme === "dark"
     const preferenceItems: CommandActionItem[] = [

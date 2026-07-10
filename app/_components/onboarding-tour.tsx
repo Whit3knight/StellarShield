@@ -153,13 +153,14 @@ export function OnboardingTour(): React.ReactElement | null {
     <Popover onOpenChange={handleOpenChange} open={open}>
       <PopoverPrimitive.Portal>
         <PopoverPrimitive.Backdrop
-          className="fixed inset-0 z-40 bg-background/60 backdrop-blur transition-opacity data-ending-style:opacity-0 data-starting-style:opacity-0"
+          className="fixed inset-0 z-[55] bg-background/60 backdrop-blur transition-opacity data-ending-style:opacity-0 data-starting-style:opacity-0"
           data-slot="onboarding-tour-backdrop"
         />
       </PopoverPrimitive.Portal>
       <PopoverPopup
         anchor={anchor}
         className="max-w-sm"
+        positionerClassName="z-[60]"
         side={step.side}
         sideOffset={12}
       >
