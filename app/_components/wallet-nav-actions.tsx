@@ -4,6 +4,7 @@ import * as React from "react"
 
 import { ActivityDrawer } from "@/components/organisms/activity-drawer"
 import { ConnectWalletDialog } from "@/components/organisms/connect-wallet-dialog"
+import { PositionsDrawer } from "@/components/organisms/positions-drawer"
 import { ProofsDrawer } from "@/components/organisms/proofs-drawer"
 import { useBorrowSession } from "@/features/borrow-flow/session-store"
 import { useWalletConnection } from "@/features/wallet/use-wallet-connection"
@@ -69,8 +70,8 @@ export function WalletNavActions(): React.ReactElement {
 }
 
 function SessionDrawers(): React.ReactElement {
-  const { activityDrawer, proofsDrawer } = useNavMenus()
-  const { activities, proofs } = useBorrowSession()
+  const { activityDrawer, positionsDrawer, proofsDrawer } = useNavMenus()
+  const { activities, positions, proofs } = useBorrowSession()
 
   return (
     <>
@@ -78,6 +79,11 @@ function SessionDrawers(): React.ReactElement {
         activities={activities}
         onOpenChange={activityDrawer.setOpen}
         open={activityDrawer.open}
+      />
+      <PositionsDrawer
+        onOpenChange={positionsDrawer.setOpen}
+        open={positionsDrawer.open}
+        positions={positions}
       />
       <ProofsDrawer
         onOpenChange={proofsDrawer.setOpen}

@@ -11,6 +11,7 @@ type NavMenusContextValue = {
   activityDrawer: MenuOpenState
   connectDialog: MenuOpenState
   notifications: MenuOpenState
+  positionsDrawer: MenuOpenState
   proofsDrawer: MenuOpenState
   walletMenu: MenuOpenState
 }
@@ -27,6 +28,7 @@ export function NavMenusProvider({
   const [activityDrawerOpen, setActivityDrawerOpen] = React.useState(false)
   const [proofsDrawerOpen, setProofsDrawerOpen] = React.useState(false)
   const [connectDialogOpen, setConnectDialogOpen] = React.useState(false)
+  const [positionsDrawerOpen, setPositionsDrawerOpen] = React.useState(false)
 
   const value = React.useMemo<NavMenusContextValue>(
     () => ({
@@ -42,6 +44,10 @@ export function NavMenusProvider({
         open: notificationsOpen,
         setOpen: setNotificationsOpen,
       },
+      positionsDrawer: {
+        open: positionsDrawerOpen,
+        setOpen: setPositionsDrawerOpen,
+      },
       proofsDrawer: {
         open: proofsDrawerOpen,
         setOpen: setProofsDrawerOpen,
@@ -55,6 +61,7 @@ export function NavMenusProvider({
       activityDrawerOpen,
       connectDialogOpen,
       notificationsOpen,
+      positionsDrawerOpen,
       proofsDrawerOpen,
       walletMenuOpen,
     ]

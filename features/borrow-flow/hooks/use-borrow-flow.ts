@@ -110,7 +110,10 @@ export function useBorrowFlow({
     })
 
     confirmedPayloadRef.current = payloadId
+    // ponytail: local position mirror kept for transaction-step reader; drop
+    // when consumers switch to useBorrowSession().positions filtered by market.
     setPosition(nextPosition)
+    borrowSession.appendPosition(nextPosition)
     const confirmedActivity = createConfirmedPositionActivity({
       position: nextPosition,
     })

@@ -7,6 +7,7 @@ import {
   EyeIcon,
   EyeOffIcon,
   LandmarkIcon,
+  LayersIcon,
   LogOutIcon,
   MoonIcon,
   SearchIcon,
@@ -65,6 +66,7 @@ export function CommandSearch(): React.ReactElement {
   const {
     activityDrawer,
     notifications,
+    positionsDrawer,
     proofsDrawer,
     walletMenu,
   } = useNavMenus()
@@ -150,6 +152,15 @@ export function CommandSearch(): React.ReactElement {
         value: "open activity",
       },
       {
+        icon: LayersIcon,
+        label: "Open positions",
+        onSelect: () => {
+          positionsDrawer.setOpen(true)
+          setOpen(false)
+        },
+        value: "open positions",
+      },
+      {
         icon: ShieldCheckIcon,
         label: "Open proofs",
         onSelect: () => {
@@ -218,6 +229,7 @@ export function CommandSearch(): React.ReactElement {
     disconnect,
     isPrivacyMode,
     notifications,
+    positionsDrawer,
     proofsDrawer,
     resolvedTheme,
     selectMarket,

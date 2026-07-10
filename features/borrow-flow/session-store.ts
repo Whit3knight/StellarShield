@@ -3,24 +3,29 @@ import * as React from "react"
 import type { BorrowEligibilityProof } from "@/features/proofs"
 
 import { appendBorrowActivity } from "./activities"
-import type { BorrowActivity } from "./types"
+import type { BorrowActivity, UserPosition } from "./types"
 
 const ACTIVITY_HISTORY_CAP = 50
+const POSITION_HISTORY_CAP = 50
 const PROOF_HISTORY_CAP = 50
 const STORAGE_KEY = "stellar-shield:borrow-session"
 const CHANGE_EVENT = "stellar-shield:borrow-session-change"
 
 type BorrowSessionState = {
   activities: BorrowActivity[]
+  positions: UserPosition[]
   proofs: BorrowEligibilityProof[]
 }
 
 const EMPTY_STATE: BorrowSessionState = {
   activities: [],
+  positions: [],
   proofs: [],
 }
 
-function isBorrowSessionState(value: unknown): value is BorrowSessionState {
+function isBorrowSessionState(
+  value: unknown
+): value is Partial<BorrowSessionState> {
   if (!value || typeof value !== "object") return false
   const candidate = value as Partial<BorrowSessionState>
 
@@ -45,8 +50,11 @@ function readStored(): BorrowSessionState {
     }
 
     return {
-      activities: parsed.activities.slice(0, ACTIVITY_HISTORY_CAP),
-      proofs: parsed.proofs.slice(0, PROOF_HISTORY_CAP),
+      activities: (parsed.activities ?? []).slice(0, ACTIVITY_HISTORY_CAP),
+      positions: Array.isArray(parsed.positions)
+        ? parsed.positions.slice(0, POSITION_HISTORY_CAP)
+        : [],
+      proofs: (parsed.proofs ?? []).slice(0, PROOF_HISTORY_CAP),
     }
   } catch {
     try {
@@ -127,6 +135,20 @@ export const borrowSession = {
 
     commit({ ...currentState, activities: nextActivities })
   },
+  appendPosition(position: UserPosition): void {
+    if (
+      currentState.positions.some((existing) => existing.id === position.id)
+    ) {
+      return
+    }
+
+    const nextPositions = [position, ...currentState.positions].slice(
+      0,
+      POSITION_HISTORY_CAP
+    )
+
+    commit({ ...currentState, positions: nextPositions })
+  },
   appendProof(proof: BorrowEligibilityProof): void {
     if (currentState.proofs.some((existing) => existing.id === proof.id)) {
       return
@@ -154,5 +176,6 @@ export const __TEST__ = {
   STORAGE_KEY,
   CHANGE_EVENT,
   ACTIVITY_HISTORY_CAP,
+  POSITION_HISTORY_CAP,
   PROOF_HISTORY_CAP,
 }

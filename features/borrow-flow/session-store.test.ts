@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import type { BorrowEligibilityProof } from "@/features/proofs"
 
 import { __TEST__, borrowSession } from "./session-store"
-import type { BorrowActivity } from "./types"
+import type { BorrowActivity, UserPosition } from "./types"
 
 beforeEach(() => {
   window.localStorage.removeItem(__TEST__.STORAGE_KEY)
@@ -33,6 +33,22 @@ function proof(id: string): BorrowEligibilityProof {
       maxLtv: "63%",
     },
     status: "Verified",
+  }
+}
+
+function position(seed: string): UserPosition {
+  return {
+    borrowed: [{ amount: 50, symbol: "USDC", valueUsd: 50 }],
+    borrowApr: "7.4%",
+    borrowingPowerUsed: 0.5,
+    healthFactor: 1.9,
+    id: `position-${seed}`,
+    market: "USDC/XLM",
+    nextPaymentDue: "2026-08-08T00:00:00.000Z",
+    openedAt: "2026-07-09T00:00:00.000Z",
+    receiptHash: "3f6d...91b2",
+    status: "Open",
+    supplied: [{ amount: 1000, symbol: "XLM", valueUsd: 120 }],
   }
 }
 
@@ -153,6 +169,39 @@ describe("borrowSession", () => {
     expect(
       borrowSession.getSnapshot().activities.map((item) => item.title)
     ).toEqual(["external"])
+    expect(calls).toBe(1)
+
+    unsubscribe()
+  })
+
+  it("appends positions newest-first and dedupes by id", () => {
+    borrowSession.appendPosition(position("a"))
+    borrowSession.appendPosition(position("b"))
+    borrowSession.appendPosition(position("a"))
+
+    expect(
+      borrowSession.getSnapshot().positions.map((item) => item.id)
+    ).toEqual(["position-b", "position-a"])
+  })
+
+  it("hydrates legacy payloads without positions to an empty array", () => {
+    window.localStorage.setItem(
+      __TEST__.STORAGE_KEY,
+      JSON.stringify({
+        activities: [activity("legacy")],
+        proofs: [],
+      })
+    )
+
+    let calls = 0
+    const unsubscribe = borrowSession.subscribe(() => calls++)
+
+    window.dispatchEvent(new Event(__TEST__.CHANGE_EVENT))
+
+    expect(borrowSession.getSnapshot().positions).toEqual([])
+    expect(
+      borrowSession.getSnapshot().activities.map((item) => item.title)
+    ).toEqual(["legacy"])
     expect(calls).toBe(1)
 
     unsubscribe()
