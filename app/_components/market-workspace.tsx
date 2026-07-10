@@ -27,6 +27,7 @@ export function MarketWorkspace(): React.ReactElement {
     >
       <section
         className="min-h-0 min-w-0 scrollbar-none overflow-y-auto p-4 md:p-6"
+        data-tour="markets"
         id="markets"
       >
         <div>

@@ -3,6 +3,7 @@ import * as React from "react"
 import { BrandLogo } from "@/components/brand-logo"
 
 import { CommandSearch } from "./command-search"
+import { OnboardingTour } from "./onboarding-tour"
 import { WalletNavActions } from "./wallet-nav-actions"
 
 export function AppNavbar(): React.ReactElement {
@@ -31,6 +32,7 @@ export function AppNavbar(): React.ReactElement {
           <WalletNavActions />
         </div>
       </div>
+      <OnboardingTour />
     </header>
   )
 }

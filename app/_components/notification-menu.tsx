@@ -81,6 +81,7 @@ export function NotificationMenu(): React.ReactElement {
       open={notificationsMenu.open}
     >
       <PopoverTrigger
+        data-tour="notifications"
         render={
           <Button
             aria-label="Open notifications"

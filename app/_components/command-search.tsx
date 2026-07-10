@@ -11,6 +11,7 @@ import {
   MoonIcon,
   SearchIcon,
   ShieldCheckIcon,
+  SparklesIcon,
   SunIcon,
   WalletCardsIcon,
 } from "lucide-react"
@@ -42,6 +43,7 @@ import { setPrivacyMode, usePrivacyMode } from "@/hooks/use-privacy-mode"
 
 import { useMarketSelection } from "../_hooks/use-market-selection"
 import { useNavMenus } from "../_hooks/use-nav-menus"
+import { resetOnboardingTour } from "../_hooks/use-onboarding-tour"
 
 type CommandActionItem = {
   hint?: string
@@ -152,6 +154,15 @@ export function CommandSearch(): React.ReactElement {
         },
         value: "open proofs",
       },
+      {
+        icon: SparklesIcon,
+        label: "Take a tour",
+        onSelect: () => {
+          setOpen(false)
+          resetOnboardingTour()
+        },
+        value: "take a tour onboarding",
+      },
     ]
 
     const accountItems: CommandActionItem[] = account
@@ -215,6 +226,7 @@ export function CommandSearch(): React.ReactElement {
       <div className="mx-auto w-full max-w-xs">
         <button
           className="inline-flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground shadow-xs transition-[color,box-shadow] outline-none placeholder:text-muted-foreground/70 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+          data-tour="palette"
           onClick={() => setOpen(true)}
           type="button"
         >

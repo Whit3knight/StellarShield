@@ -49,6 +49,7 @@ export function UserMenu({
   return (
     <Menu onOpenChange={walletMenu.setOpen} open={walletMenu.open}>
       <MenuTrigger
+        data-tour="wallet"
         render={
           <Button aria-label="Open wallet menu" size="icon" variant="ghost" />
         }
