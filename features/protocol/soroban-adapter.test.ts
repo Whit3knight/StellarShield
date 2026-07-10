@@ -51,12 +51,14 @@ describe("sorobanProtocolAdapter", () => {
     })
   })
 
-  it("surfaces the contract id in simulateBorrow's not-implemented message", async () => {
-    const intentResult = await adapter.createBorrowIntent(intentParams)
+  it("returns a Ready payload with preparedXdr when the builder resolves", async () => {
+    const builderAdapter = createSorobanProtocolAdapter(config, {
+      buildBorrowXdr: async () => "MOCK_PREPARED_XDR",
+    })
+    const intentResult = await builderAdapter.createBorrowIntent(intentParams)
     if (!intentResult.ok) throw new Error("intent build failed")
-    const intent = intentResult.value
 
-    const sim = await adapter.simulateBorrow({
+    const sim = await builderAdapter.simulateBorrow({
       contractProof: {
         oracleEpoch: 1_720_000_000,
         oraclePriceCommitment: new Uint8Array(32),
@@ -67,14 +69,45 @@ describe("sorobanProtocolAdapter", () => {
         symbol: "XLM",
         valueUsd: 0.0000036,
       },
-      intent,
+      intent: intentResult.value,
+    })
+
+    expect(sim.ok).toBe(true)
+    if (sim.ok) {
+      expect(sim.value.preparedXdr).toBe("MOCK_PREPARED_XDR")
+      expect(sim.value.status).toBe("Ready")
+      expect(sim.value.intentId).toBe(intentResult.value.id)
+    }
+  })
+
+  it("maps builder throws to a Network AdapterError", async () => {
+    const builderAdapter = createSorobanProtocolAdapter(config, {
+      buildBorrowXdr: async () => {
+        throw new Error("rpc unreachable")
+      },
+    })
+    const intentResult = await builderAdapter.createBorrowIntent(intentParams)
+    if (!intentResult.ok) throw new Error("intent build failed")
+
+    const sim = await builderAdapter.simulateBorrow({
+      contractProof: {
+        oracleEpoch: 1_720_000_000,
+        oraclePriceCommitment: new Uint8Array(32),
+        proofBytes: new Uint8Array(192),
+      },
+      fee: {
+        amount: 0.00003,
+        symbol: "XLM",
+        valueUsd: 0.0000036,
+      },
+      intent: intentResult.value,
     })
 
     expect(sim.ok).toBe(false)
     if (!sim.ok) {
-      expect(sim.error.tag).toBe("Unknown")
-      if (sim.error.tag === "Unknown") {
-        expect(sim.error.message).toContain(config.contractId)
+      expect(sim.error.tag).toBe("Network")
+      if (sim.error.tag === "Network") {
+        expect(sim.error.message).toContain("simulate")
       }
     }
   })

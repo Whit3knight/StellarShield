@@ -1,4 +1,7 @@
+import { Buffer } from "buffer"
+
 import { signXdr } from "@/features/wallet/signer"
+import type { BorrowContractPayload } from "@/features/proofs"
 import { createStableId } from "@/lib/stable-id"
 
 import { err, ok, type AdapterResult, type AdapterError } from "./result"
@@ -31,7 +34,19 @@ export type SorobanAdapterConfig = {
   sorobanRpcUrl: string
 }
 
+export type BuildBorrowXdrInput = {
+  contractProof: BorrowContractPayload
+  fee: number
+  intent: BorrowIntent
+}
+
+export type BuildBorrowXdr = (
+  input: BuildBorrowXdrInput,
+  signal?: AbortSignal
+) => Promise<string>
+
 export type SorobanAdapterDeps = {
+  buildBorrowXdr?: BuildBorrowXdr
   rpcClient?: SorobanRpcClient
 }
 
@@ -41,6 +56,8 @@ export function createSorobanProtocolAdapter(
 ): ProtocolAdapter {
   const rpcClient =
     deps.rpcClient ?? createDefaultSorobanRpcClient(config.sorobanRpcUrl)
+  const buildBorrowXdr =
+    deps.buildBorrowXdr ?? createDefaultBuildBorrowXdr(config)
   return {
     createBorrowIntent: async (params, signal) => {
       if (signal?.aborted) return abortedResult()
@@ -55,16 +72,50 @@ export function createSorobanProtocolAdapter(
           tag: "InvalidInput",
           field: "contractProof",
           message:
-            "simulateBorrow requires a contractProof — the Soroban adapter needs the Groth16 proof bytes + oracle bindings to build the borrow tx.",
+            "simulateBorrow requires a contractProof — the Soroban adapter needs the proof bytes + oracle bindings to build the borrow tx.",
         })
       }
 
-      return err(
-        notImplemented(
-          "simulateBorrow",
-          "Build a TransactionBuilder with Contract(id).call('borrow', intent, proof) using the passed contractProof, simulate via rpc.Server.simulateTransaction, assemble via rpc.assembleTransaction, and return { ...payload, preparedXdr }."
+      // Fee is quoted in XLM by the app; the SDK expects stroops.
+      const feeStroops = Math.max(1, Math.round(params.fee.amount * 10_000_000))
+
+      let preparedXdr: string
+      try {
+        preparedXdr = await buildBorrowXdr(
+          {
+            contractProof: params.contractProof,
+            fee: feeStroops,
+            intent: params.intent,
+          },
+          signal
         )
-      )
+      } catch (cause) {
+        if (signal?.aborted) return abortedResult()
+        return err(mapNetworkError(cause, "simulate"))
+      }
+
+      if (signal?.aborted) return abortedResult()
+
+      const nowMs = params.now ?? Date.now()
+
+      return ok({
+        expiresAt: params.intent.expiresAt,
+        fee: params.fee,
+        id: createStableId(
+          "payload",
+          params.intent.id,
+          params.intent.account,
+          params.intent.borrow.symbol,
+          params.intent.borrow.amount,
+          nowMs.toString()
+        ),
+        intentId: params.intent.id,
+        memo: "Stellar Shield borrow",
+        network: "stellar-testnet",
+        operation: "borrow",
+        preparedXdr,
+        status: "Ready",
+      })
     },
     signTransaction: async ({ account, payload }, signal) => {
       if (signal?.aborted) return abortedResult()
@@ -218,12 +269,104 @@ export function createSorobanProtocolAdapter(
     },
   }
 
-  function notImplemented(method: string, todo: string): AdapterError {
-    return {
-      tag: "Unknown",
-      message: `sorobanProtocolAdapter.${method} not yet wired for contract ${config.contractId}. ${todo}`,
-    }
+}
+
+function createDefaultBuildBorrowXdr(
+  config: SorobanAdapterConfig
+): BuildBorrowXdr {
+  return async ({ contractProof, fee, intent }, signal) => {
+    if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
+
+    // Dynamic-import keeps stellar-sdk out of the initial chunk. Bindings
+    // module re-exports the Client class + typed args.
+    const bindings = await import("./bindings/borrow-pool")
+    if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
+
+    const client = new bindings.Client({
+      contractId: config.contractId,
+      networkPassphrase: config.networkPassphrase,
+      rpcUrl: config.sorobanRpcUrl,
+      publicKey: intent.account,
+    })
+
+    const assembled = await client.borrow(
+      {
+        intent: appToBindingIntent(intent),
+        proof: appToBindingProof(contractProof),
+      },
+      { fee: fee.toString(), timeoutInSeconds: 120 }
+    )
+
+    if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
+
+    return assembled.toXDR()
   }
+}
+
+type BindingBorrowIntent = {
+  account: string
+  borrow_amount: bigint
+  borrow_symbol: string
+  collateral_amount: bigint
+  collateral_symbol: string
+  expires_at: bigint
+  health_factor_bps: number
+  market: string
+  max_ltv_bps: number
+  proof_id: Buffer
+}
+
+type BindingBorrowProof = {
+  oracle_epoch: bigint
+  oracle_price_commitment: Buffer
+  proof_bytes: Buffer
+}
+
+function appToBindingIntent(intent: BorrowIntent): BindingBorrowIntent {
+  return {
+    account: intent.account,
+    borrow_amount: toStroopsBigInt(intent.borrow.amount),
+    borrow_symbol: intent.borrow.symbol,
+    collateral_amount: toStroopsBigInt(intent.collateral.amount),
+    collateral_symbol: intent.collateral.symbol,
+    expires_at: BigInt(Math.floor(new Date(intent.expiresAt).getTime() / 1000)),
+    health_factor_bps: healthFactorToBps(intent.healthFactor),
+    market: intent.market,
+    max_ltv_bps: Math.round(intent.maxLtv * 10_000),
+    proof_id: Buffer.from(proofIdToBytes(intent.proofId)),
+  }
+}
+
+function appToBindingProof(
+  contractProof: BorrowContractPayload
+): BindingBorrowProof {
+  return {
+    oracle_epoch: BigInt(contractProof.oracleEpoch),
+    oracle_price_commitment: Buffer.from(contractProof.oraclePriceCommitment),
+    proof_bytes: Buffer.from(contractProof.proofBytes),
+  }
+}
+
+function toStroopsBigInt(amount: number): bigint {
+  return BigInt(Math.round(amount * 10_000_000))
+}
+
+function healthFactorToBps(healthFactor: number | null): number {
+  if (healthFactor === null) return 0
+  return Math.max(0, Math.round(healthFactor * 10_000))
+}
+
+function proofIdToBytes(proofId: string): Uint8Array {
+  // Stable ids from createStableId are short base36-ish strings, not hex.
+  // Fold into 32 bytes so the value fits BytesN<32>. ponytail: replace
+  // with a real hash once the noir prover produces canonical proof ids.
+  const encoder = new TextEncoder()
+  const bytes = encoder.encode(proofId)
+  const digest = new Uint8Array(32)
+  for (let index = 0; index < bytes.length; index++) {
+    digest[index % 32] ^= bytes[index]
+  }
+  return digest
 }
 
 function abortedResult<T>(): AdapterResult<T> {
@@ -278,7 +421,10 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   })
 }
 
-function mapNetworkError(cause: unknown, phase: "submit" | "confirm"): AdapterError {
+function mapNetworkError(
+  cause: unknown,
+  phase: "simulate" | "submit" | "confirm"
+): AdapterError {
   const message =
     cause instanceof Error ? cause.message : "Soroban RPC call failed."
 
