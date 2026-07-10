@@ -4,12 +4,35 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { ConnectedAccount } from "@/app/_constants/account"
 import { marketCards } from "@/features/markets"
+import {
+  err,
+  mockProtocolAdapter,
+  type AdapterError,
+  type ProtocolAdapter,
+} from "@/features/protocol"
+import type { BorrowProverAdapter } from "@/features/proofs"
 import { AdapterProvider } from "@/features/shared/adapter-provider"
 
 import { useBorrowFlow } from "./use-borrow-flow"
 
 function wrapper({ children }: { children: React.ReactNode }) {
   return <AdapterProvider>{children}</AdapterProvider>
+}
+
+function makeWrapper({
+  protocol,
+  prover,
+}: {
+  protocol?: ProtocolAdapter
+  prover?: BorrowProverAdapter
+}) {
+  return function Wrapper({ children }: { children: React.ReactNode }) {
+    return (
+      <AdapterProvider protocol={protocol} prover={prover}>
+        {children}
+      </AdapterProvider>
+    )
+  }
 }
 
 const account: ConnectedAccount = {
@@ -139,4 +162,132 @@ describe("useBorrowFlow", () => {
 
     await expect(verifyPromise).resolves.not.toThrow()
   })
+
+  it("resets verification to Not started when the prover errors", async () => {
+    const proverError: AdapterError = {
+      tag: "ProofGenerationFailed",
+      reason: "boom",
+    }
+    const prover: BorrowProverAdapter = {
+      generateBorrowProof: async () => err(proverError),
+    }
+
+    const { result } = renderHook(
+      () => useBorrowFlow({ account, market: marketCards[0] }),
+      { wrapper: makeWrapper({ prover }) }
+    )
+
+    await act(async () => undefined)
+    await act(async () => {
+      await result.current.verifyEligibility()
+    })
+
+    expect(result.current.flow.verification.status).toBe("Not started")
+    expect(result.current.flow.transaction.status).toBe("Draft")
+    expect(
+      result.current.activity.some((item) => item.type === "proof_generated")
+    ).toBe(false)
+  })
+
+  it("routes sign failure to Failed(UserRejected)", async () => {
+    const signError: AdapterError = {
+      tag: "UserRejected",
+      message: "denied",
+    }
+    const protocol: ProtocolAdapter = {
+      ...mockProtocolAdapter,
+      signTransaction: async () => err(signError),
+    }
+
+    const { result } = renderHook(
+      () => useBorrowFlow({ account, market: marketCards[0] }),
+      { wrapper: makeWrapper({ protocol }) }
+    )
+
+    await act(async () => undefined)
+    await act(async () => {
+      await result.current.verifyEligibility()
+    })
+    await act(async () => {
+      await result.current.submitTransaction()
+    })
+
+    expect(result.current.flow.transaction.status).toBe("Failed")
+    if (result.current.flow.transaction.status === "Failed") {
+      expect(result.current.flow.transaction.error?.tag).toBe("UserRejected")
+    }
+    expect(
+      result.current.activity.some(
+        (item) => item.type === "transaction_submitted"
+      )
+    ).toBe(false)
+  })
+
+  it("routes submit failure to Failed(Network)", async () => {
+    const submitError: AdapterError = {
+      tag: "Network",
+      retriable: true,
+      message: "rpc",
+    }
+    const protocol: ProtocolAdapter = {
+      ...mockProtocolAdapter,
+      submitTransaction: async () => err(submitError),
+    }
+
+    const { result } = renderHook(
+      () => useBorrowFlow({ account, market: marketCards[0] }),
+      { wrapper: makeWrapper({ protocol }) }
+    )
+
+    await act(async () => undefined)
+    await act(async () => {
+      await result.current.verifyEligibility()
+    })
+    await act(async () => {
+      await result.current.submitTransaction()
+    })
+
+    expect(result.current.flow.transaction.status).toBe("Failed")
+    if (result.current.flow.transaction.status === "Failed") {
+      expect(result.current.flow.transaction.error?.tag).toBe("Network")
+    }
+  })
+
+  it("routes wait failure to Failed(TransactionFailed) after submitted activity", async () => {
+    const waitError: AdapterError = {
+      tag: "TransactionFailed",
+      hash: "abc",
+      message: "chain rejected",
+    }
+    const protocol: ProtocolAdapter = {
+      ...mockProtocolAdapter,
+      waitForConfirmation: async () => err(waitError),
+    }
+
+    const { result } = renderHook(
+      () => useBorrowFlow({ account, market: marketCards[0] }),
+      { wrapper: makeWrapper({ protocol }) }
+    )
+
+    await act(async () => undefined)
+    await act(async () => {
+      await result.current.verifyEligibility()
+    })
+    await act(async () => {
+      await result.current.submitTransaction()
+    })
+
+    expect(result.current.flow.transaction.status).toBe("Failed")
+    if (result.current.flow.transaction.status === "Failed") {
+      expect(result.current.flow.transaction.error?.tag).toBe(
+        "TransactionFailed"
+      )
+    }
+    expect(
+      result.current.activity.some(
+        (item) => item.type === "transaction_submitted"
+      )
+    ).toBe(true)
+  })
 })
+
