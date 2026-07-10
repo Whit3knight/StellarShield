@@ -203,6 +203,7 @@ export function useBorrowFlow({
           adapter: protocolAdapter,
           intent,
           metrics,
+          proof,
           signal,
         })
       : null

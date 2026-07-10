@@ -47,13 +47,22 @@ export function createSorobanProtocolAdapter(
 
       return ok(buildBorrowIntent(params))
     },
-    simulateBorrow: async (_params, signal) => {
+    simulateBorrow: async (params, signal) => {
       if (signal?.aborted) return abortedResult()
+
+      if (!params.contractProof) {
+        return err({
+          tag: "InvalidInput",
+          field: "contractProof",
+          message:
+            "simulateBorrow requires a contractProof — the Soroban adapter needs the Groth16 proof bytes + oracle bindings to build the borrow tx.",
+        })
+      }
 
       return err(
         notImplemented(
           "simulateBorrow",
-          "Build a TransactionBuilder with Contract(id).call('borrow_preview', ...), simulate via rpc.Server.simulateTransaction, assemble via rpc.assembleTransaction, and return { ...payload, preparedXdr }."
+          "Build a TransactionBuilder with Contract(id).call('borrow', intent, proof) using the passed contractProof, simulate via rpc.Server.simulateTransaction, assemble via rpc.assembleTransaction, and return { ...payload, preparedXdr }."
         )
       )
     },

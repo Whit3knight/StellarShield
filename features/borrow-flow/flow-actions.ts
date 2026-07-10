@@ -107,11 +107,13 @@ export async function simulateBorrowIntentFromFlow({
   adapter = mockProtocolAdapter,
   intent,
   metrics,
+  proof,
   signal,
 }: {
   adapter?: ProtocolAdapter
   intent: BorrowIntent | null
   metrics: BorrowFlowMetrics
+  proof?: BorrowProof | null
   signal?: AbortSignal
 }): Promise<AdapterResult<ProtocolTransactionPayload | null>> {
   if (!intent) {
@@ -124,6 +126,7 @@ export async function simulateBorrowIntentFromFlow({
 
   return adapter.simulateBorrow(
     {
+      contractProof: proof?.contractPayload,
       fee: metrics.quote.estimatedFee,
       intent,
     },

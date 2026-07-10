@@ -57,6 +57,11 @@ describe("sorobanProtocolAdapter", () => {
     const intent = intentResult.value
 
     const sim = await adapter.simulateBorrow({
+      contractProof: {
+        oracleEpoch: 1_720_000_000,
+        oraclePriceCommitment: new Uint8Array(32),
+        proofBytes: new Uint8Array(192),
+      },
       fee: {
         amount: 0.00003,
         symbol: "XLM",
@@ -70,6 +75,29 @@ describe("sorobanProtocolAdapter", () => {
       expect(sim.error.tag).toBe("Unknown")
       if (sim.error.tag === "Unknown") {
         expect(sim.error.message).toContain(config.contractId)
+      }
+    }
+  })
+
+  it("simulateBorrow rejects with InvalidInput when contractProof is missing", async () => {
+    const intentResult = await adapter.createBorrowIntent(intentParams)
+    if (!intentResult.ok) throw new Error("intent build failed")
+    const intent = intentResult.value
+
+    const sim = await adapter.simulateBorrow({
+      fee: {
+        amount: 0.00003,
+        symbol: "XLM",
+        valueUsd: 0.0000036,
+      },
+      intent,
+    })
+
+    expect(sim.ok).toBe(false)
+    if (!sim.ok) {
+      expect(sim.error.tag).toBe("InvalidInput")
+      if (sim.error.tag === "InvalidInput") {
+        expect(sim.error.field).toBe("contractProof")
       }
     }
   })

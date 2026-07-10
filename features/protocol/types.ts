@@ -1,4 +1,5 @@
 import type { AssetAmount } from "@/features/shared/asset-amount"
+import type { BorrowContractPayload } from "@/features/proofs"
 
 import type { AdapterResult } from "./result"
 
@@ -58,6 +59,13 @@ export type PrepareTransactionParams = {
 }
 
 export type SimulateBorrowParams = {
+  /**
+   * Groth16 proof bytes + oracle bindings. Required by the Soroban
+   * adapter — the contract's `borrow` function verifies the proof
+   * atomically. Undefined for the mock adapter, which skips the
+   * on-chain step entirely.
+   */
+  contractProof?: BorrowContractPayload
   fee: AssetAmount
   intent: BorrowIntent
   now?: number
