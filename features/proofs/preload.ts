@@ -17,17 +17,9 @@ export function preloadProver(): Promise<void> {
 
   inFlight = (async () => {
     try {
-      const noirSpecifier = "@noir-lang/noir_js"
-      const bbSpecifier = "@aztec/bb.js"
       await Promise.all([
-        import(
-          /* webpackIgnore: true */ /* turbopackIgnore: true */ /* @vite-ignore */
-          noirSpecifier
-        ),
-        import(
-          /* webpackIgnore: true */ /* turbopackIgnore: true */ /* @vite-ignore */
-          bbSpecifier
-        ),
+        import("@noir-lang/noir_js"),
+        import("@aztec/bb.js"),
       ])
     } catch {
       // Swallow. Preload is optional; the prover reports errors on use.

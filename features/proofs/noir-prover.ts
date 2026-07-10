@@ -92,26 +92,12 @@ async function runNoirCircuit(
 ): Promise<BorrowContractPayload> {
   void signal
 
-  // Dynamic imports keep Noir + Barretenberg WASM off the initial chunk.
-  // Variable specifiers dodge Vite/Rollup/webpack/turbopack static analysis
-  // — deps land only when the runtime path is actually taken.
-  const noirSpecifier = "@noir-lang/noir_js"
-  const bbSpecifier = "@aztec/bb.js"
-  const circuitSpecifier = "./circuits/borrow-eligibility.compiled.json"
-
+  // Dynamic imports keep Noir + Barretenberg WASM off the initial chunk;
+  // Turbopack/webpack chunk them async automatically.
   const [noirModule, bbModule, circuitModule] = await Promise.all([
-    import(
-      /* webpackIgnore: true */ /* turbopackIgnore: true */ /* @vite-ignore */
-      noirSpecifier
-    ),
-    import(
-      /* webpackIgnore: true */ /* turbopackIgnore: true */ /* @vite-ignore */
-      bbSpecifier
-    ),
-    import(
-      /* webpackIgnore: true */ /* turbopackIgnore: true */ /* @vite-ignore */
-      circuitSpecifier
-    ),
+    import("@noir-lang/noir_js"),
+    import("@aztec/bb.js"),
+    import("./circuits/borrow-eligibility.compiled.json"),
   ])
 
   const Noir = (noirModule as { Noir: unknown }).Noir
