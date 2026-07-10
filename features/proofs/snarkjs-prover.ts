@@ -237,12 +237,12 @@ function bigintToBytes32(value: bigint): Uint8Array {
 
 /**
  * Structured Groth16 proof (BLS12-381, uncompressed):
- *   a: G1 = 96 bytes (48-byte big-endian x || 48-byte big-endian y)
- *   b: G2 = 192 bytes (Fp2 x_c0 || Fp2 x_c1 || Fp2 y_c0 || Fp2 y_c1)
+ *   a: G1 = 96 bytes  (be_bytes(X) || be_bytes(Y))
+ *   b: G2 = 192 bytes (be_bytes(X_c1) || be_bytes(X_c0) || be_bytes(Y_c1) || be_bytes(Y_c0))
  *   c: G1 = 96 bytes
- * Fp2 element ordering matches soroban-sdk's G2Affine::from_array and
- * ark_bls12_381::Fq2::new(c0, c1). snarkjs's pi_b is [[x_c0, x_c1], [y_c0, y_c1]]
- * — no swap needed.
+ * Byte layout matches soroban-sdk's G1Affine/G2Affine `from_array` doc:
+ * G1 is x||y big-endian, G2 is c1-first (Fp2 element = c1 || c0). snarkjs
+ * emits pi_b as [[x_c0, x_c1], [y_c0, y_c1]] so we swap when packing.
  */
 function structuredGroth16Proof(proof: {
   pi_a: string[]
@@ -254,10 +254,11 @@ function structuredGroth16Proof(proof: {
   writeFp(a, 48, proof.pi_a[1])
 
   const b = new Uint8Array(192)
-  writeFp(b, 0, proof.pi_b[0][0])
-  writeFp(b, 48, proof.pi_b[0][1])
-  writeFp(b, 96, proof.pi_b[1][0])
-  writeFp(b, 144, proof.pi_b[1][1])
+  // Soroban G2 order: X_c1 || X_c0 || Y_c1 || Y_c0
+  writeFp(b, 0, proof.pi_b[0][1])
+  writeFp(b, 48, proof.pi_b[0][0])
+  writeFp(b, 96, proof.pi_b[1][1])
+  writeFp(b, 144, proof.pi_b[1][0])
 
   const c = new Uint8Array(96)
   writeFp(c, 0, proof.pi_c[0])
