@@ -1,6 +1,7 @@
 import { err, ok } from "@/features/protocol"
 import { createStableId } from "@/lib/stable-id"
 
+import { ensureSnarkjsArtefacts } from "./preload"
 import type {
   BorrowContractPayload,
   BorrowEligibilityProof,
@@ -113,28 +114,34 @@ async function runCircomCircuit(
 ): Promise<BorrowContractPayload> {
   void signal
 
-  // snarkjs ships no TS types; treat the module surface as unknown
-  // and access only the fields we need.
-  // @ts-expect-error — no @types/snarkjs package
-  const snarkjsModule = await import("snarkjs")
+  // Kick artefact fetch + module import in parallel. preloadProver()
+  // at wallet-connect usually beats us here — this second call reuses
+  // the module-level cache.
+  const [snarkjsModule, artefacts] = await Promise.all([
+    // @ts-expect-error — snarkjs ships no TS types.
+    import("snarkjs"),
+    ensureSnarkjsArtefacts({ wasmUrl: urls.wasmUrl, zkeyUrl: urls.zkeyUrl }),
+  ])
   const snarkjs =
     (snarkjsModule as { default?: unknown }).default ?? snarkjsModule
 
   const oracleEpoch = Math.floor(nowMs / 1000)
   const inputs = mapParamsToCircuitInputs(params, oracleEpoch)
 
-  const groth16 = (snarkjs as { groth16: {
-    fullProve: (
-      input: Record<string, string>,
-      wasmFile: string,
-      zkeyFile: string
-    ) => Promise<{ proof: unknown; publicSignals: string[] }>
-  } }).groth16
+  const groth16 = (snarkjs as {
+    groth16: {
+      fullProve: (
+        input: Record<string, string>,
+        wasmFile: Uint8Array | string,
+        zkeyFile: Uint8Array | string
+      ) => Promise<{ proof: unknown; publicSignals: string[] }>
+    }
+  }).groth16
 
   const { proof, publicSignals } = await groth16.fullProve(
     inputs,
-    urls.wasmUrl,
-    urls.zkeyUrl
+    artefacts.wasm,
+    artefacts.zkey
   )
 
   // Public output is the oracle_price_commitment (last public signal
