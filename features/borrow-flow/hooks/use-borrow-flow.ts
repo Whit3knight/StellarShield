@@ -85,17 +85,32 @@ export function useBorrowFlow({
     }
   }, [])
 
-  // Fire toast on every transaction lifecycle change so the user gets
-  // a persistent confirmation even if the drawer is scrolled off the
-  // relevant timeline row.
+  // Single lifecycle toast that updates in place as the transaction
+  // advances. Prevents stale "Waiting for wallet signature" from
+  // hanging around after Submitted/Confirmed fire.
+  const lifecycleToastIdRef = React.useRef<string | null>(null)
   const lastToastedStatusRef = React.useRef<string | null>(null)
   React.useEffect(() => {
     const status = flow.transaction.status
     if (status === lastToastedStatusRef.current) return
     lastToastedStatusRef.current = status
 
+    const upsert = (options: Parameters<typeof toastManager.add>[0]) => {
+      if (lifecycleToastIdRef.current) {
+        toastManager.update(lifecycleToastIdRef.current, options)
+      } else {
+        lifecycleToastIdRef.current = toastManager.add(options)
+      }
+    }
+    const clear = () => {
+      if (lifecycleToastIdRef.current) {
+        toastManager.close(lifecycleToastIdRef.current)
+        lifecycleToastIdRef.current = null
+      }
+    }
+
     if (status === "Signing") {
-      toastManager.add({
+      upsert({
         title: "Waiting for wallet signature",
         description: "Confirm the transaction in your wallet extension.",
         type: "loading",
@@ -105,18 +120,21 @@ export function useBorrowFlow({
     if (status === "Submitted") {
       const hash =
         "payload" in flow.transaction ? flow.transaction.payload.hash : undefined
-      toastManager.add({
+      upsert({
         title: "Transaction submitted",
         description: hash
-          ? `Broadcast to Stellar. Hash ${hash.slice(0, 8)}…`
-          : "Broadcast to Stellar.",
-        type: "info",
+          ? `Broadcast to Stellar. Hash ${hash.slice(0, 8)}… Waiting for ledger confirmation.`
+          : "Broadcast to Stellar. Waiting for ledger confirmation.",
+        type: "loading",
       })
       return
     }
     if (status === "Confirmed") {
       const hash = flow.transaction.receipt.hash
-      toastManager.add({
+      // Close the loading toast, fire a fresh success one so the
+      // success animation + action button always renders.
+      clear()
+      lifecycleToastIdRef.current = toastManager.add({
         title: "Borrow confirmed",
         description: `Position opened on ${flow.transaction.receipt.network}. Hash ${hash.slice(0, 10)}…`,
         type: "success",
@@ -132,11 +150,17 @@ export function useBorrowFlow({
         "error" in flow.transaction && flow.transaction.error
           ? formatAdapterError(flow.transaction.error)
           : "Transaction failed."
-      toastManager.add({
+      clear()
+      lifecycleToastIdRef.current = toastManager.add({
         title: "Transaction failed",
         description: error,
         type: "error",
       })
+      return
+    }
+    // Any Draft / Ready reset clears any pending lifecycle toast.
+    if (status === "Draft" || status === "Ready") {
+      clear()
     }
   }, [flow.transaction])
 
