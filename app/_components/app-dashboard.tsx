@@ -1,4 +1,4 @@
-import * as React from "react"
+import type * as React from "react"
 
 import { MarketWorkspace } from "./market-workspace"
 
@@ -9,9 +9,7 @@ export function AppDashboard(): React.ReactElement {
         aria-label="Lending markets"
         className="h-full min-h-0 w-full"
       >
-        <React.Suspense fallback={null}>
-          <MarketWorkspace />
-        </React.Suspense>
+        <MarketWorkspace />
       </section>
     </main>
   )

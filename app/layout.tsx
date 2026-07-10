@@ -8,6 +8,7 @@ import { AdapterProvider } from "@/features/shared/adapter-provider"
 import { cn } from "@/lib/utils"
 
 import { NavMenusProvider } from "./_hooks/use-nav-menus"
+import { SelectedMarketProvider } from "./_hooks/use-market-selection"
 
 const manropeHeading = Manrope({
   subsets: ["latin"],
@@ -46,7 +47,9 @@ export default function RootLayout({
         />
         <ThemeProvider>
           <AdapterProvider>
-            <NavMenusProvider>{children}</NavMenusProvider>
+            <SelectedMarketProvider>
+              <NavMenusProvider>{children}</NavMenusProvider>
+            </SelectedMarketProvider>
           </AdapterProvider>
         </ThemeProvider>
       </body>

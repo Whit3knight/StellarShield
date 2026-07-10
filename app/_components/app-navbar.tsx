@@ -1,4 +1,4 @@
-import * as React from "react"
+import type * as React from "react"
 
 import { BrandLogo } from "@/components/brand-logo"
 
@@ -23,9 +23,7 @@ export function AppNavbar(): React.ReactElement {
         </div>
 
         <div className="grow">
-          <React.Suspense fallback={null}>
-            <CommandSearch />
-          </React.Suspense>
+          <CommandSearch />
         </div>
 
         <div className="flex flex-1 items-center justify-end gap-2">
