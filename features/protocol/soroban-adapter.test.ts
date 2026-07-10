@@ -53,7 +53,10 @@ describe("sorobanProtocolAdapter", () => {
 
   it("returns a Ready payload with preparedXdr when the builder resolves", async () => {
     const builderAdapter = createSorobanProtocolAdapter(config, {
-      buildBorrowXdr: async () => "MOCK_PREPARED_XDR",
+      buildBorrowXdr: async () => ({
+        xdr: "MOCK_PREPARED_XDR",
+        signAndSend: async () => ({ hash: "MOCK_HASH" }),
+      }),
     })
     const intentResult = await builderAdapter.createBorrowIntent(intentParams)
     if (!intentResult.ok) throw new Error("intent build failed")
@@ -197,11 +200,11 @@ describe("sorobanProtocolAdapter", () => {
     }
   })
 
-  it("signTransaction rejects with InvalidInput when preparedXdr is missing", async () => {
+  it("signTransaction rejects when no AssembledTransaction is cached for the payload", async () => {
     const payload = {
       expiresAt: "2026-07-09T00:05:00.000Z",
       fee: { amount: 0.00003, symbol: "XLM" as const, valueUsd: 0.0000036 },
-      id: "tx-test",
+      id: "tx-uncached",
       intentId: "intent-test",
       memo: "test",
       network: "stellar-testnet" as const,
@@ -218,7 +221,7 @@ describe("sorobanProtocolAdapter", () => {
     if (!result.ok) {
       expect(result.error.tag).toBe("InvalidInput")
       if (result.error.tag === "InvalidInput") {
-        expect(result.error.field).toBe("payload.preparedXdr")
+        expect(result.error.field).toBe("payload.id")
       }
     }
   })

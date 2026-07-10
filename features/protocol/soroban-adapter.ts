@@ -1,8 +1,9 @@
 import { Buffer } from "buffer"
 
-import { signXdr } from "@/features/wallet/signer"
 import type { BorrowContractPayload } from "@/features/proofs"
 import { createStableId } from "@/lib/stable-id"
+
+const assemblyCache = new Map<string, BorrowAssembly>()
 
 import {
   err,
@@ -52,10 +53,28 @@ export type BuildBorrowXdrInput = {
   intent: BorrowIntent
 }
 
+export type BorrowAssembly = {
+  xdr: string
+  signAndSend: (
+    signTransaction: (
+      xdr: string,
+      opts?: {
+        networkPassphrase?: string
+        address?: string
+        submit?: boolean
+      }
+    ) => Promise<{
+      signedTxXdr: string
+      signerAddress?: string
+      error?: { message: string; code: number }
+    }>
+  ) => Promise<{ hash: string }>
+}
+
 export type BuildBorrowXdr = (
   input: BuildBorrowXdrInput,
   signal?: AbortSignal
-) => Promise<string>
+) => Promise<BorrowAssembly>
 
 export type SorobanAdapterDeps = {
   buildBorrowXdr?: BuildBorrowXdr
@@ -94,9 +113,9 @@ export function createSorobanProtocolAdapter(
       // Fee is quoted in XLM by the app; the SDK expects stroops.
       const feeStroops = Math.max(1, Math.round(params.fee.amount * 10_000_000))
 
-      let preparedXdr: string
+      let assembly: BorrowAssembly
       try {
-        preparedXdr = await buildBorrowXdr(
+        assembly = await buildBorrowXdr(
           {
             contractProof: params.contractProof,
             fee: feeStroops,
@@ -112,51 +131,74 @@ export function createSorobanProtocolAdapter(
       if (signal?.aborted) return abortedResult()
 
       const nowMs = params.now ?? Date.now()
+      const payloadId = createStableId(
+        "payload",
+        params.intent.id,
+        params.intent.account,
+        params.intent.borrow.symbol,
+        params.intent.borrow.amount,
+        nowMs.toString()
+      )
+
+      // Cache the AssembledTransaction closure so signTransaction +
+      // submitTransaction can drive `assembled.signAndSend()` end to end.
+      // Envelope XDR alone doesn't survive Freighter's re-signing of a
+      // Soroban invokeHostFunction op — the SDK's signAndSend handles
+      // auth entries + resource extension correctly.
+      assemblyCache.set(payloadId, assembly)
 
       return ok({
         expiresAt: params.intent.expiresAt,
         fee: params.fee,
-        id: createStableId(
-          "payload",
-          params.intent.id,
-          params.intent.account,
-          params.intent.borrow.symbol,
-          params.intent.borrow.amount,
-          nowMs.toString()
-        ),
+        id: payloadId,
         intentId: params.intent.id,
         memo: "Stellar Shield borrow",
         network: "stellar-testnet",
         operation: "borrow",
-        preparedXdr,
+        preparedXdr: assembly.xdr,
         status: "Ready",
       })
     },
     signTransaction: async ({ account, payload }, signal) => {
       if (signal?.aborted) return abortedResult()
 
-      if (!payload.preparedXdr) {
+      const assembly = assemblyCache.get(payload.id)
+      if (!assembly) {
         return err({
           tag: "InvalidInput",
-          field: "payload.preparedXdr",
+          field: "payload.id",
           message:
-            "signTransaction requires a preparedXdr — simulateBorrow must run first for the Soroban adapter.",
+            "signTransaction: no cached AssembledTransaction for this payload. Re-run simulateBorrow.",
         })
       }
 
-      const signed = await signXdr({
-        address: account,
-        networkPassphrase: config.networkPassphrase,
-        signal,
-        xdr: payload.preparedXdr,
-      })
+      // Drive sign + send atomically via the bindings' AssembledTransaction.
+      // Freighter's signTransaction callback matches the SDK's signature
+      // so we plug it straight in.
+      try {
+        const { signTransaction: freighter } = await import(
+          "@stellar/freighter-api"
+        )
 
-      if (!signed.ok) return signed
+        const sent = await assembly.signAndSend(async (xdrToSign, opts) => {
+          if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
+          return freighter(xdrToSign, {
+            address: opts?.address ?? account,
+            networkPassphrase:
+              opts?.networkPassphrase ?? config.networkPassphrase,
+          })
+        })
 
-      return ok({
-        payload: { ...payload, status: "Signing" },
-        signedXdr: signed.value.signedXdr,
-      })
+        if (signal?.aborted) return abortedResult()
+
+        return ok({
+          payload: { ...payload, hash: sent.hash, status: "Signing" },
+          signedXdr: sent.hash,
+        })
+      } catch (cause) {
+        if (signal?.aborted) return abortedResult()
+        return err(mapNetworkError(cause, "submit"))
+      }
     },
     submitTransaction: async ({ payload, signedXdr }, signal) => {
       if (signal?.aborted) return abortedResult()
@@ -166,6 +208,18 @@ export function createSorobanProtocolAdapter(
           tag: "InvalidInput",
           field: "signedXdr",
           message: "submitTransaction requires a signedXdr from signTransaction.",
+        })
+      }
+
+      // signTransaction already ran assembled.signAndSend which submitted
+      // the tx to the network. If signedXdr looks like a plain hash
+      // (32-byte hex), skip the raw sendTransaction call and just
+      // advance to Submitted.
+      if (/^[0-9a-fA-F]{64}$/.test(signedXdr)) {
+        return ok({
+          ...payload,
+          hash: signedXdr,
+          status: "Submitted",
         })
       }
 
@@ -390,7 +444,23 @@ function createDefaultBuildBorrowXdr(
 
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
 
-    return assembled.toXDR()
+    return {
+      xdr: assembled.toXDR(),
+      signAndSend: async (signTransaction) => {
+        const sent = await assembled.signAndSend({
+          signTransaction: signTransaction as unknown as Parameters<
+            typeof assembled.signAndSend
+          >[0] extends undefined
+            ? never
+            : NonNullable<
+                Parameters<typeof assembled.signAndSend>[0]
+              >["signTransaction"],
+        })
+        return {
+          hash: sent.sendTransactionResponse?.hash ?? "",
+        }
+      },
+    }
   }
 }
 
