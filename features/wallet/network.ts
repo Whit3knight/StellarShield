@@ -92,6 +92,13 @@ export function getStellarExpertAccountUrl(address: string): string {
   return `https://stellar.expert/explorer/${path}/account/${address}`
 }
 
+export function getStellarExpertTxUrl(hash: string): string {
+  const network = getConfiguredStellarNetwork()
+  const path = network === "public" ? "public" : network
+
+  return `https://stellar.expert/explorer/${path}/tx/${hash}`
+}
+
 export function isFreighterNetworkCompatible(
   networkDetails: FreighterNetworkDetails
 ): boolean {

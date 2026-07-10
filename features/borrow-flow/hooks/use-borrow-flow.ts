@@ -1,8 +1,11 @@
 import * as React from "react"
 
 import type { ConnectedAccount } from "@/app/_constants/account"
+import { toastManager } from "@/components/ui/toast"
 import type { MarketCardData } from "@/features/markets"
+import { formatAdapterError } from "@/features/protocol"
 import { useAdapters } from "@/features/shared/adapter-provider"
+import { getStellarExpertTxUrl } from "@/features/wallet/network"
 
 import { INITIAL_FLOW_STATE } from "../constants"
 import {
@@ -81,6 +84,61 @@ export function useBorrowFlow({
       submitAbortRef.current?.abort()
     }
   }, [])
+
+  // Fire toast on every transaction lifecycle change so the user gets
+  // a persistent confirmation even if the drawer is scrolled off the
+  // relevant timeline row.
+  const lastToastedStatusRef = React.useRef<string | null>(null)
+  React.useEffect(() => {
+    const status = flow.transaction.status
+    if (status === lastToastedStatusRef.current) return
+    lastToastedStatusRef.current = status
+
+    if (status === "Signing") {
+      toastManager.add({
+        title: "Waiting for wallet signature",
+        description: "Confirm the transaction in your wallet extension.",
+        type: "loading",
+      })
+      return
+    }
+    if (status === "Submitted") {
+      const hash =
+        "payload" in flow.transaction ? flow.transaction.payload.hash : undefined
+      toastManager.add({
+        title: "Transaction submitted",
+        description: hash
+          ? `Broadcast to Stellar. Hash ${hash.slice(0, 8)}…`
+          : "Broadcast to Stellar.",
+        type: "info",
+      })
+      return
+    }
+    if (status === "Confirmed") {
+      const hash = flow.transaction.receipt.hash
+      toastManager.add({
+        title: "Borrow confirmed",
+        description: `Position opened on ${flow.transaction.receipt.network}. Hash ${hash.slice(0, 10)}…`,
+        type: "success",
+        actionProps: {
+          children: "View on Stellar Expert",
+          onClick: () => window.open(getStellarExpertTxUrl(hash), "_blank"),
+        },
+      })
+      return
+    }
+    if (status === "Failed") {
+      const error =
+        "error" in flow.transaction && flow.transaction.error
+          ? formatAdapterError(flow.transaction.error)
+          : "Transaction failed."
+      toastManager.add({
+        title: "Transaction failed",
+        description: error,
+        type: "error",
+      })
+    }
+  }, [flow.transaction])
 
   React.useEffect(() => {
     if (!account || connectedWalletRef.current === account.wallet.address) {

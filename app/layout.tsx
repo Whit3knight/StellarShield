@@ -4,6 +4,7 @@ import "./globals.css"
 import { appPreferenceKeys } from "./_constants/preferences"
 
 import { ThemeProvider } from "@/components/theme-provider"
+import { ToastProvider } from "@/components/ui/toast"
 import { AdapterProvider } from "@/features/shared/adapter-provider"
 import { cn } from "@/lib/utils"
 
@@ -46,11 +47,13 @@ export default function RootLayout({
           suppressHydrationWarning
         />
         <ThemeProvider>
-          <AdapterProvider>
-            <SelectedMarketProvider>
-              <NavMenusProvider>{children}</NavMenusProvider>
-            </SelectedMarketProvider>
-          </AdapterProvider>
+          <ToastProvider position="bottom-right">
+            <AdapterProvider>
+              <SelectedMarketProvider>
+                <NavMenusProvider>{children}</NavMenusProvider>
+              </SelectedMarketProvider>
+            </AdapterProvider>
+          </ToastProvider>
         </ThemeProvider>
       </body>
     </html>
