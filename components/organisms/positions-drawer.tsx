@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/drawer"
 import { cn } from "@/lib/utils"
 import type { UserPosition } from "@/features/borrow-flow/types"
-import { useIsMobile } from "@/hooks/use-media-query"
+import { useMediaQuery } from "@/hooks/use-media-query"
 
 type PositionsDrawerProps = {
   onOpenChange: (open: boolean) => void
@@ -29,7 +29,7 @@ export function PositionsDrawer({
   positions,
 }: PositionsDrawerProps): React.ReactElement {
   const [expandedId, setExpandedId] = React.useState<string | null>(null)
-  const isMobile = useIsMobile()
+  const isMobile = useMediaQuery("max-lg")
 
   const handleOpenChange = React.useCallback(
     (next: boolean) => {

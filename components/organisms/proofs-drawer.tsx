@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/drawer"
 import { cn } from "@/lib/utils"
 import type { BorrowEligibilityProof } from "@/features/proofs"
-import { useIsMobile } from "@/hooks/use-media-query"
+import { useMediaQuery } from "@/hooks/use-media-query"
 
 type ProofsDrawerProps = {
   onOpenChange: (open: boolean) => void
@@ -36,7 +36,7 @@ export function ProofsDrawer({
   proofs,
 }: ProofsDrawerProps): React.ReactElement {
   const [expandedId, setExpandedId] = React.useState<string | null>(null)
-  const isMobile = useIsMobile()
+  const isMobile = useMediaQuery("max-lg")
 
   const handleOpenChange = React.useCallback(
     (next: boolean) => {

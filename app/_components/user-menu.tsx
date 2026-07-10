@@ -3,6 +3,7 @@
 import {
   ActivityIcon,
   ArrowUpRightIcon,
+  ExternalLinkIcon,
   LayersIcon,
   LogOutIcon,
   ShieldCheckIcon,
@@ -28,6 +29,7 @@ import {
   MenuTrigger,
 } from "@/components/ui/menu"
 import { WalletDetailPanel } from "@/components/organisms/wallet-detail-panel"
+import { getStellarExpertAccountUrl } from "@/features/wallet/network"
 
 import type { ConnectedAccount } from "../_constants/account"
 import { userResourceLinks } from "../_constants/user-menu-links"
@@ -44,6 +46,7 @@ export function UserMenu({
 }): React.ReactElement {
   const { activityDrawer, positionsDrawer, proofsDrawer, walletMenu } =
     useNavMenus()
+  const explorerUrl = getStellarExpertAccountUrl(account.wallet.address)
 
   return (
     <Menu onOpenChange={walletMenu.setOpen} open={walletMenu.open}>
@@ -67,12 +70,22 @@ export function UserMenu({
           <MenuSub>
             <MenuSubTrigger>
               <WalletIcon aria-hidden="true" />
-              Account
+              Wallet
             </MenuSubTrigger>
             <MenuSubPopup className="w-80">
               <WalletDetailPanel account={account} />
             </MenuSubPopup>
           </MenuSub>
+          <MenuLinkItem href={explorerUrl} rel="noreferrer" target="_blank">
+            <ExternalLinkIcon aria-hidden="true" />
+            View on Stellar Expert
+            <MenuShortcut
+              aria-hidden="true"
+              className="tracking-normal [&>svg]:size-3.5"
+            >
+              <ArrowUpRightIcon />
+            </MenuShortcut>
+          </MenuLinkItem>
         </MenuGroup>
         <MenuSeparator />
         <MenuGroup>

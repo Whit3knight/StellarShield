@@ -25,7 +25,7 @@ import type {
   BorrowActivity,
   BorrowActivityType,
 } from "@/features/borrow-flow/types"
-import { useIsMobile } from "@/hooks/use-media-query"
+import { useMediaQuery } from "@/hooks/use-media-query"
 
 const ALL_VALUE = "all"
 
@@ -41,7 +41,7 @@ export function ActivityDrawer({
   open,
 }: ActivityDrawerProps): React.ReactElement {
   const [type, setType] = React.useState<BorrowActivityType | null>(null)
-  const isMobile = useIsMobile()
+  const isMobile = useMediaQuery("max-lg")
 
   const handleOpenChange = React.useCallback(
     (next: boolean) => {
