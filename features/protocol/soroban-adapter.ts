@@ -4,7 +4,13 @@ import { signXdr } from "@/features/wallet/signer"
 import type { BorrowContractPayload } from "@/features/proofs"
 import { createStableId } from "@/lib/stable-id"
 
-import { err, ok, type AdapterResult, type AdapterError } from "./result"
+import {
+  err,
+  ok,
+  tryParseContractError,
+  type AdapterResult,
+  type AdapterError,
+} from "./result"
 import {
   createDefaultSorobanRpcClient,
   type SorobanRpcClient,
@@ -434,6 +440,9 @@ function mapNetworkError(
   ) {
     return { tag: "Aborted", message: "Operation aborted." }
   }
+
+  const contractError = tryParseContractError(message)
+  if (contractError) return contractError
 
   return { tag: "Network", retriable: true, message: `${phase}: ${message}` }
 }
