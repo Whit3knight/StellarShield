@@ -30,7 +30,9 @@ const VK_BETA: &[u8; 192] = include_bytes!("vk/vk_beta.bin");
 const VK_GAMMA: &[u8; 192] = include_bytes!("vk/vk_gamma.bin");
 const VK_DELTA: &[u8; 192] = include_bytes!("vk/vk_delta.bin");
 
-// 12 IC points for our 11 public signals (nPublic + 1).
+// 10 IC points for our 9 public signals (nPublic + 1). Amount fields
+// moved to private witness so the public-inputs vector shrunk from 11
+// to 9 entries.
 const VK_IC_0: &[u8; 96] = include_bytes!("vk/vk_ic_0.bin");
 const VK_IC_1: &[u8; 96] = include_bytes!("vk/vk_ic_1.bin");
 const VK_IC_2: &[u8; 96] = include_bytes!("vk/vk_ic_2.bin");
@@ -41,8 +43,6 @@ const VK_IC_6: &[u8; 96] = include_bytes!("vk/vk_ic_6.bin");
 const VK_IC_7: &[u8; 96] = include_bytes!("vk/vk_ic_7.bin");
 const VK_IC_8: &[u8; 96] = include_bytes!("vk/vk_ic_8.bin");
 const VK_IC_9: &[u8; 96] = include_bytes!("vk/vk_ic_9.bin");
-const VK_IC_10: &[u8; 96] = include_bytes!("vk/vk_ic_10.bin");
-const VK_IC_11: &[u8; 96] = include_bytes!("vk/vk_ic_11.bin");
 
 /// Groth16 verify over BLS12-381. Returns `true` iff the pairing equation
 ///
@@ -50,7 +50,7 @@ const VK_IC_11: &[u8; 96] = include_bytes!("vk/vk_ic_11.bin");
 ///
 /// holds, where `vk_x = IC[0] + sum_i(pub_signals[i] * IC[i+1])`.
 ///
-/// `pub_signals` MUST have exactly 11 elements (10 public inputs + 1
+/// `pub_signals` MUST have exactly 9 elements (8 public inputs + 1
 /// public output from the circuit); mismatched length fails the check.
 pub fn verify_groth16(
     env: &Env,
@@ -59,7 +59,7 @@ pub fn verify_groth16(
     proof_c: G1Affine,
     pub_signals: Vec<Fr>,
 ) -> bool {
-    let ic_len = 12u32;
+    let ic_len = 10u32;
     if pub_signals.len() + 1 != ic_len {
         return false;
     }
@@ -100,7 +100,5 @@ fn ic_points(env: &Env) -> Vec<G1Affine> {
         G1Affine::from_array(env, VK_IC_7),
         G1Affine::from_array(env, VK_IC_8),
         G1Affine::from_array(env, VK_IC_9),
-        G1Affine::from_array(env, VK_IC_10),
-        G1Affine::from_array(env, VK_IC_11),
     ]
 }

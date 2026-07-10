@@ -101,14 +101,15 @@ template BorrowEligibility() {
     oracle_price_commitment <== commit.out + symbol_bind;
 }
 
+// Phase-1 privacy: amounts move out of the public inputs list. Circuit
+// still constrains them (private witness) — chain no longer sees the
+// raw borrow_amount / collateral_amount.
 component main {public [
     account,
     market,
     proof_id,
     collateral_symbol,
     borrow_symbol,
-    collateral_amount,
-    borrow_amount,
     hf_min_bps,
     max_ltv_bps,
     oracle_epoch

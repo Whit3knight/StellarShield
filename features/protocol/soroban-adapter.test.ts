@@ -90,11 +90,10 @@ describe("sorobanProtocolAdapter", () => {
     const adapter = createSorobanProtocolAdapter(config, {
       readChainPosition: async () => ({
         account: intentParams.account,
-        borrowAmount: 500_000_000n,
         borrowSymbol: "USDC",
-        collateralAmount: 10_000_000_000n,
         collateralSymbol: "XLM",
         confirmedAt: 1_720_000_000,
+        market: "USDC_XLM",
         proofId: "0xabcdef",
       }),
     })

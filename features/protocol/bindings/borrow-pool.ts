@@ -40,14 +40,14 @@ if (typeof window !== "undefined") {
 export const networks = {
   testnet: {
     networkPassphrase: "Test SDF Network ; September 2015",
-    contractId: "CAJKNX6ANZUQVY76VY7MMNUYJK7PGKPADCHN4QPSKY4SRNWZ5RUQLRR5",
+    contractId: "CAKS2EFQ7W7PJ6HKWATUJQATOXJXKTS2JIGYKGROXDIQ6BXAB6JNYFII",
   }
 } as const
 
 export const Errors = {
   1: {message:"IntentExpired"},
   2: {message:"ProofReplayed"},
-  3: {message:"InvalidAmount"},
+  3: {message:"Reserved3"},
   4: {message:"StaleOracle"},
   5: {message:"InvalidProof"}
 }
@@ -73,11 +73,15 @@ public_signals: Array<u256>;
 }
 
 
+/**
+ * Phase-1 privacy: amount fields moved to circuit-private witness.
+ * Chain no longer sees the raw borrow / collateral amounts — only the
+ * policy thresholds, market context, and account (still visible via
+ * tx source auth). Phase 2 will swap `account` for a nullifier.
+ */
 export interface BorrowIntent {
   account: string;
-  borrow_amount: i128;
   borrow_symbol: string;
-  collateral_amount: i128;
   collateral_symbol: string;
   expires_at: u64;
   health_factor_bps: u32;
@@ -87,13 +91,17 @@ export interface BorrowIntent {
 }
 
 
+/**
+ * Anonymized receipt: no borrow / collateral amounts. Users store
+ * their own numbers client-side (session store). Chain records only
+ * the fact that a proof-backed position exists.
+ */
 export interface BorrowReceipt {
   account: string;
-  borrow_amount: i128;
   borrow_symbol: string;
-  collateral_amount: i128;
   collateral_symbol: string;
   confirmed_at: u64;
+  market: string;
   proof_id: Buffer;
 }
 
@@ -127,11 +135,11 @@ export class Client extends ContractClient {
   constructor(public readonly options: ContractClientOptions) {
     super(
       new ContractSpec([ "AAAAAAAAAAAAAAAGYm9ycm93AAAAAAACAAAAAAAAAAZpbnRlbnQAAAAAB9AAAAAMQm9ycm93SW50ZW50AAAAAAAAAAVwcm9vZgAAAAAAB9AAAAALQm9ycm93UHJvb2YAAAAAAQAAA+kAAAfQAAAADUJvcnJvd1JlY2VpcHQAAAAAAAAD",
-        "AAAABAAAAAAAAAAAAAAABUVycm9yAAAAAAAABQAAAAAAAAANSW50ZW50RXhwaXJlZAAAAAAAAAEAAAAAAAAADVByb29mUmVwbGF5ZWQAAAAAAAACAAAAAAAAAA1JbnZhbGlkQW1vdW50AAAAAAAAAwAAAAAAAAALU3RhbGVPcmFjbGUAAAAABAAAAAAAAAAMSW52YWxpZFByb29mAAAABQ==",
+        "AAAABAAAAAAAAAAAAAAABUVycm9yAAAAAAAABQAAAAAAAAANSW50ZW50RXhwaXJlZAAAAAAAAAEAAAAAAAAADVByb29mUmVwbGF5ZWQAAAAAAAACAAAAAAAAAAlSZXNlcnZlZDMAAAAAAAADAAAAAAAAAAtTdGFsZU9yYWNsZQAAAAAEAAAAAAAAAAxJbnZhbGlkUHJvb2YAAAAF",
         "AAAAAAAAAAAAAAAIcG9zaXRpb24AAAABAAAAAAAAAAdhY2NvdW50AAAAABMAAAABAAAD6AAAB9AAAAANQm9ycm93UmVjZWlwdAAAAA==",
         "AAAAAQAAAAAAAAAAAAAAC0JvcnJvd1Byb29mAAAAAAUAAAA3R3JvdGgxNiBwcm9vZiBvdmVyIEJMUzEyLTM4MTogQSAoRzEpICsgQiAoRzIpICsgQyAoRzEpLgAAAAABYQAAAAAAA+4AAABgAAAAAAAAAAFiAAAAAAAD7gAAAMAAAAAAAAAAAWMAAAAAAAPuAAAAYAAAAG1PcmFjbGUgZXBvY2ggdGhlIHByb29mIHdhcyBnZW5lcmF0ZWQgYWdhaW5zdC4gQ3Jvc3MtY2hlY2sgYWdhaW5zdAp0aGUgY3VycmVudCBsZWRnZXIgdGltZXN0YW1wIGZvciBmcmVzaG5lc3MuAAAAAAAADG9yYWNsZV9lcG9jaAAAAAYAAAB7UHVibGljIHNpZ25hbHMgaW4gY2lyY3VpdC1kZWNsYXJhdGlvbiBvcmRlciBmb2xsb3dlZCBieSB0aGUKcHVibGljIG91dHB1dCAoYG9yYWNsZV9wcmljZV9jb21taXRtZW50YCkg4oCUIHRvdGFsIDExIGVudHJpZXMuAAAAAA5wdWJsaWNfc2lnbmFscwAAAAAD6gAAAAw=",
-        "AAAAAQAAAAAAAAAAAAAADEJvcnJvd0ludGVudAAAAAoAAAAAAAAAB2FjY291bnQAAAAAEwAAAAAAAAANYm9ycm93X2Ftb3VudAAAAAAAAAsAAAAAAAAADWJvcnJvd19zeW1ib2wAAAAAAAARAAAAAAAAABFjb2xsYXRlcmFsX2Ftb3VudAAAAAAAAAsAAAAAAAAAEWNvbGxhdGVyYWxfc3ltYm9sAAAAAAAAEQAAAAAAAAAKZXhwaXJlc19hdAAAAAAABgAAAAAAAAARaGVhbHRoX2ZhY3Rvcl9icHMAAAAAAAAEAAAAAAAAAAZtYXJrZXQAAAAAABEAAAAAAAAAC21heF9sdHZfYnBzAAAAAAQAAAAAAAAACHByb29mX2lkAAAD7gAAACA=",
-        "AAAAAQAAAAAAAAAAAAAADUJvcnJvd1JlY2VpcHQAAAAAAAAHAAAAAAAAAAdhY2NvdW50AAAAABMAAAAAAAAADWJvcnJvd19hbW91bnQAAAAAAAALAAAAAAAAAA1ib3Jyb3dfc3ltYm9sAAAAAAAAEQAAAAAAAAARY29sbGF0ZXJhbF9hbW91bnQAAAAAAAALAAAAAAAAABFjb2xsYXRlcmFsX3N5bWJvbAAAAAAAABEAAAAAAAAADGNvbmZpcm1lZF9hdAAAAAYAAAAAAAAACHByb29mX2lkAAAD7gAAACA=" ]),
+        "AAAAAQAAAQZQaGFzZS0xIHByaXZhY3k6IGFtb3VudCBmaWVsZHMgbW92ZWQgdG8gY2lyY3VpdC1wcml2YXRlIHdpdG5lc3MuCkNoYWluIG5vIGxvbmdlciBzZWVzIHRoZSByYXcgYm9ycm93IC8gY29sbGF0ZXJhbCBhbW91bnRzIOKAlCBvbmx5IHRoZQpwb2xpY3kgdGhyZXNob2xkcywgbWFya2V0IGNvbnRleHQsIGFuZCBhY2NvdW50IChzdGlsbCB2aXNpYmxlIHZpYQp0eCBzb3VyY2UgYXV0aCkuIFBoYXNlIDIgd2lsbCBzd2FwIGBhY2NvdW50YCBmb3IgYSBudWxsaWZpZXIuAAAAAAAAAAAADEJvcnJvd0ludGVudAAAAAgAAAAAAAAAB2FjY291bnQAAAAAEwAAAAAAAAANYm9ycm93X3N5bWJvbAAAAAAAABEAAAAAAAAAEWNvbGxhdGVyYWxfc3ltYm9sAAAAAAAAEQAAAAAAAAAKZXhwaXJlc19hdAAAAAAABgAAAAAAAAARaGVhbHRoX2ZhY3Rvcl9icHMAAAAAAAAEAAAAAAAAAAZtYXJrZXQAAAAAABEAAAAAAAAAC21heF9sdHZfYnBzAAAAAAQAAAAAAAAACHByb29mX2lkAAAD7gAAACA=",
+        "AAAAAQAAAK9Bbm9ueW1pemVkIHJlY2VpcHQ6IG5vIGJvcnJvdyAvIGNvbGxhdGVyYWwgYW1vdW50cy4gVXNlcnMgc3RvcmUKdGhlaXIgb3duIG51bWJlcnMgY2xpZW50LXNpZGUgKHNlc3Npb24gc3RvcmUpLiBDaGFpbiByZWNvcmRzIG9ubHkKdGhlIGZhY3QgdGhhdCBhIHByb29mLWJhY2tlZCBwb3NpdGlvbiBleGlzdHMuAAAAAAAAAAANQm9ycm93UmVjZWlwdAAAAAAAAAYAAAAAAAAAB2FjY291bnQAAAAAEwAAAAAAAAANYm9ycm93X3N5bWJvbAAAAAAAABEAAAAAAAAAEWNvbGxhdGVyYWxfc3ltYm9sAAAAAAAAEQAAAAAAAAAMY29uZmlybWVkX2F0AAAABgAAAAAAAAAGbWFya2V0AAAAAAARAAAAAAAAAAhwcm9vZl9pZAAAA+4AAAAg" ]),
       options
     )
   }

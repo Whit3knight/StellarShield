@@ -94,16 +94,16 @@ export type WaitForConfirmationParams = {
 
 /**
  * On-chain borrow receipt shape as returned by the borrow-pool
- * `position(account)` view. Amounts are stroops (7-decimal fixed
- * point) as stored on-chain.
+ * `position(account)` view. Phase-1 privacy: raw amounts moved into
+ * the circuit as private witness — chain only carries the market +
+ * symbols + timestamps.
  */
 export type ChainBorrowReceipt = {
   account: string
-  borrowAmount: bigint
   borrowSymbol: string
-  collateralAmount: bigint
   collateralSymbol: string
   confirmedAt: number
+  market: string
   proofId: string
 }
 

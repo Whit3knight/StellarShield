@@ -272,18 +272,14 @@ function ChainPositionRow({
         <Badge variant="outline">Testnet</Badge>
       </div>
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
+        <dt className="text-muted-foreground">Market</dt>
+        <dd className="text-right font-mono">{receipt.market}</dd>
         <dt className="text-muted-foreground">Borrowed</dt>
-        <dd className="text-right font-mono">
-          <PrivateValue>
-            {`${stroopsToDisplay(receipt.borrowAmount)} ${receipt.borrowSymbol}`}
-          </PrivateValue>
-        </dd>
+        <dd className="text-right font-mono">{receipt.borrowSymbol}</dd>
         <dt className="text-muted-foreground">Collateral</dt>
-        <dd className="text-right font-mono">
-          <PrivateValue>
-            {`${stroopsToDisplay(receipt.collateralAmount)} ${receipt.collateralSymbol}`}
-          </PrivateValue>
-        </dd>
+        <dd className="text-right font-mono">{receipt.collateralSymbol}</dd>
+        <dt className="text-muted-foreground">Amounts</dt>
+        <dd className="text-right text-muted-foreground italic">Hidden (private witness)</dd>
         <dt className="text-muted-foreground">Confirmed</dt>
         <dd className="text-right">{formatTimestamp(openedAt)}</dd>
         <dt className="text-muted-foreground">Proof id</dt>

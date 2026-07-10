@@ -388,21 +388,19 @@ function createDefaultReadChainPosition(
 
     const receipt = inner as {
       account: string
-      borrow_amount: bigint
       borrow_symbol: string
-      collateral_amount: bigint
       collateral_symbol: string
       confirmed_at: bigint | number
+      market: string
       proof_id: Buffer | Uint8Array
     }
 
     return {
       account: receipt.account,
-      borrowAmount: BigInt(receipt.borrow_amount),
       borrowSymbol: receipt.borrow_symbol,
-      collateralAmount: BigInt(receipt.collateral_amount),
       collateralSymbol: receipt.collateral_symbol,
       confirmedAt: Number(receipt.confirmed_at),
+      market: receipt.market,
       proofId: bytesToHex(receipt.proof_id),
     }
   }
@@ -466,9 +464,7 @@ function createDefaultBuildBorrowXdr(
 
 type BindingBorrowIntent = {
   account: string
-  borrow_amount: bigint
   borrow_symbol: string
-  collateral_amount: bigint
   collateral_symbol: string
   expires_at: bigint
   health_factor_bps: number
@@ -488,9 +484,7 @@ type BindingBorrowProof = {
 function appToBindingIntent(intent: BorrowIntent): BindingBorrowIntent {
   return {
     account: intent.account,
-    borrow_amount: toStroopsBigInt(intent.borrow.amount),
     borrow_symbol: sanitizeSymbol(intent.borrow.symbol),
-    collateral_amount: toStroopsBigInt(intent.collateral.amount),
     collateral_symbol: sanitizeSymbol(intent.collateral.symbol),
     expires_at: BigInt(Math.floor(new Date(intent.expiresAt).getTime() / 1000)),
     health_factor_bps: healthFactorToBps(intent.healthFactor),

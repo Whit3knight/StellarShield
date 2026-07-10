@@ -17,6 +17,10 @@ mod verifier;
 /// stale. 60 s balances proof precompute latency against oracle drift.
 pub const MAX_ORACLE_AGE_SECS: u64 = 60;
 
+/// Phase-1 privacy: amount fields moved to circuit-private witness.
+/// Chain no longer sees the raw borrow / collateral amounts — only the
+/// policy thresholds, market context, and account (still visible via
+/// tx source auth). Phase 2 will swap `account` for a nullifier.
 #[contracttype]
 #[derive(Clone)]
 pub struct BorrowIntent {
@@ -24,9 +28,7 @@ pub struct BorrowIntent {
     pub proof_id: BytesN<32>,
     pub market: Symbol,
     pub collateral_symbol: Symbol,
-    pub collateral_amount: i128,
     pub borrow_symbol: Symbol,
-    pub borrow_amount: i128,
     pub health_factor_bps: u32,
     pub max_ltv_bps: u32,
     pub expires_at: u64,
@@ -47,15 +49,17 @@ pub struct BorrowProof {
     pub oracle_epoch: u64,
 }
 
+/// Anonymized receipt: no borrow / collateral amounts. Users store
+/// their own numbers client-side (session store). Chain records only
+/// the fact that a proof-backed position exists.
 #[contracttype]
 #[derive(Clone)]
 pub struct BorrowReceipt {
     pub account: Address,
     pub proof_id: BytesN<32>,
+    pub market: Symbol,
     pub borrow_symbol: Symbol,
-    pub borrow_amount: i128,
     pub collateral_symbol: Symbol,
-    pub collateral_amount: i128,
     pub confirmed_at: u64,
 }
 
@@ -71,7 +75,9 @@ enum DataKey {
 pub enum Error {
     IntentExpired = 1,
     ProofReplayed = 2,
-    InvalidAmount = 3,
+    // Phase-1: amount validity is asserted inside the circuit's
+    // private-witness constraints — no chain-side amount error.
+    Reserved3 = 3,
     StaleOracle = 4,
     InvalidProof = 5,
 }
@@ -90,9 +96,9 @@ impl BorrowPool {
     ) -> Result<BorrowReceipt, Error> {
         intent.account.require_auth();
 
-        if intent.borrow_amount <= 0 || intent.collateral_amount <= 0 {
-            return Err(Error::InvalidAmount);
-        }
+        // Amounts live inside the circuit as private witness — the
+        // proof itself asserts positivity + range. No chain-side amount
+        // check possible without breaking privacy.
 
         let now = env.ledger().timestamp();
         if intent.expires_at != 0 && now > intent.expires_at {
@@ -129,10 +135,9 @@ impl BorrowPool {
         let receipt = BorrowReceipt {
             account: intent.account.clone(),
             proof_id: intent.proof_id.clone(),
+            market: intent.market.clone(),
             borrow_symbol: intent.borrow_symbol.clone(),
-            borrow_amount: intent.borrow_amount,
             collateral_symbol: intent.collateral_symbol.clone(),
-            collateral_amount: intent.collateral_amount,
             confirmed_at: now,
         };
 
