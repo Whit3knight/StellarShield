@@ -138,8 +138,9 @@ export function useBorrowFlow({
         title: "Borrow confirmed",
         description: `Position opened on ${flow.transaction.receipt.network}. Hash ${hash.slice(0, 10)}…`,
         type: "success",
+        timeout: 6_000,
         actionProps: {
-          children: "View on Stellar Expert",
+          children: "View Transaction",
           onClick: () => window.open(getStellarExpertTxUrl(hash), "_blank"),
         },
       })
@@ -155,6 +156,7 @@ export function useBorrowFlow({
         title: "Transaction failed",
         description: error,
         type: "error",
+        timeout: 8_000,
       })
       return
     }

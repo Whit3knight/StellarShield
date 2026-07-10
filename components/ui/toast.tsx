@@ -7,6 +7,7 @@ import {
   InfoIcon,
   LoaderCircleIcon,
   TriangleAlertIcon,
+  XIcon,
 } from "lucide-react";
 import type React from "react";
 import { cn } from "@/lib/utils";
@@ -141,8 +142,8 @@ function Toasts({
               swipeDirection={swipeDirection}
               toast={toast}
             >
-              <Toast.Content className="pointer-events-auto flex items-center justify-between gap-1.5 overflow-hidden px-3.5 py-3 text-sm transition-opacity duration-250 data-behind:not-data-expanded:pointer-events-none data-behind:opacity-0 data-expanded:opacity-100">
-                <div className="flex gap-2">
+              <Toast.Content className="pointer-events-auto relative flex items-start justify-between gap-1.5 overflow-hidden px-3.5 py-3 text-sm transition-opacity duration-250 data-behind:not-data-expanded:pointer-events-none data-behind:opacity-0 data-expanded:opacity-100">
+                <div className="flex flex-1 gap-2">
                   {Icon && (
                     <div
                       className="[&>svg]:h-lh [&>svg]:w-4 [&_svg]:pointer-events-none [&_svg]:shrink-0"
@@ -152,25 +153,37 @@ function Toasts({
                     </div>
                   )}
 
-                  <div className="flex flex-col gap-0.5">
-                    <Toast.Title
-                      className="font-medium"
-                      data-slot="toast-title"
-                    />
-                    <Toast.Description
-                      className="text-muted-foreground"
-                      data-slot="toast-description"
-                    />
+                  <div className="flex flex-col gap-1.5">
+                    <div className="flex flex-col gap-0.5">
+                      <Toast.Title
+                        className="font-medium"
+                        data-slot="toast-title"
+                      />
+                      <Toast.Description
+                        className="text-muted-foreground"
+                        data-slot="toast-description"
+                      />
+                    </div>
+                    {toast.actionProps && (
+                      <div>
+                        <Toast.Action
+                          className={buttonVariants({ size: "xs" })}
+                          data-slot="toast-action"
+                        >
+                          {toast.actionProps.children}
+                        </Toast.Action>
+                      </div>
+                    )}
                   </div>
                 </div>
-                {toast.actionProps && (
-                  <Toast.Action
-                    className={buttonVariants({ size: "xs" })}
-                    data-slot="toast-action"
-                  >
-                    {toast.actionProps.children}
-                  </Toast.Action>
-                )}
+                <Toast.Close
+                  aria-label="Close notification"
+                  className="group -my-1 -me-1 flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+                  data-slot="toast-close"
+                >
+                  <XIcon aria-hidden="true" className="size-3.5" />
+                </Toast.Close>
+                <ToastProgressBar timeout={toast.timeout} type={toast.type} />
               </Toast.Content>
             </Toast.Root>
           );
@@ -268,6 +281,36 @@ function AnchoredToasts({
         })}
       </Toast.Viewport>
     </Toast.Portal>
+  );
+}
+
+/**
+ * Colored progress bar at the bottom of a toast. Width animates from
+ * 100% to 0% over the toast's `timeout`. Pauses when Base UI marks the
+ * closest `Toast.Root` as `data-paused` (hover / focus). Hidden for
+ * loading toasts, which have no auto-dismiss.
+ */
+function ToastProgressBar({
+  timeout,
+  type,
+}: {
+  timeout?: number;
+  type?: string;
+}): React.ReactElement | null {
+  if (!timeout || type === "loading") return null;
+  return (
+    <div
+      aria-hidden="true"
+      className={cn(
+        "absolute right-0 bottom-0 left-0 h-0.5 origin-left animate-[toast-progress_linear_forwards] group-data-[paused]:[animation-play-state:paused]",
+        type === "success" && "bg-success",
+        type === "error" && "bg-destructive",
+        type === "warning" && "bg-warning",
+        type === "info" && "bg-info",
+        !type && "bg-primary",
+      )}
+      style={{ animationDuration: `${timeout}ms` }}
+    />
   );
 }
 
