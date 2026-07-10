@@ -524,10 +524,6 @@ function bytes32ToBigInt(bytes: Uint8Array): bigint {
   return value
 }
 
-function toStroopsBigInt(amount: number): bigint {
-  return BigInt(Math.round(amount * 10_000_000))
-}
-
 function healthFactorToBps(healthFactor: number | null): number {
   if (healthFactor === null) return 0
   return Math.max(0, Math.round(healthFactor * 10_000))

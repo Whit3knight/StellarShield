@@ -16,10 +16,8 @@
     "check:bundle": "bun scripts/check-bundle.ts"
   },
   "dependencies": {
-    "@aztec/bb.js": "^4.4.0",
     "@base-ui/react": "^1.6.0",
     "@creit-tech/stellar-wallets-kit": "npm:@jsr/creit-tech__stellar-wallets-kit",
-    "@noir-lang/noir_js": "^1.0.0-beta.22",
     "@stellar/freighter-api": "^6.0.1",
     "@stellar/stellar-sdk": "^16.0.1",
     "circomlib": "^2.0.5",

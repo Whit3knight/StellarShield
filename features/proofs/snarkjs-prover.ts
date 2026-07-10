@@ -92,7 +92,6 @@ export function createSnarkjsBorrowProverAdapter(
           return err({ tag: "Aborted", message: "Proof generation aborted." })
         }
 
-        // eslint-disable-next-line no-console
         console.error("snarkjs prover failure", cause)
         const name =
           cause instanceof Error && cause.name ? `${cause.name}: ` : ""

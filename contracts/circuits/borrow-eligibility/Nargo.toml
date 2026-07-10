@@ -1,7 +1,0 @@
-[package]
-name = "borrow_eligibility"
-type = "bin"
-authors = ["stellar-shield"]
-compiler_version = ">=1.0.0"
-
-[dependencies]

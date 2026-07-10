@@ -1,13 +1,9 @@
 /**
- * Best-effort prover warm-up. Loads WASM modules + circuit artefacts
- * into memory the moment a wallet connects so the first real
- * `generateBorrowProof` call skips parse + fetch cost.
- *
- * Behaviour depends on the configured prover:
- *   - `noir`    — dynamic-imports `@noir-lang/noir_js` + `@aztec/bb.js`.
- *   - `snarkjs` — dynamic-imports `snarkjs` and fetches the compiled
- *                 Circom WASM + zkey blobs. Blobs cache at module
- *                 scope so every subsequent prove reuses them.
+ * Best-effort prover warm-up for the snarkjs Groth16 pipeline. When a
+ * wallet connects, dynamic-imports `snarkjs` and fetches the compiled
+ * Circom WASM + zkey blobs so the first `generateBorrowProof` call
+ * skips parse + fetch cost. Blobs cache at module scope so every
+ * subsequent prove reuses them.
  *
  * Idempotent — repeated calls resolve the same in-flight Promise.
  * Fire-and-forget. Any failure is swallowed silently — the prover
@@ -36,11 +32,6 @@ export function preloadProver(): Promise<void> {
     try {
       if (prover === "snarkjs") {
         await preloadSnarkjsPipeline()
-      } else if (prover === "noir") {
-        await Promise.all([
-          import("@noir-lang/noir_js"),
-          import("@aztec/bb.js"),
-        ])
       }
       // Mock prover has nothing to warm up.
     } catch {

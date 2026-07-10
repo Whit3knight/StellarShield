@@ -247,18 +247,6 @@ function AssetList({
   )
 }
 
-const STROOPS_PER_UNIT = 10_000_000n
-
-function stroopsToDisplay(amount: bigint): string {
-  const negative = amount < 0n
-  const abs = negative ? -amount : amount
-  const whole = abs / STROOPS_PER_UNIT
-  const fraction = abs % STROOPS_PER_UNIT
-  const fractionStr = fraction.toString().padStart(7, "0").replace(/0+$/, "")
-  const base = fractionStr.length > 0 ? `${whole}.${fractionStr}` : whole.toString()
-  return negative ? `-${base}` : base
-}
-
 function ChainPositionRow({
   receipt,
 }: {
