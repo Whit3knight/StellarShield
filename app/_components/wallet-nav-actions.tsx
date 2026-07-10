@@ -22,17 +22,17 @@ export function WalletNavActions(): React.ReactElement {
     error,
     pendingProviderId,
   } = useWalletConnection()
-  const [open, setOpen] = React.useState(false)
+  const { connectDialog } = useNavMenus()
 
   const handleOpenChange = React.useCallback(
     (nextOpen: boolean) => {
-      setOpen(nextOpen)
+      connectDialog.setOpen(nextOpen)
 
       if (!nextOpen) {
         cancelPendingConnection()
       }
     },
-    [cancelPendingConnection]
+    [cancelPendingConnection, connectDialog]
   )
 
   const handleConnect = React.useCallback(
@@ -40,10 +40,10 @@ export function WalletNavActions(): React.ReactElement {
       const connected = await connect(provider)
 
       if (connected) {
-        setOpen(false)
+        connectDialog.setOpen(false)
       }
     },
-    [connect]
+    [connect, connectDialog]
   )
 
   return (
@@ -58,7 +58,7 @@ export function WalletNavActions(): React.ReactElement {
           error={error}
           onConnect={handleConnect}
           onOpenChange={handleOpenChange}
-          open={open}
+          open={connectDialog.open}
           pendingProviderId={pendingProviderId}
           providers={walletProviders}
         />

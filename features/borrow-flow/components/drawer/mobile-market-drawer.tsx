@@ -1,7 +1,8 @@
-import { ArrowLeftIcon, ArrowRightIcon } from "lucide-react"
+import { ArrowLeftIcon, ArrowRightIcon, WalletIcon } from "lucide-react"
 import type * as React from "react"
 
 import type { ConnectedAccount } from "@/app/_constants/account"
+import { useNavMenus } from "@/app/_hooks/use-nav-menus"
 import { Button } from "@/components/ui/button"
 import { Drawer, DrawerClose, DrawerTrigger } from "@/components/ui/drawer"
 import type { MarketCardData } from "@/features/markets"
@@ -137,11 +138,20 @@ function MobileVerificationDrawer({
 function MobileCollateralDrawer(
   props: BorrowFlowDrawerProps
 ): React.ReactElement {
+  const { connectDialog } = useNavMenus()
+
+  if (!props.metrics.hasWallet) {
+    return (
+      <Button onClick={() => connectDialog.setOpen(true)} type="button">
+        <WalletIcon aria-hidden="true" />
+        Connect wallet
+      </Button>
+    )
+  }
+
   return (
     <Drawer>
-      <DrawerTrigger
-        render={<Button disabled={!props.metrics.hasWallet} type="button" />}
-      >
+      <DrawerTrigger render={<Button type="button" />}>
         Start borrow
         <ArrowRightIcon aria-hidden="true" />
       </DrawerTrigger>

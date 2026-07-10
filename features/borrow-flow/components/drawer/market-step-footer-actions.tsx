@@ -1,7 +1,8 @@
-import { ArrowLeftIcon, ArrowRightIcon } from "lucide-react"
+import { ArrowLeftIcon, ArrowRightIcon, WalletIcon } from "lucide-react"
 import type * as React from "react"
 
 import { Button } from "@/components/ui/button"
+import { useNavMenus } from "@/app/_hooks/use-nav-menus"
 
 import type {
   BorrowFlowMetrics,
@@ -30,6 +31,8 @@ export function MarketStepFooterActions({
   onVerify,
   step,
 }: MarketStepFooterActionsProps): React.ReactElement {
+  const { connectDialog } = useNavMenus()
+
   if (step === "transaction") {
     return (
       <>
@@ -128,16 +131,25 @@ export function MarketStepFooterActions({
       <Button onClick={onClose} type="button" variant="ghost">
         Close
       </Button>
-      <Button
-        disabled={!metrics.hasWallet}
-        onClick={() => {
-          onStepChange("collateral")
-        }}
-        type="button"
-      >
-        Start borrow
-        <ArrowRightIcon aria-hidden="true" />
-      </Button>
+      {metrics.hasWallet ? (
+        <Button
+          onClick={() => {
+            onStepChange("collateral")
+          }}
+          type="button"
+        >
+          Start borrow
+          <ArrowRightIcon aria-hidden="true" />
+        </Button>
+      ) : (
+        <Button
+          onClick={() => connectDialog.setOpen(true)}
+          type="button"
+        >
+          <WalletIcon aria-hidden="true" />
+          Connect wallet
+        </Button>
+      )}
     </>
   )
 }
