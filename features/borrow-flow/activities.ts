@@ -140,7 +140,7 @@ export function createTransactionSubmittedActivity({
   timestamp?: string
 }): BorrowActivity {
   return createBorrowActivity({
-    description: "Transaction is waiting for wallet signature and testnet relay.",
+    description: "Waiting for wallet signature.",
     status: "pending",
     timestamp,
     title: "Transaction submitted",

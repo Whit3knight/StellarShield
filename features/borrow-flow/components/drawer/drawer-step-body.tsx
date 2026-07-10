@@ -13,7 +13,6 @@ type DrawerStepBodyProps = BorrowFlowStepProps & {
 
 export function DrawerStepBody({
   account,
-  activity,
   flow,
   market,
   metrics,
@@ -48,7 +47,6 @@ export function DrawerStepBody({
     return (
       <TransactionStep
         account={account}
-        activity={activity}
         flow={flow}
         market={market}
         metrics={metrics}

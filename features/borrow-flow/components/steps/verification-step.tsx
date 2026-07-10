@@ -73,8 +73,8 @@ export function VerificationStep({
             value: getMarketPair(market),
           },
           {
-            label: "Data scope",
-            value: "Local only",
+            label: "Privacy",
+            value: "Nothing leaves this device",
           },
         ]}
         privateAmount={Boolean(account)}
