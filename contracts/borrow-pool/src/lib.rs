@@ -14,8 +14,17 @@ mod verifier;
 
 /// Maximum age of an oracle epoch relative to the current ledger timestamp.
 /// Proofs whose `oracle_epoch` fall outside this window are rejected as
-/// stale. 60 s balances proof precompute latency against oracle drift.
-pub const MAX_ORACLE_AGE_SECS: u64 = 60;
+/// stale.
+///
+/// 5 min covers a realistic UX where the user precomputes a proof at
+/// amount-blur, then hesitates before hitting Submit. Real production
+/// tightens this (30–60 s) once auto re-prove on stale is wired.
+pub const MAX_ORACLE_AGE_SECS: u64 = 300;
+
+/// Grace for slight clock drift between the user's browser and the
+/// ledger. Accepts proofs whose `oracle_epoch` is up to this many
+/// seconds *ahead* of `now` before rejecting as future-dated.
+pub const ORACLE_FUTURE_SKEW_SECS: u64 = 30;
 
 /// Phase-1 privacy: amount fields moved to circuit-private witness.
 /// Chain no longer sees the raw borrow / collateral amounts — only the
@@ -105,8 +114,13 @@ impl BorrowPool {
             return Err(Error::IntentExpired);
         }
 
-        // Oracle freshness.
-        if proof.oracle_epoch > now || now - proof.oracle_epoch > MAX_ORACLE_AGE_SECS {
+        // Oracle freshness: accept a small forward skew for browser
+        // clock drift, and up to MAX_ORACLE_AGE_SECS in the past.
+        let too_far_ahead = proof.oracle_epoch > now
+            && proof.oracle_epoch - now > ORACLE_FUTURE_SKEW_SECS;
+        let too_far_behind = proof.oracle_epoch < now
+            && now - proof.oracle_epoch > MAX_ORACLE_AGE_SECS;
+        if too_far_ahead || too_far_behind {
             return Err(Error::StaleOracle);
         }
 
