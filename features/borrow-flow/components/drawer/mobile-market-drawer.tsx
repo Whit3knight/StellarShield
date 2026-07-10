@@ -8,6 +8,7 @@ import { Drawer, DrawerClose, DrawerTrigger } from "@/components/ui/drawer"
 import type { MarketCardData } from "@/features/markets"
 
 import { useBorrowFlow } from "../../hooks/use-borrow-flow"
+import { useConfirmedClose } from "../../hooks/use-confirmed-close"
 import { canSubmitTransaction } from "../../flow-actions"
 import { isSubmitPending, isVerificationPending } from "../../steps"
 import { MarketDrawerFooter } from "./market-drawer-footer"
@@ -185,6 +186,8 @@ export function MobileMarketDrawer({
     submitTransaction,
     verifyEligibility,
   } = useBorrowFlow({ account, market })
+
+  useConfirmedClose(flow.transaction, onClose)
 
   const drawerProps = {
     account,
