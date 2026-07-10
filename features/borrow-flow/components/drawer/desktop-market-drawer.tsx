@@ -1,12 +1,18 @@
 import * as React from "react"
 
 import type { ConnectedAccount } from "@/app/_constants/account"
+import { useNavMenus } from "@/app/_hooks/use-nav-menus"
 import type { MarketCardData } from "@/features/markets"
 
 import { MARKET_STEPS } from "../../constants"
 import { useBorrowFlow } from "../../hooks/use-borrow-flow"
 import type { MarketStep } from "../../types"
 import { DesktopMarketStepPanel } from "./desktop-market-step-panel"
+
+// After a confirmed borrow, hold on the receipt for a moment so the
+// user reads the success card + toast, then close the market drawer
+// and pop open the Positions drawer.
+const CONFIRMED_CLOSE_DELAY_MS = 2_500
 
 type DesktopMarketDrawerProps = {
   account: ConnectedAccount | null
@@ -29,6 +35,25 @@ export function DesktopMarketDrawer({
     submitTransaction,
     verifyEligibility,
   } = useBorrowFlow({ account, market })
+
+  const { positionsDrawer } = useNavMenus()
+
+  // On Confirmed: hand off the flow to the Positions drawer. Fires
+  // once per unique receipt hash so re-renders don't re-open.
+  const handedOffHashRef = React.useRef<string | null>(null)
+  React.useEffect(() => {
+    if (flow.transaction.status !== "Confirmed") return
+    const hash = flow.transaction.receipt.hash
+    if (handedOffHashRef.current === hash) return
+    handedOffHashRef.current = hash
+
+    const timer = window.setTimeout(() => {
+      positionsDrawer.setOpen(true)
+      onClose()
+    }, CONFIRMED_CLOSE_DELAY_MS)
+
+    return () => window.clearTimeout(timer)
+  }, [flow.transaction, onClose, positionsDrawer])
 
   // Auto-advance the drawer step to keep in sync with the flow state.
   // When verification lands as Verified + transaction becomes Ready,
