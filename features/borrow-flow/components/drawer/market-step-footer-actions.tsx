@@ -1,4 +1,9 @@
-import { ArrowLeftIcon, ArrowRightIcon, WalletIcon } from "lucide-react"
+import {
+  ArrowLeftIcon,
+  ArrowRightIcon,
+  RotateCcwIcon,
+  WalletIcon,
+} from "lucide-react"
 import type * as React from "react"
 
 import { Button } from "@/components/ui/button"
@@ -34,14 +39,23 @@ export function MarketStepFooterActions({
   const { connectDialog } = useNavMenus()
 
   if (step === "transaction") {
+    const isFailed = flow.transaction.status === "Failed"
+
     return (
       <>
         <Button onClick={onClose} type="button" variant="ghost">
           Close
         </Button>
-        <Button onClick={onClose} type="button">
-          Done
-        </Button>
+        {isFailed ? (
+          <Button onClick={onSubmit} type="button">
+            <RotateCcwIcon aria-hidden="true" />
+            Retry submission
+          </Button>
+        ) : (
+          <Button onClick={onClose} type="button">
+            Done
+          </Button>
+        )}
       </>
     )
   }
