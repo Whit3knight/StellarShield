@@ -144,22 +144,28 @@ async function runCircomCircuit(
     artefacts.zkey
   )
 
-  // Public output is the oracle_price_commitment (last public signal
-  // when it's an output — see circom pragma output order).
+  // snarkjs returns public output at the end of publicSignals (circom
+  // pragma places outputs after inputs).
   const commitmentDecimal = publicSignals[publicSignals.length - 1]
   const commitment = bigintToBytes32(BigInt(commitmentDecimal))
-  const proofBytes = serializeGroth16Proof(
+  const structured = structuredGroth16Proof(
     proof as {
       pi_a: string[]
       pi_b: string[][]
       pi_c: string[]
     }
   )
+  const encodedSignals = publicSignals.map((decimal) =>
+    bigintToBytes32(BigInt(decimal))
+  )
 
   return {
+    a: structured.a,
+    b: structured.b,
+    c: structured.c,
     oracleEpoch,
     oraclePriceCommitment: commitment,
-    proofBytes,
+    publicSignals: encodedSignals,
   }
 }
 
@@ -230,32 +236,39 @@ function bigintToBytes32(value: bigint): Uint8Array {
 }
 
 /**
- * Groth16 proof bytes (BN254, uncompressed): A (G1: 64 bytes) ||
- * B (G2: 128 bytes) || C (G1: 64 bytes) = 256 bytes total. Each field
- * element is 32 bytes big-endian. G1 = (x, y); G2 = (x0, x1, y0, y1)
- * matching Ethereum's precompile order for portability.
+ * Structured Groth16 proof (BLS12-381, uncompressed):
+ *   a: G1 = 96 bytes (48-byte big-endian x || 48-byte big-endian y)
+ *   b: G2 = 192 bytes (Fp2 x_c0 || Fp2 x_c1 || Fp2 y_c0 || Fp2 y_c1)
+ *   c: G1 = 96 bytes
+ * Fp2 element ordering matches soroban-sdk's G2Affine::from_array and
+ * ark_bls12_381::Fq2::new(c0, c1). snarkjs's pi_b is [[x_c0, x_c1], [y_c0, y_c1]]
+ * — no swap needed.
  */
-function serializeGroth16Proof(proof: {
+function structuredGroth16Proof(proof: {
   pi_a: string[]
   pi_b: string[][]
   pi_c: string[]
-}): Uint8Array {
-  const out = new Uint8Array(256)
-  writeField(out, 0, proof.pi_a[0])
-  writeField(out, 32, proof.pi_a[1])
-  // BN254 G2 encoding: x = c1 + c0 * i, y = c1 + c0 * i (Ethereum order).
-  writeField(out, 64, proof.pi_b[0][1])
-  writeField(out, 96, proof.pi_b[0][0])
-  writeField(out, 128, proof.pi_b[1][1])
-  writeField(out, 160, proof.pi_b[1][0])
-  writeField(out, 192, proof.pi_c[0])
-  writeField(out, 224, proof.pi_c[1])
-  return out
+}): { a: Uint8Array; b: Uint8Array; c: Uint8Array } {
+  const a = new Uint8Array(96)
+  writeFp(a, 0, proof.pi_a[0])
+  writeFp(a, 48, proof.pi_a[1])
+
+  const b = new Uint8Array(192)
+  writeFp(b, 0, proof.pi_b[0][0])
+  writeFp(b, 48, proof.pi_b[0][1])
+  writeFp(b, 96, proof.pi_b[1][0])
+  writeFp(b, 144, proof.pi_b[1][1])
+
+  const c = new Uint8Array(96)
+  writeFp(c, 0, proof.pi_c[0])
+  writeFp(c, 48, proof.pi_c[1])
+
+  return { a, b, c }
 }
 
-function writeField(target: Uint8Array, offset: number, decimal: string): void {
+function writeFp(target: Uint8Array, offset: number, decimal: string): void {
   let value = BigInt(decimal)
-  for (let index = 31; index >= 0; index--) {
+  for (let index = 47; index >= 0; index--) {
     target[offset + index] = Number(value & 0xffn)
     value >>= 8n
   }

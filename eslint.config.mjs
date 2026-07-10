@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Circom auto-generated witness helpers — not part of app source.
+    "contracts/circuits/**/build/**",
+    "contracts/circuits/**/target/**",
   ]),
 ]);
 

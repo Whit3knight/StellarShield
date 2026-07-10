@@ -155,10 +155,19 @@ async function runNoirCircuit(
     ? returnValue[0]
     : returnValue
 
+  // ponytail: Noir path retained for historical reference — the
+  // contract now expects the snarkjs (Groth16/BLS12-381) shape and
+  // this stub does not reach it. Zero placeholders keep the type
+  // consistent; enable the noir adapter only when the pipeline is
+  // rewired for the new contract.
+  void proof
   return {
+    a: new Uint8Array(96),
+    b: new Uint8Array(192),
+    c: new Uint8Array(96),
     oracleEpoch,
     oraclePriceCommitment: hexToBytes32(commitmentHex),
-    proofBytes: proof,
+    publicSignals: [],
   }
 }
 

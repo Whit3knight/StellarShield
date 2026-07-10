@@ -408,9 +408,11 @@ type BindingBorrowIntent = {
 }
 
 type BindingBorrowProof = {
+  a: Buffer
+  b: Buffer
+  c: Buffer
   oracle_epoch: bigint
-  oracle_price_commitment: Buffer
-  proof_bytes: Buffer
+  public_signals: bigint[]
 }
 
 function appToBindingIntent(intent: BorrowIntent): BindingBorrowIntent {
@@ -432,10 +434,20 @@ function appToBindingProof(
   contractProof: BorrowContractPayload
 ): BindingBorrowProof {
   return {
+    a: Buffer.from(contractProof.a),
+    b: Buffer.from(contractProof.b),
+    c: Buffer.from(contractProof.c),
     oracle_epoch: BigInt(contractProof.oracleEpoch),
-    oracle_price_commitment: Buffer.from(contractProof.oraclePriceCommitment),
-    proof_bytes: Buffer.from(contractProof.proofBytes),
+    public_signals: contractProof.publicSignals.map(bytes32ToBigInt),
   }
+}
+
+function bytes32ToBigInt(bytes: Uint8Array): bigint {
+  let value = 0n
+  for (const byte of bytes) {
+    value = (value << 8n) | BigInt(byte)
+  }
+  return value
 }
 
 function toStroopsBigInt(amount: number): bigint {

@@ -10,15 +10,22 @@ export type BorrowProofPublicInputs = {
 }
 
 /**
- * Serialized Groth16 proof (192 bytes) plus the on-chain oracle bindings
- * required by the borrow-pool contract. Attached by the Noir prover;
- * the mock prover leaves it `undefined` — mock proofs never reach a real
- * contract call.
+ * Structured Groth16 proof over BLS12-381 (uncompressed) plus the
+ * on-chain oracle bindings required by the borrow-pool contract.
+ *   a: 96 bytes  (G1: 48-byte big-endian x || y)
+ *   b: 192 bytes (G2: Fp2 x || Fp2 y = 48 * 4)
+ *   c: 96 bytes  (G1)
+ *   publicSignals: 11 x u256 (BLS12-381 Fr elements, big-endian 32 bytes).
+ * Attached by the snarkjs prover; the mock/legacy adapters leave it
+ * `undefined`.
  */
 export type BorrowContractPayload = {
+  a: Uint8Array
+  b: Uint8Array
+  c: Uint8Array
   oracleEpoch: number
   oraclePriceCommitment: Uint8Array
-  proofBytes: Uint8Array
+  publicSignals: Uint8Array[]
 }
 
 export type BorrowEligibilityProof = {

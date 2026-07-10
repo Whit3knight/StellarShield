@@ -60,9 +60,12 @@ describe("sorobanProtocolAdapter", () => {
 
     const sim = await builderAdapter.simulateBorrow({
       contractProof: {
+        a: new Uint8Array(96),
+        b: new Uint8Array(192),
+        c: new Uint8Array(96),
         oracleEpoch: 1_720_000_000,
         oraclePriceCommitment: new Uint8Array(32),
-        proofBytes: new Uint8Array(192),
+        publicSignals: [],
       },
       fee: {
         amount: 0.00003,
@@ -147,9 +150,12 @@ describe("sorobanProtocolAdapter", () => {
 
     const sim = await builderAdapter.simulateBorrow({
       contractProof: {
+        a: new Uint8Array(96),
+        b: new Uint8Array(192),
+        c: new Uint8Array(96),
         oracleEpoch: 1_720_000_000,
         oraclePriceCommitment: new Uint8Array(32),
-        proofBytes: new Uint8Array(192),
+        publicSignals: [],
       },
       fee: {
         amount: 0.00003,

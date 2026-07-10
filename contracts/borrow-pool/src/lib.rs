@@ -1,8 +1,9 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, symbol_short, Address, Bytes, BytesN,
-    Env, Symbol,
+    contract, contracterror, contractimpl, contracttype,
+    crypto::bls12_381::{Fr, G1Affine, G2Affine},
+    symbol_short, Address, BytesN, Env, Symbol, Vec,
 };
 
 mod verifier;
@@ -34,12 +35,16 @@ pub struct BorrowIntent {
 #[contracttype]
 #[derive(Clone)]
 pub struct BorrowProof {
-    /// Serialized Groth16 proof: A (G1) || B (G2) || C (G1).
-    pub proof_bytes: Bytes,
-    /// Oracle epoch the proof was generated against.
+    /// Groth16 proof over BLS12-381: A (G1) + B (G2) + C (G1).
+    pub a: G1Affine,
+    pub b: G2Affine,
+    pub c: G1Affine,
+    /// Public signals in circuit-declaration order followed by the
+    /// public output (`oracle_price_commitment`) — total 11 entries.
+    pub public_signals: Vec<Fr>,
+    /// Oracle epoch the proof was generated against. Cross-check against
+    /// the current ledger timestamp for freshness.
     pub oracle_epoch: u64,
-    /// Poseidon2 commitment to (oracle_price, salt) the prover used.
-    pub oracle_price_commitment: BytesN<32>,
 }
 
 #[contracttype]
@@ -94,18 +99,23 @@ impl BorrowPool {
             return Err(Error::IntentExpired);
         }
 
-        // Oracle freshness: reject any proof whose epoch is older than
-        // MAX_ORACLE_AGE_SECS relative to the current ledger. Also
-        // reject future-dated epochs — those signal a broken oracle.
+        // Oracle freshness.
         if proof.oracle_epoch > now || now - proof.oracle_epoch > MAX_ORACLE_AGE_SECS {
             return Err(Error::StaleOracle);
         }
 
-        // Groth16 verify. Circuit binds proof to the intent's account,
-        // market, symbols, amounts, thresholds, oracle_epoch, and
-        // oracle_price_commitment via public inputs. Any tampered
-        // field flips the public-input vector and fails verify.
-        if !verifier::verify_groth16(&env, &intent, &proof) {
+        // Groth16 verify. Public signals order matches the circuit's
+        // public inputs (account, market, proof_id, collateral_symbol,
+        // borrow_symbol, collateral_amount, borrow_amount, hf_min_bps,
+        // max_ltv_bps, oracle_epoch) followed by the public output
+        // (oracle_price_commitment).
+        if !verifier::verify_groth16(
+            &env,
+            proof.a.clone(),
+            proof.b.clone(),
+            proof.c.clone(),
+            proof.public_signals.clone(),
+        ) {
             return Err(Error::InvalidProof);
         }
 
