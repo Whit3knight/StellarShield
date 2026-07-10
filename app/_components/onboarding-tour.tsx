@@ -5,7 +5,6 @@ import {
   type LucideIcon,
   SearchIcon,
   WalletCardsIcon,
-  XIcon,
 } from "lucide-react"
 import * as React from "react"
 
@@ -191,16 +190,7 @@ export function OnboardingTour(): React.ReactElement | null {
         side={step.side}
         sideOffset={12}
       >
-        <div className="relative space-y-4 pr-6">
-          <button
-            aria-label="Dismiss tour"
-            className="absolute right-0 top-0 rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-            onClick={handleFinish}
-            type="button"
-          >
-            <XIcon aria-hidden="true" className="size-3.5" />
-          </button>
-
+        <div className="relative space-y-4">
           <div className="flex items-start gap-2.5">
             <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md border bg-muted/32 text-primary">
               <StepIcon aria-hidden="true" className="size-3.5" />
