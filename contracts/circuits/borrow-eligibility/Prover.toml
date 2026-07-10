@@ -1,0 +1,20 @@
+# Example prover inputs for nargo prove. Do not commit real balances or
+# oracle secrets. This vector matches the happy_path test case.
+
+account = "0x01"
+market = "0x02"
+proof_id = "0x03"
+collateral_symbol = "0x04"
+borrow_symbol = "0x05"
+collateral_amount = "1000"
+borrow_amount = "500"
+hf_min_bps = "20000"
+max_ltv_bps = "6300"
+oracle_epoch = "42"
+
+# Poseidon2([2, 0xdeadbeef], 2). Recompute if the witness changes.
+oracle_price_commitment = "0x0"
+
+oracle_price = "2"
+oracle_price_salt = "0xdeadbeef"
+raw_collateral_balance = "1000"
