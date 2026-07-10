@@ -19,7 +19,7 @@ Audit prompts:
 - [ ] Public-input binding — every field mentioned in SPEC.md is `pub`
 - [ ] Range checks — every `u64`/`u32` cast has a bit-width bound
 - [ ] Overflow — `collateral_amount * oracle_price` bounded before division
-- [ ] Poseidon2 commitment domain-separated if reused elsewhere
+- [ ] Pedersen commitment (skeleton hash choice) domain-separated if reused elsewhere. If swapped to Poseidon2 pre-audit, re-run this check.
 - [ ] `should_fail` tests cover: underfunded, stale commitment, HF-below-min, LTV-above-max
 - [ ] Fuzz targets: random valid witnesses → prove/verify roundtrip
 
