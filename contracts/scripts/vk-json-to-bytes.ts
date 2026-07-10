@@ -30,21 +30,44 @@ function encodeFp(decimal: string): Uint8Array {
   return out
 }
 
+// BLS12-381 uncompressed encoding flags. Bit 1 of byte 0 = infinity.
+// The whole 96/192-byte buffer must be zero except that one flag bit.
+const INFINITY_BYTE = 0x40
+
 function encodeG1(coords: [string, string, string]): Uint8Array {
-  const [x, y] = coords
+  const [x, y, z] = coords
   const out = new Uint8Array(FP_BYTES * 2)
+  if (z === "0") {
+    out[0] = INFINITY_BYTE
+    return out
+  }
+  if (z !== "1") {
+    throw new Error(
+      `encodeG1: projective z != 0/1 not supported (need affine normalisation): got ${z}`
+    )
+  }
   out.set(encodeFp(x), 0)
   out.set(encodeFp(y), FP_BYTES)
   return out
 }
 
 function encodeG2(coords: [[string, string], [string, string], [string, string]]): Uint8Array {
-  const [[x0, x1], [y0, y1]] = coords
+  const [[x0, x1], [y0, y1], [z0, z1]] = coords
   const out = new Uint8Array(FP_BYTES * 4)
-  out.set(encodeFp(x0), 0)
-  out.set(encodeFp(x1), FP_BYTES)
-  out.set(encodeFp(y0), FP_BYTES * 2)
-  out.set(encodeFp(y1), FP_BYTES * 3)
+  if (z0 === "0" && z1 === "0") {
+    out[0] = INFINITY_BYTE
+    return out
+  }
+  if (!(z0 === "1" && z1 === "0")) {
+    throw new Error(
+      `encodeG2: projective z != (1, 0) not supported: got (${z0}, ${z1})`
+    )
+  }
+  // Soroban G2 order: X_c1 || X_c0 || Y_c1 || Y_c0.
+  out.set(encodeFp(x1), 0)
+  out.set(encodeFp(x0), FP_BYTES)
+  out.set(encodeFp(y1), FP_BYTES * 2)
+  out.set(encodeFp(y0), FP_BYTES * 3)
   return out
 }
 
