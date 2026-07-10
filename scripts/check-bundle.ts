@@ -20,7 +20,14 @@ const PACKAGE_JSON_PATH = join(PROJECT_ROOT, "package.json")
 
 const FREIGHTER_PACKAGE = "@stellar/freighter-api"
 const STELLAR_SDK_PACKAGE = "@stellar/stellar-sdk"
-const ASYNC_ONLY_PACKAGES = [FREIGHTER_PACKAGE, STELLAR_SDK_PACKAGE]
+const NOIR_PACKAGE = "@noir-lang/noir_js"
+const BARRETENBERG_PACKAGE = "@aztec/bb.js"
+const ASYNC_ONLY_PACKAGES = [
+  FREIGHTER_PACKAGE,
+  STELLAR_SDK_PACKAGE,
+  NOIR_PACKAGE,
+  BARRETENBERG_PACKAGE,
+]
 const FORBIDDEN_PACKAGES = ["radix-ui"]
 const ROOT_MAIN_UNCOMPRESSED_CEILING_BYTES = 500_000
 

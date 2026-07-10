@@ -5,6 +5,7 @@ import * as React from "react"
 import { mockProtocolAdapter, type ProtocolAdapter } from "@/features/protocol"
 import { createSorobanProtocolAdapter } from "@/features/protocol/soroban-adapter"
 import {
+  createNoirBorrowProverAdapter,
   mockBorrowProverAdapter,
   type BorrowProverAdapter,
 } from "@/features/proofs"
@@ -28,6 +29,12 @@ type AdapterProviderProps = {
   prover?: BorrowProverAdapter
 }
 
+function resolveDefaultProverAdapter(): BorrowProverAdapter {
+  const shouldUseNoir = process.env.NEXT_PUBLIC_STELLAR_SHIELD_PROVER === "noir"
+  if (!shouldUseNoir) return mockBorrowProverAdapter
+  return createNoirBorrowProverAdapter()
+}
+
 function resolveDefaultProtocolAdapter(): ProtocolAdapter {
   const shouldUseSoroban =
     process.env.NEXT_PUBLIC_STELLAR_SHIELD_ADAPTER === "soroban"
@@ -47,11 +54,12 @@ function resolveDefaultProtocolAdapter(): ProtocolAdapter {
 }
 
 const defaultProtocolAdapter = resolveDefaultProtocolAdapter()
+const defaultProverAdapter = resolveDefaultProverAdapter()
 
 export function AdapterProvider({
   children,
   protocol = defaultProtocolAdapter,
-  prover = mockBorrowProverAdapter,
+  prover = defaultProverAdapter,
 }: AdapterProviderProps): React.ReactElement {
   const value = React.useMemo<AdapterContextValue>(
     () => ({ protocol, prover }),

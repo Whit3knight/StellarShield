@@ -9,8 +9,21 @@ export type BorrowProofPublicInputs = {
   maxLtv: string
 }
 
+/**
+ * Serialized Groth16 proof (192 bytes) plus the on-chain oracle bindings
+ * required by the borrow-pool contract. Attached by the Noir prover;
+ * the mock prover leaves it `undefined` — mock proofs never reach a real
+ * contract call.
+ */
+export type BorrowContractPayload = {
+  oracleEpoch: number
+  oraclePriceCommitment: Uint8Array
+  proofBytes: Uint8Array
+}
+
 export type BorrowEligibilityProof = {
   claim: string
+  contractPayload?: BorrowContractPayload
   expiresAt: string
   id: string
   publicInputs: BorrowProofPublicInputs
