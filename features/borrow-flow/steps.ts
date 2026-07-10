@@ -26,15 +26,9 @@ export function getStepCopy(
 
   if (step === "verification") {
     return {
-      description: "Confirm eligibility without exposing wallet details.",
+      description:
+        "Confirm eligibility privately, then submit the borrow transaction.",
       title: "Private verification",
-    }
-  }
-
-  if (step === "transaction") {
-    return {
-      description: "Review the borrow request before wallet signature.",
-      title: "Review transaction",
     }
   }
 

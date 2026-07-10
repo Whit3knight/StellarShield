@@ -33,25 +33,6 @@ export function DesktopMarketDrawer({
 
   useConfirmedClose(flow.transaction, onClose)
 
-  // When the user hits Submit the verification step's footer routes
-  // step to `transaction` explicitly. When the tx moves past Ready
-  // (Signing / Submitted / Confirmed), keep the drawer pinned to the
-  // review step so the user always sees the receipt as it lands.
-  const priorTxStatusRef = React.useRef(flow.transaction.status)
-  React.useEffect(() => {
-    const prev = priorTxStatusRef.current
-    const next = flow.transaction.status
-    priorTxStatusRef.current = next
-
-    if (
-      prev === "Ready" &&
-      (next === "Signing" || next === "Submitted") &&
-      activeStep !== "transaction"
-    ) {
-      setActiveStep("transaction")
-    }
-  }, [flow.transaction.status, activeStep])
-
   return (
     <aside className="ml-4 hidden min-h-0 min-w-0 lg:block">
       <div className="relative isolate h-full overflow-hidden rounded-lg">

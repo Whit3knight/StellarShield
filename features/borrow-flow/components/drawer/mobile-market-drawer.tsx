@@ -24,64 +24,19 @@ function MobileDrawerBackButton(): React.ReactElement {
   )
 }
 
-function MobileTransactionDrawer({
-  account,
-  activity,
-  flow,
-  market,
-  metrics,
-  onClose,
-  onFieldChange,
-  onSubmit,
-  position,
-}: Omit<BorrowFlowDrawerProps, "onVerify">): React.ReactElement {
-  const isSubmitting = isSubmitPending(flow.transaction)
-
-  return (
-    <Drawer>
-      <DrawerTrigger
-        disabled={isSubmitting}
-        onClick={onSubmit}
-        render={<Button loading={isSubmitting} type="button" />}
-      >
-        {isSubmitting ? flow.transaction.status : "Submit transaction"}
-      </DrawerTrigger>
-      <MarketDrawerPopup
-        account={account}
-        activity={activity}
-        flow={flow}
-        market={market}
-        metrics={metrics}
-        onFieldChange={onFieldChange}
-        position={position}
-        step="transaction"
-      >
-        <MarketDrawerFooter>
-          <Button onClick={onClose} type="button" variant="ghost">
-            Close
-          </Button>
-          <Button onClick={onClose} type="button">
-            Done
-          </Button>
-        </MarketDrawerFooter>
-      </MarketDrawerPopup>
-    </Drawer>
-  )
-}
-
 function MobileVerificationDrawer({
   account,
   activity,
   flow,
   market,
   metrics,
-  onClose,
   onFieldChange,
   onSubmit,
   onVerify,
   position,
 }: BorrowFlowDrawerProps): React.ReactElement {
   const isChecking = isVerificationPending(flow.verification.status)
+  const isSubmitting = isSubmitPending(flow.transaction)
   const canSubmit = canSubmitTransaction({
     metrics,
     status: flow.verification.status,
@@ -109,17 +64,14 @@ function MobileVerificationDrawer({
         <MarketDrawerFooter>
           <MobileDrawerBackButton />
           {canSubmit ? (
-            <MobileTransactionDrawer
-              account={account}
-              activity={activity}
-              flow={flow}
-              market={market}
-              metrics={metrics}
-              onClose={onClose}
-              onFieldChange={onFieldChange}
-              onSubmit={onSubmit}
-              position={position}
-            />
+            <Button
+              disabled={isSubmitting}
+              loading={isSubmitting}
+              onClick={onSubmit}
+              type="button"
+            >
+              {isSubmitting ? flow.transaction.status : "Submit transaction"}
+            </Button>
           ) : (
             <Button
               disabled={isChecking || !metrics.isLoanValid}
