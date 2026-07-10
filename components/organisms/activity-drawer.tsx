@@ -65,10 +65,10 @@ export function ActivityDrawer({
     >
       <DrawerPopup showBar>
         <DrawerHeader>
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex flex-col gap-1">
+          <div className="flex items-start justify-between gap-4">
+            <div>
               <DrawerTitle>Activity</DrawerTitle>
-              <DrawerDescription>
+              <DrawerDescription className="mt-2">
                 Everything that happened during this borrow session.
               </DrawerDescription>
             </div>

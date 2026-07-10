@@ -52,7 +52,7 @@ export function PositionsDrawer({
       <DrawerPopup showBar>
         <DrawerHeader>
           <DrawerTitle>Positions</DrawerTitle>
-          <DrawerDescription>
+          <DrawerDescription className="mt-2">
             Borrow positions opened during this session.
           </DrawerDescription>
         </DrawerHeader>

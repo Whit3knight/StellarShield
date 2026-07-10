@@ -59,7 +59,7 @@ export function ProofsDrawer({
       <DrawerPopup showBar>
         <DrawerHeader>
           <DrawerTitle>Proofs</DrawerTitle>
-          <DrawerDescription>
+          <DrawerDescription className="mt-2">
             Eligibility proofs generated during this session.
           </DrawerDescription>
         </DrawerHeader>
