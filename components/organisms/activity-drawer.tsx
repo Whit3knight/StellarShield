@@ -63,7 +63,7 @@ export function ActivityDrawer({
       open={open}
       position={isMobile ? "bottom" : "right"}
     >
-      <DrawerPopup>
+      <DrawerPopup showBar>
         <DrawerHeader>
           <div className="flex items-start justify-between gap-3">
             <div className="flex flex-col gap-1">

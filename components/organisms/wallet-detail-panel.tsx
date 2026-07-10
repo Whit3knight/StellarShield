@@ -1,16 +1,13 @@
 "use client"
 
-import { CheckIcon, CopyIcon, ExternalLinkIcon } from "lucide-react"
+import { CheckIcon, CopyIcon } from "lucide-react"
 import * as React from "react"
 
 import { PrivateValue } from "@/components/atoms/private-value"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import type { ConnectedAccount } from "@/app/_constants/account"
-import {
-  getConfiguredNetworkLabel,
-  getStellarExpertAccountUrl,
-} from "@/features/wallet/network"
+import { getConfiguredNetworkLabel } from "@/features/wallet/network"
 
 type WalletDetailPanelProps = {
   account: ConnectedAccount
@@ -20,7 +17,6 @@ export function WalletDetailPanel({
   account,
 }: WalletDetailPanelProps): React.ReactElement {
   const [copied, setCopied] = React.useState(false)
-  const explorerUrl = getStellarExpertAccountUrl(account.wallet.address)
   const networkLabel = getConfiguredNetworkLabel()
 
   const balanceEntries = account.wallet.balances
@@ -99,17 +95,6 @@ export function WalletDetailPanel({
       <section className="flex flex-wrap items-center gap-2">
         <Badge variant="outline">{account.wallet.providerName}</Badge>
         <Badge variant="outline">{networkLabel}</Badge>
-        <Button
-          className="ms-auto"
-          render={
-            <a href={explorerUrl} rel="noreferrer" target="_blank">
-              <ExternalLinkIcon aria-hidden="true" />
-              Stellar Expert
-            </a>
-          }
-          size="sm"
-          variant="ghost"
-        />
       </section>
     </div>
   )

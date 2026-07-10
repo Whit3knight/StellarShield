@@ -56,7 +56,7 @@ export function ProofsDrawer({
       open={open}
       position={isMobile ? "bottom" : "right"}
     >
-      <DrawerPopup>
+      <DrawerPopup showBar>
         <DrawerHeader>
           <DrawerTitle>Proofs</DrawerTitle>
           <DrawerDescription>

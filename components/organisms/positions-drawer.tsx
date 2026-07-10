@@ -49,7 +49,7 @@ export function PositionsDrawer({
       open={open}
       position={isMobile ? "bottom" : "right"}
     >
-      <DrawerPopup>
+      <DrawerPopup showBar>
         <DrawerHeader>
           <DrawerTitle>Positions</DrawerTitle>
           <DrawerDescription>
