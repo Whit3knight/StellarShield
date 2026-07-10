@@ -20,8 +20,14 @@ export function preloadProver(): Promise<void> {
       const noirSpecifier = "@noir-lang/noir_js"
       const bbSpecifier = "@aztec/bb.js"
       await Promise.all([
-        import(/* @vite-ignore */ noirSpecifier),
-        import(/* @vite-ignore */ bbSpecifier),
+        import(
+          /* webpackIgnore: true */ /* turbopackIgnore: true */ /* @vite-ignore */
+          noirSpecifier
+        ),
+        import(
+          /* webpackIgnore: true */ /* turbopackIgnore: true */ /* @vite-ignore */
+          bbSpecifier
+        ),
       ])
     } catch {
       // Swallow. Preload is optional; the prover reports errors on use.

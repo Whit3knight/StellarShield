@@ -82,9 +82,18 @@ async function runNoirCircuit(
   const circuitSpecifier = "./circuits/borrow-eligibility.compiled.json"
 
   const [noirModule, bbModule, circuitModule] = await Promise.all([
-    import(/* @vite-ignore */ noirSpecifier),
-    import(/* @vite-ignore */ bbSpecifier),
-    import(/* @vite-ignore */ circuitSpecifier),
+    import(
+      /* webpackIgnore: true */ /* turbopackIgnore: true */ /* @vite-ignore */
+      noirSpecifier
+    ),
+    import(
+      /* webpackIgnore: true */ /* turbopackIgnore: true */ /* @vite-ignore */
+      bbSpecifier
+    ),
+    import(
+      /* webpackIgnore: true */ /* turbopackIgnore: true */ /* @vite-ignore */
+      circuitSpecifier
+    ),
   ])
 
   const Noir = (noirModule as { Noir: unknown }).Noir
