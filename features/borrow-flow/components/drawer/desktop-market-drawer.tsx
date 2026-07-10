@@ -30,6 +30,28 @@ export function DesktopMarketDrawer({
     verifyEligibility,
   } = useBorrowFlow({ account, market })
 
+  // Auto-advance the drawer step to keep in sync with the flow state.
+  // When verification lands as Verified + transaction becomes Ready,
+  // jump the drawer to the transaction review step so the user does
+  // not have to hunt for the Submit action. Schedule the setState via
+  // requestAnimationFrame so React does not warn about cascading
+  // renders inside an effect.
+  React.useEffect(() => {
+    if (
+      flow.verification.status !== "Verified" ||
+      flow.transaction.status !== "Ready"
+    ) {
+      return
+    }
+    if (activeStep !== "collateral" && activeStep !== "verification") {
+      return
+    }
+    const raf = window.requestAnimationFrame(() => {
+      setActiveStep("transaction")
+    })
+    return () => window.cancelAnimationFrame(raf)
+  }, [flow.verification.status, flow.transaction.status, activeStep])
+
   return (
     <aside className="ml-4 hidden min-h-0 min-w-0 lg:block">
       <div className="relative isolate h-full overflow-hidden rounded-lg">
