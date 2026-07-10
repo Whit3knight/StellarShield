@@ -33,6 +33,24 @@ export function DesktopMarketDrawer({
 
   useConfirmedClose(flow.transaction, onClose)
 
+  // Whenever the transaction has moved past Ready (Signing / Submitted /
+  // Confirmed / Failed), pin the drawer to the review-transaction step.
+  // Covers the Submit-click path AND late-mount cases where the footer's
+  // synchronous onStepChange didn't win the batching race.
+  const shouldPinTransaction =
+    flow.transaction.status === "Signing" ||
+    flow.transaction.status === "Submitted" ||
+    flow.transaction.status === "Confirmed" ||
+    flow.transaction.status === "Failed"
+  React.useEffect(() => {
+    if (!shouldPinTransaction) return
+    if (activeStep === "transaction") return
+    const raf = window.requestAnimationFrame(() => {
+      setActiveStep("transaction")
+    })
+    return () => window.cancelAnimationFrame(raf)
+  }, [shouldPinTransaction, activeStep])
+
   return (
     <aside className="ml-4 hidden min-h-0 min-w-0 lg:block">
       <div className="relative isolate h-full overflow-hidden rounded-lg">
