@@ -9,7 +9,8 @@ import type { AssetAmount } from "@/features/shared/asset-amount"
 
 export type { AssetAmount } from "@/features/shared/asset-amount"
 
-export type MarketStep = "detail" | "collateral" | "verification"
+export type MarketStep =
+  "detail" | "collateral" | "verification" | "transaction"
 
 export type VerificationStatus =
   | "Not started"

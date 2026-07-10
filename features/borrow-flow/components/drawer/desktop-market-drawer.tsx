@@ -5,7 +5,6 @@ import type { MarketCardData } from "@/features/markets"
 
 import { MARKET_STEPS } from "../../constants"
 import { useBorrowFlow } from "../../hooks/use-borrow-flow"
-import { useConfirmedClose } from "../../hooks/use-confirmed-close"
 import type { MarketStep } from "../../types"
 import { DesktopMarketStepPanel } from "./desktop-market-step-panel"
 
@@ -30,8 +29,6 @@ export function DesktopMarketDrawer({
     submitTransaction,
     verifyEligibility,
   } = useBorrowFlow({ account, market })
-
-  useConfirmedClose(flow.transaction, onClose)
 
   // Whenever the transaction has moved past Ready (Signing / Submitted /
   // Confirmed / Failed), pin the drawer to the review-transaction step.

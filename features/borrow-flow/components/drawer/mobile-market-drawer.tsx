@@ -8,7 +8,6 @@ import { Drawer, DrawerClose, DrawerTrigger } from "@/components/ui/drawer"
 import type { MarketCardData } from "@/features/markets"
 
 import { useBorrowFlow } from "../../hooks/use-borrow-flow"
-import { useConfirmedClose } from "../../hooks/use-confirmed-close"
 import { canSubmitTransaction } from "../../flow-actions"
 import { isSubmitPending, isVerificationPending } from "../../steps"
 import { MarketDrawerFooter } from "./market-drawer-footer"
@@ -24,19 +23,64 @@ function MobileDrawerBackButton(): React.ReactElement {
   )
 }
 
+function MobileTransactionDrawer({
+  account,
+  activity,
+  flow,
+  market,
+  metrics,
+  onClose,
+  onFieldChange,
+  onSubmit,
+  position,
+}: Omit<BorrowFlowDrawerProps, "onVerify">): React.ReactElement {
+  const isSubmitting = isSubmitPending(flow.transaction)
+
+  return (
+    <Drawer>
+      <DrawerTrigger
+        disabled={isSubmitting}
+        onClick={onSubmit}
+        render={<Button loading={isSubmitting} type="button" />}
+      >
+        {isSubmitting ? flow.transaction.status : "Submit transaction"}
+      </DrawerTrigger>
+      <MarketDrawerPopup
+        account={account}
+        activity={activity}
+        flow={flow}
+        market={market}
+        metrics={metrics}
+        onFieldChange={onFieldChange}
+        position={position}
+        step="transaction"
+      >
+        <MarketDrawerFooter>
+          <Button onClick={onClose} type="button" variant="ghost">
+            Close
+          </Button>
+          <Button onClick={onClose} type="button">
+            Done
+          </Button>
+        </MarketDrawerFooter>
+      </MarketDrawerPopup>
+    </Drawer>
+  )
+}
+
 function MobileVerificationDrawer({
   account,
   activity,
   flow,
   market,
   metrics,
+  onClose,
   onFieldChange,
   onSubmit,
   onVerify,
   position,
 }: BorrowFlowDrawerProps): React.ReactElement {
   const isChecking = isVerificationPending(flow.verification.status)
-  const isSubmitting = isSubmitPending(flow.transaction)
   const canSubmit = canSubmitTransaction({
     metrics,
     status: flow.verification.status,
@@ -64,14 +108,17 @@ function MobileVerificationDrawer({
         <MarketDrawerFooter>
           <MobileDrawerBackButton />
           {canSubmit ? (
-            <Button
-              disabled={isSubmitting}
-              loading={isSubmitting}
-              onClick={onSubmit}
-              type="button"
-            >
-              {isSubmitting ? flow.transaction.status : "Submit transaction"}
-            </Button>
+            <MobileTransactionDrawer
+              account={account}
+              activity={activity}
+              flow={flow}
+              market={market}
+              metrics={metrics}
+              onClose={onClose}
+              onFieldChange={onFieldChange}
+              onSubmit={onSubmit}
+              position={position}
+            />
           ) : (
             <Button
               disabled={isChecking || !metrics.isLoanValid}
@@ -138,8 +185,6 @@ export function MobileMarketDrawer({
     submitTransaction,
     verifyEligibility,
   } = useBorrowFlow({ account, market })
-
-  useConfirmedClose(flow.transaction, onClose)
 
   const drawerProps = {
     account,

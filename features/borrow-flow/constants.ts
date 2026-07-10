@@ -6,6 +6,7 @@ export const MARKET_STEPS: MarketStep[] = [
   "detail",
   "collateral",
   "verification",
+  "transaction",
 ]
 
 export const DESKTOP_STACK_PEEK_PX = 23
