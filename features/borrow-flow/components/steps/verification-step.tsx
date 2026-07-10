@@ -8,6 +8,7 @@ import type * as React from "react"
 
 import type { ConnectedAccount } from "@/app/_constants/account"
 import { getMarketPair, type MarketCardData } from "@/features/markets"
+import { formatAdapterError } from "@/features/protocol"
 
 import type {
   BorrowFlowMetrics,
@@ -104,7 +105,11 @@ export function VerificationStep({
         amount={flow.verification.status}
         from="Local proof"
         icon={LockIcon}
-        info="The private proof is prepared locally, then only the proof result is used for protocol simulation."
+        info={
+          flow.verification.status === "Failed" && flow.verification.error
+            ? `Proof step failed: ${formatAdapterError(flow.verification.error)}`
+            : "The private proof is prepared locally, then only the proof result is used for protocol simulation."
+        }
         label="Proof generation"
         meta={[
           {

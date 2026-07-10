@@ -163,7 +163,7 @@ describe("useBorrowFlow", () => {
     await expect(verifyPromise).resolves.not.toThrow()
   })
 
-  it("resets verification to Not started when the prover errors", async () => {
+  it("surfaces prover errors as Failed verification with the AdapterError attached", async () => {
     const proverError: AdapterError = {
       tag: "ProofGenerationFailed",
       reason: "boom",
@@ -182,7 +182,11 @@ describe("useBorrowFlow", () => {
       await result.current.verifyEligibility()
     })
 
-    expect(result.current.flow.verification.status).toBe("Not started")
+    expect(result.current.flow.verification.status).toBe("Failed")
+    if (result.current.flow.verification.status === "Failed") {
+      expect(result.current.flow.verification.error).toEqual(proverError)
+      expect(result.current.flow.verification.proof).toBeNull()
+    }
     expect(result.current.flow.transaction.status).toBe("Draft")
     expect(
       result.current.activity.some((item) => item.type === "proof_generated")
@@ -294,7 +298,7 @@ describe("useBorrowFlow", () => {
     })
 
     expect(attempts).toHaveLength(1)
-    expect(result.current.flow.verification.status).toBe("Not started")
+    expect(result.current.flow.verification.status).toBe("Failed")
   })
 
   it("routes wait failure to Failed(TransactionFailed) after submitted activity", async () => {

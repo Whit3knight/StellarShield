@@ -164,9 +164,15 @@ export function useBorrowFlow({
 
     if (signal.aborted) return
     if (!proofResult.ok) {
+      // Surface the prover error so the UI can tell the user why the
+      // proof step failed instead of silently reverting to Not started.
       setFlow((currentFlow) => ({
         ...currentFlow,
-        verification: { status: "Not started" },
+        verification: {
+          status: "Failed",
+          proof: null,
+          error: proofResult.error,
+        },
       }))
       return
     }

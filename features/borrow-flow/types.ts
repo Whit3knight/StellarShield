@@ -25,7 +25,7 @@ export type Verification =
   | { status: "Preparing" }
   | { status: "Generating proof" }
   | { status: "Verified"; proof: BorrowProof }
-  | { status: "Failed"; proof: BorrowProof }
+  | { status: "Failed"; proof: BorrowProof | null; error?: AdapterError }
   | { status: "Expired"; proof: BorrowProof }
 
 export type TransactionStatus =
