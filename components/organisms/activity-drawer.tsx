@@ -25,6 +25,7 @@ import type {
   BorrowActivity,
   BorrowActivityType,
 } from "@/features/borrow-flow/types"
+import { useIsMobile } from "@/hooks/use-media-query"
 
 const ALL_VALUE = "all"
 
@@ -40,6 +41,7 @@ export function ActivityDrawer({
   open,
 }: ActivityDrawerProps): React.ReactElement {
   const [type, setType] = React.useState<BorrowActivityType | null>(null)
+  const isMobile = useIsMobile()
 
   const handleOpenChange = React.useCallback(
     (next: boolean) => {
@@ -56,41 +58,48 @@ export function ActivityDrawer({
     : activities
 
   return (
-    <Drawer onOpenChange={handleOpenChange} open={open} position="right">
+    <Drawer
+      onOpenChange={handleOpenChange}
+      open={open}
+      position={isMobile ? "bottom" : "right"}
+    >
       <DrawerPopup>
         <DrawerHeader>
-          <DrawerTitle>Activity</DrawerTitle>
-          <DrawerDescription>
-            Everything that happened during this borrow session.
-          </DrawerDescription>
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex flex-col gap-1">
+              <DrawerTitle>Activity</DrawerTitle>
+              <DrawerDescription>
+                Everything that happened during this borrow session.
+              </DrawerDescription>
+            </div>
+            <Select
+              onValueChange={(value: unknown) => {
+                setType(
+                  value === ALL_VALUE ? null : (value as BorrowActivityType)
+                )
+              }}
+              value={type ?? ALL_VALUE}
+            >
+              <SelectTrigger className="w-40 shrink-0">
+                <SelectValue placeholder="Filter" />
+              </SelectTrigger>
+              <SelectPopup>
+                <SelectItem value={ALL_VALUE}>All types</SelectItem>
+                {(
+                  Object.entries(ACTIVITY_TYPE_LABELS) as [
+                    BorrowActivityType,
+                    string,
+                  ][]
+                ).map(([value, label]) => (
+                  <SelectItem key={value} value={value}>
+                    {label}
+                  </SelectItem>
+                ))}
+              </SelectPopup>
+            </Select>
+          </div>
         </DrawerHeader>
-        <DrawerPanel className="flex flex-col gap-3" hideScrollbar>
-          <Select
-            onValueChange={(value: unknown) => {
-              setType(
-                value === ALL_VALUE ? null : (value as BorrowActivityType)
-              )
-            }}
-            value={type ?? ALL_VALUE}
-          >
-            <SelectTrigger className="w-full">
-              <SelectValue placeholder="Filter by type" />
-            </SelectTrigger>
-            <SelectPopup>
-              <SelectItem value={ALL_VALUE}>All types</SelectItem>
-              {(
-                Object.entries(ACTIVITY_TYPE_LABELS) as [
-                  BorrowActivityType,
-                  string,
-                ][]
-              ).map(([value, label]) => (
-                <SelectItem key={value} value={value}>
-                  {label}
-                </SelectItem>
-              ))}
-            </SelectPopup>
-          </Select>
-
+        <DrawerPanel className="flex flex-col gap-2" hideScrollbar>
           {activities.length === 0 ? (
             <EmptyState filtered={false} />
           ) : filtered.length === 0 ? (
