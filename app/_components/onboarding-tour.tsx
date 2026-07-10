@@ -4,7 +4,12 @@ import { SparklesIcon } from "lucide-react"
 import * as React from "react"
 
 import { Button } from "@/components/ui/button"
-import { Popover, PopoverPopup } from "@/components/ui/popover"
+import {
+  Popover,
+  PopoverPopup,
+  PopoverPrimitive,
+} from "@/components/ui/popover"
+import { useWalletConnection } from "@/features/wallet/use-wallet-connection"
 
 import {
   markOnboardingTourSeen,
@@ -50,27 +55,39 @@ const TOUR_STEPS: TourStep[] = [
 
 export function OnboardingTour(): React.ReactElement | null {
   const seen = useOnboardingTourSeen()
+  const { account } = useWalletConnection()
   const [open, setOpen] = React.useState(false)
   const [currentTip, setCurrentTip] = React.useState(0)
   const [rect, setRect] = React.useState<DOMRect | null>(null)
+  // ponytail: init lazily to the FIRST observed address so cold-load
+  // rehydration doesn't count as a null->address transition. Drop the
+  // lazy init if returning users should also see the tour.
+  const previousAddressRef = React.useRef<string | null | undefined>(undefined)
 
   const step = TOUR_STEPS[currentTip]
 
   React.useEffect(() => {
-    if (seen) return
-    if (typeof document === "undefined") return
+    if (typeof window === "undefined") return
 
-    const openIfTargetPresent = () => {
-      if (document.querySelector(TOUR_STEPS[0].selector)) {
-        setCurrentTip(0)
-        setOpen(true)
-      }
+    const address = account?.wallet.address ?? null
+
+    if (previousAddressRef.current === undefined) {
+      previousAddressRef.current = address
+      return
     }
 
-    const raf = window.requestAnimationFrame(openIfTargetPresent)
+    const previous = previousAddressRef.current
+    previousAddressRef.current = address
+
+    if (previous !== null || address === null || seen) return
+
+    const raf = window.requestAnimationFrame(() => {
+      setCurrentTip(0)
+      setOpen(true)
+    })
 
     return () => window.cancelAnimationFrame(raf)
-  }, [seen])
+  }, [account, seen])
 
   React.useEffect(() => {
     return subscribeToOpenTour(() => {
@@ -128,6 +145,12 @@ export function OnboardingTour(): React.ReactElement | null {
 
   return (
     <Popover onOpenChange={handleOpenChange} open={open}>
+      <PopoverPrimitive.Portal>
+        <PopoverPrimitive.Backdrop
+          className="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm transition-opacity data-ending-style:opacity-0 data-starting-style:opacity-0"
+          data-slot="onboarding-tour-backdrop"
+        />
+      </PopoverPrimitive.Portal>
       <PopoverPopup
         anchor={anchor}
         className="max-w-[280px]"
