@@ -22,6 +22,7 @@
 .DS_Store
 *.pem
 AGENTS.md
+CLAUDE.md
 WIREFRAME.md
 
 # debug
@@ -37,3 +38,8 @@ pnpm-debug.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# rust / soroban contracts
+/contracts/target
+/contracts/**/target
+Cargo.lock
