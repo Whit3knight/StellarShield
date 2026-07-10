@@ -33,27 +33,24 @@ export function DesktopMarketDrawer({
 
   useConfirmedHandoff(flow.transaction, onClose)
 
-  // Auto-advance the drawer step to keep in sync with the flow state.
-  // When verification lands as Verified + transaction becomes Ready,
-  // jump the drawer to the transaction review step so the user does
-  // not have to hunt for the Submit action. Schedule the setState via
-  // requestAnimationFrame so React does not warn about cascading
-  // renders inside an effect.
+  // When the user hits Submit the verification step's footer routes
+  // step to `transaction` explicitly. When the tx moves past Ready
+  // (Signing / Submitted / Confirmed), keep the drawer pinned to the
+  // review step so the user always sees the receipt as it lands.
+  const priorTxStatusRef = React.useRef(flow.transaction.status)
   React.useEffect(() => {
+    const prev = priorTxStatusRef.current
+    const next = flow.transaction.status
+    priorTxStatusRef.current = next
+
     if (
-      flow.verification.status !== "Verified" ||
-      flow.transaction.status !== "Ready"
+      prev === "Ready" &&
+      (next === "Signing" || next === "Submitted") &&
+      activeStep !== "transaction"
     ) {
-      return
-    }
-    if (activeStep !== "collateral" && activeStep !== "verification") {
-      return
-    }
-    const raf = window.requestAnimationFrame(() => {
       setActiveStep("transaction")
-    })
-    return () => window.cancelAnimationFrame(raf)
-  }, [flow.verification.status, flow.transaction.status, activeStep])
+    }
+  }, [flow.transaction.status, activeStep])
 
   return (
     <aside className="ml-4 hidden min-h-0 min-w-0 lg:block">
