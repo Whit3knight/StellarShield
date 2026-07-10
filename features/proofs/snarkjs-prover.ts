@@ -182,6 +182,9 @@ export function mapParamsToCircuitInputs(
     account: fieldFromString(params.account ?? "disconnected"),
     market: fieldFromString(params.market),
     proof_id: fieldFromString(
+      // Include oracleEpoch so each proof-gen yields a fresh proofId
+      // — contract's persistent proofUsed guard would otherwise reject
+      // any retry with identical amounts as `ProofReplayed`.
       createStableId(
         "proof",
         params.account ?? "disconnected",
@@ -189,7 +192,8 @@ export function mapParamsToCircuitInputs(
         params.borrow.symbol,
         params.borrow.amount,
         params.collateral.symbol,
-        params.collateral.amount
+        params.collateral.amount,
+        oracleEpoch
       )
     ),
     collateral_symbol: fieldFromString(params.collateral.symbol),
@@ -294,6 +298,7 @@ function buildProofRecord(
       params.borrow.amount,
       params.collateral.symbol,
       params.collateral.amount,
+      payload.oracleEpoch,
       params.isEligible ? "eligible" : "failed"
     ),
     publicInputs: {
