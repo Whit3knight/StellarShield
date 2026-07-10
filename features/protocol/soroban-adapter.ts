@@ -489,15 +489,25 @@ function appToBindingIntent(intent: BorrowIntent): BindingBorrowIntent {
   return {
     account: intent.account,
     borrow_amount: toStroopsBigInt(intent.borrow.amount),
-    borrow_symbol: intent.borrow.symbol,
+    borrow_symbol: sanitizeSymbol(intent.borrow.symbol),
     collateral_amount: toStroopsBigInt(intent.collateral.amount),
-    collateral_symbol: intent.collateral.symbol,
+    collateral_symbol: sanitizeSymbol(intent.collateral.symbol),
     expires_at: BigInt(Math.floor(new Date(intent.expiresAt).getTime() / 1000)),
     health_factor_bps: healthFactorToBps(intent.healthFactor),
-    market: intent.market,
+    market: sanitizeSymbol(intent.market),
     max_ltv_bps: Math.round(intent.maxLtv * 10_000),
     proof_id: Buffer.from(proofIdToBytes(intent.proofId)),
   }
+}
+
+/**
+ * Soroban `Symbol` allows `[a-zA-Z0-9_]` up to 32 chars. Our app markets
+ * are quoted `USDC/XLM` — the slash is illegal and trips ScVal decode.
+ * Fold to underscore so it becomes `USDC_XLM`. Contract-side comparison
+ * uses the same encoding via the same helper.
+ */
+function sanitizeSymbol(value: string): string {
+  return value.replace(/[^a-zA-Z0-9_]/g, "_").slice(0, 32)
 }
 
 function appToBindingProof(
