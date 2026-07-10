@@ -8,8 +8,6 @@
 // Verifier lives on-chain in the borrow-pool contract via Soroban's
 // BLS12-381 host functions (CAP-0059).
 
-use std::hash::poseidon2::Poseidon2;
-
 // Basis points (1/10000). Health factor and LTV are quoted in bps to stay
 // integer-only inside the circuit.
 global BPS: u64 = 10_000;
@@ -35,7 +33,7 @@ fn main(
 ) {
     // 1. Oracle price commitment: poseidon2(price, salt) == commitment.
     let price_field = oracle_price as Field;
-    let commitment = Poseidon2::hash([price_field, oracle_price_salt], 2);
+    let commitment = std::hash::pedersen_hash([price_field, oracle_price_salt]);
     assert(commitment == oracle_price_commitment);
 
     // 2. Prover actually holds enough collateral.
@@ -74,7 +72,7 @@ fn happy_path() {
     // LTV = 500 * 10_000 / 2_000 = 2_500 bps
     let price: u64 = 2;
     let salt: Field = 0xdeadbeef;
-    let commitment = Poseidon2::hash([price as Field, salt], 2);
+    let commitment = std::hash::pedersen_hash([price as Field, salt]);
 
     main(
         0x01,           // account
@@ -98,7 +96,7 @@ fn happy_path() {
 fn rejects_underfunded_borrower() {
     let price: u64 = 2;
     let salt: Field = 0x1;
-    let commitment = Poseidon2::hash([price as Field, salt], 2);
+    let commitment = std::hash::pedersen_hash([price as Field, salt]);
 
     // Claims 1_000 collateral but only owns 500.
     main(
@@ -113,7 +111,7 @@ fn rejects_underfunded_borrower() {
 fn rejects_stale_commitment() {
     let real_price: u64 = 2;
     let salt: Field = 0x1;
-    let fake_commitment = Poseidon2::hash([9 as Field, salt], 2);
+    let fake_commitment = std::hash::pedersen_hash([9 as Field, salt]);
 
     main(
         0x01, 0x02, 0x03, 0x04, 0x05,
@@ -129,7 +127,7 @@ fn rejects_hf_below_min() {
     // hf_min = 20_000 bps → should fail.
     let price: u64 = 1;
     let salt: Field = 0x1;
-    let commitment = Poseidon2::hash([price as Field, salt], 2);
+    let commitment = std::hash::pedersen_hash([price as Field, salt]);
 
     main(
         0x01, 0x02, 0x03, 0x04, 0x05,
@@ -144,7 +142,7 @@ fn rejects_ltv_above_max() {
     // borrow 800 vs value 1_000 → LTV 8_000 bps > 6_300 max.
     let price: u64 = 1;
     let salt: Field = 0x1;
-    let commitment = Poseidon2::hash([price as Field, salt], 2);
+    let commitment = std::hash::pedersen_hash([price as Field, salt]);
 
     main(
         0x01, 0x02, 0x03, 0x04, 0x05,
