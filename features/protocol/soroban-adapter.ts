@@ -547,15 +547,41 @@ function mapNetworkError(
 function extractSendErrorCode(response: {
   errorResult?: unknown
   errorResultXdr?: string
+  diagnosticEventsXdr?: string[]
 }): string {
   if (typeof response.errorResultXdr === "string") return response.errorResultXdr
-  if (
-    response.errorResult &&
-    typeof response.errorResult === "object" &&
-    "result" in response.errorResult
-  ) {
-    return String((response.errorResult as { result: unknown }).result)
+
+  // Stellar SDK's TransactionResult XDR object exposes a `.result()`
+  // *method* (not property) whose switch().name gives a stable code.
+  // Naive String(obj.result) stringified the method itself in older
+  // impls — instead call it and dig for a discriminant.
+  const errorResult = response.errorResult as
+    | {
+        result?: () => { switch?: () => { name?: string } }
+        toXDR?: (format: "base64") => string
+      }
+    | undefined
+
+  if (errorResult) {
+    try {
+      const inner = errorResult.result?.()
+      const name = inner?.switch?.().name
+      if (typeof name === "string" && name.length > 0) return name
+    } catch {
+      // fall through
+    }
+    try {
+      const xdr = errorResult.toXDR?.("base64")
+      if (typeof xdr === "string" && xdr.length > 0) return xdr
+    } catch {
+      // fall through
+    }
   }
+
+  if (Array.isArray(response.diagnosticEventsXdr) && response.diagnosticEventsXdr.length > 0) {
+    return response.diagnosticEventsXdr[0]
+  }
+
   return "unknown"
 }
 
