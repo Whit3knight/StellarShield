@@ -80,6 +80,62 @@ describe("sorobanProtocolAdapter", () => {
     }
   })
 
+  it("readChainPosition returns the receipt from the injected reader", async () => {
+    const adapter = createSorobanProtocolAdapter(config, {
+      readChainPosition: async () => ({
+        account: intentParams.account,
+        borrowAmount: 500_000_000n,
+        borrowSymbol: "USDC",
+        collateralAmount: 10_000_000_000n,
+        collateralSymbol: "XLM",
+        confirmedAt: 1_720_000_000,
+        proofId: "0xabcdef",
+      }),
+    })
+
+    const result = await adapter.readChainPosition?.({
+      account: intentParams.account,
+    })
+
+    expect(result?.ok).toBe(true)
+    if (result?.ok) {
+      expect(result.value?.borrowSymbol).toBe("USDC")
+      expect(result.value?.confirmedAt).toBe(1_720_000_000)
+    }
+  })
+
+  it("readChainPosition passes through null when the reader returns null", async () => {
+    const adapter = createSorobanProtocolAdapter(config, {
+      readChainPosition: async () => null,
+    })
+
+    const result = await adapter.readChainPosition?.({
+      account: intentParams.account,
+    })
+
+    expect(result?.ok).toBe(true)
+    if (result?.ok) {
+      expect(result.value).toBeNull()
+    }
+  })
+
+  it("readChainPosition maps thrown errors to Network", async () => {
+    const adapter = createSorobanProtocolAdapter(config, {
+      readChainPosition: async () => {
+        throw new Error("rpc down")
+      },
+    })
+
+    const result = await adapter.readChainPosition?.({
+      account: intentParams.account,
+    })
+
+    expect(result?.ok).toBe(false)
+    if (result && !result.ok) {
+      expect(result.error.tag).toBe("Network")
+    }
+  })
+
   it("maps builder throws to a Network AdapterError", async () => {
     const builderAdapter = createSorobanProtocolAdapter(config, {
       buildBorrowXdr: async () => {

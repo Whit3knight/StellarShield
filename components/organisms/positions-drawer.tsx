@@ -15,15 +15,18 @@ import {
 } from "@/components/ui/drawer"
 import { cn } from "@/lib/utils"
 import type { UserPosition } from "@/features/borrow-flow/types"
+import type { ChainBorrowReceipt } from "@/features/protocol"
 import { useMediaQuery } from "@/hooks/use-media-query"
 
 type PositionsDrawerProps = {
+  chainPosition?: ChainBorrowReceipt | null
   onOpenChange: (open: boolean) => void
   open: boolean
   positions: UserPosition[]
 }
 
 export function PositionsDrawer({
+  chainPosition,
   onOpenChange,
   open,
   positions,
@@ -57,7 +60,8 @@ export function PositionsDrawer({
           </DrawerDescription>
         </DrawerHeader>
         <DrawerPanel className="flex flex-col gap-2" hideScrollbar>
-          {positions.length === 0 ? (
+          {chainPosition ? <ChainPositionRow receipt={chainPosition} /> : null}
+          {positions.length === 0 && !chainPosition ? (
             <EmptyState />
           ) : (
             positions.map((position) => (
@@ -240,6 +244,54 @@ function AssetList({
         )}
       </dl>
     </section>
+  )
+}
+
+const STROOPS_PER_UNIT = 10_000_000n
+
+function stroopsToDisplay(amount: bigint): string {
+  const negative = amount < 0n
+  const abs = negative ? -amount : amount
+  const whole = abs / STROOPS_PER_UNIT
+  const fraction = abs % STROOPS_PER_UNIT
+  const fractionStr = fraction.toString().padStart(7, "0").replace(/0+$/, "")
+  const base = fractionStr.length > 0 ? `${whole}.${fractionStr}` : whole.toString()
+  return negative ? `-${base}` : base
+}
+
+function ChainPositionRow({
+  receipt,
+}: {
+  receipt: ChainBorrowReceipt
+}): React.ReactElement {
+  const openedAt = new Date(receipt.confirmedAt * 1000).toISOString()
+  return (
+    <div className="flex flex-col gap-2 rounded-md border border-primary/40 bg-primary/8 px-3 py-2 text-sm">
+      <div className="flex items-start justify-between gap-2">
+        <span className="font-medium text-foreground">On-chain position</span>
+        <Badge variant="outline">Testnet</Badge>
+      </div>
+      <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
+        <dt className="text-muted-foreground">Borrowed</dt>
+        <dd className="text-right font-mono">
+          <PrivateValue>
+            {`${stroopsToDisplay(receipt.borrowAmount)} ${receipt.borrowSymbol}`}
+          </PrivateValue>
+        </dd>
+        <dt className="text-muted-foreground">Collateral</dt>
+        <dd className="text-right font-mono">
+          <PrivateValue>
+            {`${stroopsToDisplay(receipt.collateralAmount)} ${receipt.collateralSymbol}`}
+          </PrivateValue>
+        </dd>
+        <dt className="text-muted-foreground">Confirmed</dt>
+        <dd className="text-right">{formatTimestamp(openedAt)}</dd>
+        <dt className="text-muted-foreground">Proof id</dt>
+        <dd className="text-right font-mono break-all">
+          <PrivateValue>{receipt.proofId}</PrivateValue>
+        </dd>
+      </dl>
+    </div>
   )
 }
 

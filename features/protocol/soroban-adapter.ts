@@ -17,9 +17,15 @@ import {
 } from "./soroban-rpc"
 import type {
   BorrowIntent,
+  ChainBorrowReceipt,
   CreateBorrowIntentParams,
   ProtocolAdapter,
 } from "./types"
+
+export type ReadChainPosition = (
+  params: { account: string },
+  signal?: AbortSignal
+) => Promise<ChainBorrowReceipt | null>
 
 /**
  * ponytail: real contract calls stay here. Every method that is not
@@ -53,6 +59,7 @@ export type BuildBorrowXdr = (
 
 export type SorobanAdapterDeps = {
   buildBorrowXdr?: BuildBorrowXdr
+  readChainPosition?: ReadChainPosition
   rpcClient?: SorobanRpcClient
 }
 
@@ -64,6 +71,8 @@ export function createSorobanProtocolAdapter(
     deps.rpcClient ?? createDefaultSorobanRpcClient(config.sorobanRpcUrl)
   const buildBorrowXdr =
     deps.buildBorrowXdr ?? createDefaultBuildBorrowXdr(config)
+  const readChainPositionImpl =
+    deps.readChainPosition ?? createDefaultReadChainPosition(config)
   return {
     createBorrowIntent: async (params, signal) => {
       if (signal?.aborted) return abortedResult()
@@ -273,8 +282,84 @@ export function createSorobanProtocolAdapter(
         return err(mapNetworkError(cause, "confirm"))
       }
     },
+    readChainPosition: async (params, signal) => {
+      if (signal?.aborted) return abortedResult()
+
+      try {
+        const value = await readChainPositionImpl(params, signal)
+        if (signal?.aborted) return abortedResult()
+        return ok(value)
+      } catch (cause) {
+        if (signal?.aborted) return abortedResult()
+        return err(mapNetworkError(cause, "simulate"))
+      }
+    },
   }
 
+}
+
+function createDefaultReadChainPosition(
+  config: SorobanAdapterConfig
+): ReadChainPosition {
+  return async ({ account }, signal) => {
+    if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
+
+    const bindings = await import("./bindings/borrow-pool")
+    if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
+
+    const client = new bindings.Client({
+      contractId: config.contractId,
+      networkPassphrase: config.networkPassphrase,
+      rpcUrl: config.sorobanRpcUrl,
+      publicKey: account,
+    })
+
+    const assembled = await client.position({ account })
+    if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
+
+    const raw = assembled.result as unknown
+    if (!raw) return null
+
+    // Bindings return an Option-shaped result. Both { tag: "None" }
+    // and null-ish shapes represent "no position for this account".
+    const tagged = raw as { tag?: string; value?: unknown }
+    const inner =
+      typeof raw === "object" && raw !== null && "tag" in raw
+        ? tagged.tag === "Some"
+          ? tagged.value
+          : null
+        : raw
+
+    if (!inner || typeof inner !== "object") return null
+
+    const receipt = inner as {
+      account: string
+      borrow_amount: bigint
+      borrow_symbol: string
+      collateral_amount: bigint
+      collateral_symbol: string
+      confirmed_at: bigint | number
+      proof_id: Buffer | Uint8Array
+    }
+
+    return {
+      account: receipt.account,
+      borrowAmount: BigInt(receipt.borrow_amount),
+      borrowSymbol: receipt.borrow_symbol,
+      collateralAmount: BigInt(receipt.collateral_amount),
+      collateralSymbol: receipt.collateral_symbol,
+      confirmedAt: Number(receipt.confirmed_at),
+      proofId: bytesToHex(receipt.proof_id),
+    }
+  }
+}
+
+function bytesToHex(bytes: Buffer | Uint8Array): string {
+  let out = "0x"
+  for (const byte of bytes) {
+    out += byte.toString(16).padStart(2, "0")
+  }
+  return out
 }
 
 function createDefaultBuildBorrowXdr(

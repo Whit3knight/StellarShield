@@ -16,6 +16,7 @@ export {
 } from "./lifecycle"
 export type {
   BorrowIntent,
+  ChainBorrowReceipt,
   CreateBorrowIntentParams,
   PrepareTransactionParams,
   ProtocolAdapter,
@@ -25,6 +26,7 @@ export type {
   ProtocolSubmitStatus,
   ProtocolTransactionReceipt,
   ProtocolTransactionPayload,
+  ReadChainPositionParams,
   SignedTransaction,
   SignTransactionParams,
   SimulateBorrowParams,

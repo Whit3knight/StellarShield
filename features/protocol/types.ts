@@ -92,6 +92,25 @@ export type WaitForConfirmationParams = {
   timeoutMs?: number
 }
 
+/**
+ * On-chain borrow receipt shape as returned by the borrow-pool
+ * `position(account)` view. Amounts are stroops (7-decimal fixed
+ * point) as stored on-chain.
+ */
+export type ChainBorrowReceipt = {
+  account: string
+  borrowAmount: bigint
+  borrowSymbol: string
+  collateralAmount: bigint
+  collateralSymbol: string
+  confirmedAt: number
+  proofId: string
+}
+
+export type ReadChainPositionParams = {
+  account: string
+}
+
 export type ProtocolAdapter = {
   createBorrowIntent: (
     params: CreateBorrowIntentParams,
@@ -113,4 +132,13 @@ export type ProtocolAdapter = {
     params: WaitForConfirmationParams,
     signal?: AbortSignal
   ) => Promise<AdapterResult<ProtocolTransactionReceipt>>
+  /**
+   * Read the on-chain position for `account`. Returns `null` when the
+   * contract stores no position for the caller. Optional on adapters
+   * that have no on-chain surface (mock adapter returns `null`).
+   */
+  readChainPosition?: (
+    params: ReadChainPositionParams,
+    signal?: AbortSignal
+  ) => Promise<AdapterResult<ChainBorrowReceipt | null>>
 }
