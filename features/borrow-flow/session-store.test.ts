@@ -184,6 +184,59 @@ describe("borrowSession", () => {
     ).toEqual(["position-b", "position-a"])
   })
 
+  it("caps positions at POSITION_HISTORY_CAP and drops oldest", () => {
+    for (let index = 0; index < __TEST__.POSITION_HISTORY_CAP + 5; index++) {
+      borrowSession.appendPosition(position(`pos-${index}`))
+    }
+
+    const positions = borrowSession.getSnapshot().positions
+
+    expect(positions).toHaveLength(__TEST__.POSITION_HISTORY_CAP)
+    expect(positions[0]?.id).toBe(
+      `position-pos-${__TEST__.POSITION_HISTORY_CAP + 4}`
+    )
+    expect(positions[positions.length - 1]?.id).toBe("position-pos-5")
+  })
+
+  it("reset clears state, wipes storage, and notifies subscribers", () => {
+    borrowSession.appendActivity(activity("before-reset"))
+    borrowSession.appendProof(proof("proof-before"))
+    borrowSession.appendPosition(position("pos-before"))
+
+    let calls = 0
+    const unsubscribe = borrowSession.subscribe(() => calls++)
+
+    borrowSession.reset()
+
+    const snapshot = borrowSession.getSnapshot()
+    expect(snapshot.activities).toEqual([])
+    expect(snapshot.proofs).toEqual([])
+    expect(snapshot.positions).toEqual([])
+    expect(window.localStorage.getItem(__TEST__.STORAGE_KEY)).toBe(
+      JSON.stringify({ activities: [], positions: [], proofs: [] })
+    )
+    expect(calls).toBe(1)
+
+    unsubscribe()
+  })
+
+  it("ignores storage events for unrelated keys", () => {
+    borrowSession.appendActivity(activity("keep"))
+
+    let calls = 0
+    const unsubscribe = borrowSession.subscribe(() => calls++)
+
+    const event = new StorageEvent("storage", { key: "unrelated-key" })
+    window.dispatchEvent(event)
+
+    expect(
+      borrowSession.getSnapshot().activities.map((item) => item.title)
+    ).toEqual(["keep"])
+    expect(calls).toBe(0)
+
+    unsubscribe()
+  })
+
   it("hydrates legacy payloads without positions to an empty array", () => {
     window.localStorage.setItem(
       __TEST__.STORAGE_KEY,
