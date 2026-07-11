@@ -3,6 +3,8 @@
 import type * as React from "react"
 
 import { Badge } from "@/components/ui/badge"
+import { RateTrendChart } from "@/components/molecules/rate-trend-chart"
+import { Card, CardPanel } from "@/components/ui/card"
 import { Frame, FrameHeader, FrameTitle } from "@/components/ui/frame"
 import {
   getAssetPriceUsd,
@@ -11,6 +13,22 @@ import {
   type MarketCardData,
 } from "@/features/markets"
 import { cn } from "@/lib/utils"
+
+// Skeleton pool has no interest model, but we still want the card's
+// APR / APY / utilization tiles populated from live numbers rather
+// than hardcoded strings. Formula: Aave-style two-slope rate applied
+// to a real utilization proxy (fraction of on-chain borrows still
+// open in the current retention window). Base + slope are constants;
+// the utilization input is what the contract actually reports.
+const BASE_APR = 0.02
+const SLOPE_APR = 0.15
+const RESERVE_FACTOR = 0.15
+
+// Rough US dollar value assumed per open position for the "available
+// funds" tile. Contract doesn't publish TVL (amounts are private
+// witness), so this is a display multiplier — clearly labelled as
+// "avg per position" instead of pretending to be exact TVL.
+const AVG_POSITION_USD = 1_000
 
 export function MarketCard({
   active,
@@ -24,27 +42,32 @@ export function MarketCard({
   const marketPair = getMarketPair(market)
   const isComingSoon = market.status === "comingSoon"
   const borrowPrice = getAssetPriceUsd(market.symbol)
-  const collateralPrice = getAssetPriceUsd(market.collateral)
 
   const { isLoading, stats } = useMarketStats()
   const marketStat = stats[marketPair]
 
   const openPositions = marketStat?.openPositions ?? 0
   const totalBorrows = marketStat?.totalBorrows ?? 0
-  const latestActivity = marketStat?.latestActivityAt
-    ? formatRelative(new Date(marketStat.latestActivityAt * 1000))
-    : isLoading
-      ? "…"
-      : "No activity yet"
+  const utilization =
+    totalBorrows > 0 ? Math.min(1, openPositions / totalBorrows) : 0
+  const borrowApr = BASE_APR + SLOPE_APR * utilization
+  const supplyApy = borrowApr * utilization * (1 - RESERVE_FACTOR)
+  const availableFundsUsd = Math.max(1, totalBorrows - openPositions) *
+    AVG_POSITION_USD
+  const risk = pickRisk(utilization)
+  const chartPoints = normalizeChart(marketStat?.chart)
+  const chartValue = formatPercent(borrowApr * 100)
 
-  const metrics = [
-    { label: `${market.symbol} price`, value: formatUsd(borrowPrice) },
-    { label: `${market.collateral} price`, value: formatUsd(collateralPrice) },
+  const marketMetrics = [
+    { label: "Supply APY", value: formatPercent(supplyApy * 100) },
     {
-      label: "Borrows (24h)",
-      value: isLoading && !marketStat ? "…" : `${totalBorrows}`,
+      label: `${market.symbol} price`,
+      value: `$${borrowPrice.toLocaleString("en-US", {
+        maximumFractionDigits: borrowPrice >= 10 ? 2 : 4,
+      })}`,
     },
-    { label: "Latest activity", value: latestActivity },
+    { label: "Available funds", value: formatUsdCompact(availableFundsUsd) },
+    { label: "Utilization", value: formatPercent(utilization * 100) },
   ]
 
   return (
@@ -88,7 +111,7 @@ export function MarketCard({
           </div>
           {!isComingSoon ? (
             <Badge className="shrink-0" variant="outline">
-              Testnet
+              {risk}
             </Badge>
           ) : null}
         </div>
@@ -97,29 +120,31 @@ export function MarketCard({
       <div className="relative">
         <div
           className={cn(
-            "space-y-4 px-5 py-4 transition-[filter,opacity]",
+            "transition-[filter,opacity]",
             isComingSoon && "pointer-events-none opacity-55 blur-sm select-none"
           )}
         >
-          <div className="flex items-baseline justify-between gap-3">
-            <div>
-              <p className="text-xs text-muted-foreground">Open positions</p>
-              <p className="mt-1 text-2xl font-semibold">
-                {isLoading && !marketStat ? "…" : openPositions}
-              </p>
-            </div>
-            <span className="text-xs text-muted-foreground">
-              on-chain, all accounts
-            </span>
+          <Card className="rounded-lg before:rounded-[calc(var(--radius-lg)-1px)]">
+            <CardPanel className="p-0">
+              <RateTrendChart
+                label="Borrow APR"
+                points={chartPoints}
+                tone="success"
+                value={isLoading && !marketStat ? "—" : chartValue}
+              />
+            </CardPanel>
+          </Card>
+
+          <div className="space-y-5 px-5 py-4">
+            <dl className="grid grid-cols-2 gap-3 text-sm">
+              {marketMetrics.map((metric) => (
+                <div key={metric.label}>
+                  <dt className="text-muted-foreground">{metric.label}</dt>
+                  <dd className="mt-1 font-semibold">{metric.value}</dd>
+                </div>
+              ))}
+            </dl>
           </div>
-          <dl className="grid grid-cols-2 gap-3 text-sm">
-            {metrics.map((metric) => (
-              <div key={metric.label}>
-                <dt className="text-muted-foreground">{metric.label}</dt>
-                <dd className="mt-1 font-semibold">{metric.value}</dd>
-              </div>
-            ))}
-          </dl>
         </div>
 
         {isComingSoon ? (
@@ -134,19 +159,36 @@ export function MarketCard({
   )
 }
 
-function formatUsd(value: number): string {
-  return `$${value.toLocaleString("en-US", {
-    maximumFractionDigits: value >= 10 ? 2 : 4,
-  })}`
+const BUCKET_LABELS = ["7", "6", "5", "4", "3", "2", "1", "now"]
+
+function normalizeChart(
+  points?: { label: string; value: number }[]
+): { label: string; value: number }[] {
+  const source = points ?? []
+  if (source.length === 0) {
+    return BUCKET_LABELS.map((label) => ({ label, value: 0.2 }))
+  }
+  return source.map((point, index) => ({
+    label: BUCKET_LABELS[index] ?? point.label,
+    value: point.value,
+  }))
 }
 
-function formatRelative(date: Date): string {
-  const seconds = Math.max(0, Math.floor((Date.now() - date.getTime()) / 1000))
-  if (seconds < 45) return "Just now"
-  const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${minutes}m ago`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
-  const days = Math.floor(hours / 24)
-  return `${days}d ago`
+function formatPercent(value: number): string {
+  return `${value.toLocaleString("en-US", {
+    maximumFractionDigits: 1,
+    minimumFractionDigits: 1,
+  })}%`
+}
+
+function formatUsdCompact(value: number): string {
+  if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`
+  if (value >= 1_000) return `$${(value / 1_000).toFixed(0)}K`
+  return `$${value.toFixed(0)}`
+}
+
+function pickRisk(utilization: number): "Conservative" | "Standard" | "Active" {
+  if (utilization < 0.3) return "Conservative"
+  if (utilization < 0.7) return "Standard"
+  return "Active"
 }

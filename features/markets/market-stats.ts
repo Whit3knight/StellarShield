@@ -10,11 +10,17 @@ import {
 // compute yet.
 
 export type MarketStat = {
+  chart: { label: string; value: number }[]
   latestActivityAt: number | null
   openPositions: number
   totalBorrows: number
   totalRepays: number
 }
+
+// Number of buckets for the mini chart (open-position count sampled
+// across the event window). 8 fits nicely on the market card without
+// over-quantising the ~24h retention range.
+const CHART_BUCKETS = 8
 
 // Testnet event retention window is ~24h @ 5s per ledger. Stay a bit
 // under so we never hit "ledger not found".
@@ -76,6 +82,15 @@ export async function fetchMarketStats(
   if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
 
   const events = extractEvents(response)
+
+  // Bucket window covers the full retention range; each bucket carries
+  // the same number of seconds so the chart is a straight histogram of
+  // borrow activity per pair.
+  const nowSecs = Math.floor(Date.now() / 1000)
+  const windowSecs = LEDGER_LOOKBACK * 5
+  const bucketSecs = Math.max(1, Math.floor(windowSecs / CHART_BUCKETS))
+  const windowStart = nowSecs - windowSecs
+
   const stats: Record<string, MarketStat> = {}
 
   for (const event of events) {
@@ -87,6 +102,7 @@ export async function fetchMarketStats(
     const bucket =
       stats[pair] ??
       ({
+        chart: makeEmptyChart(),
         latestActivityAt: null,
         openPositions: 0,
         totalBorrows: 0,
@@ -108,10 +124,26 @@ export async function fetchMarketStats(
       bucket.latestActivityAt = receipt.confirmedAt
     }
 
+    if (topic === "borrow" && receipt.confirmedAt >= windowStart) {
+      const offset = receipt.confirmedAt - windowStart
+      const bucketIndex = Math.min(
+        CHART_BUCKETS - 1,
+        Math.max(0, Math.floor(offset / bucketSecs))
+      )
+      bucket.chart[bucketIndex].value += 1
+    }
+
     stats[pair] = bucket
   }
 
   return stats
+}
+
+function makeEmptyChart(): { label: string; value: number }[] {
+  return Array.from({ length: CHART_BUCKETS }, (_, index) => ({
+    label: `-${CHART_BUCKETS - index}`,
+    value: 0,
+  }))
 }
 
 function extractEvents(response: unknown): { topic?: unknown[]; topics?: unknown[]; value?: unknown }[] {
