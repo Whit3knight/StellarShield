@@ -106,9 +106,11 @@ pub enum Error {
     AlreadyInitialized = 7,
     NotInitialized = 8,
     MarketExists = 9,
+    PositionNotFound = 10,
 }
 
 const BORROW_EVENT: Symbol = symbol_short!("borrow");
+const REPAY_EVENT: Symbol = symbol_short!("repay");
 
 #[contract]
 pub struct BorrowPool;
@@ -265,6 +267,49 @@ impl BorrowPool {
             }
         }
         out
+    }
+
+    /// Close a borrow position. Owner-authed; deletes the receipt and
+    /// drops the proof_id from the per-account index. Real production
+    /// would settle the actual debt + collateral movement here; this
+    /// skeleton just retires the on-chain record.
+    ///
+    /// Returns the closed receipt so callers get audit info.
+    pub fn repay(
+        env: Env,
+        account: Address,
+        proof_id: BytesN<32>,
+    ) -> Result<BorrowReceipt, Error> {
+        account.require_auth();
+
+        let storage = env.storage().persistent();
+        let position_key = DataKey::Position(account.clone(), proof_id.clone());
+        let receipt: BorrowReceipt =
+            storage.get(&position_key).ok_or(Error::PositionNotFound)?;
+
+        storage.remove(&position_key);
+
+        let index_key = DataKey::PositionsByAccount(account.clone());
+        let index: Vec<BytesN<32>> = storage
+            .get(&index_key)
+            .unwrap_or_else(|| Vec::new(&env));
+
+        let mut next_index: Vec<BytesN<32>> = Vec::new(&env);
+        for existing in index.iter() {
+            if existing != proof_id {
+                next_index.push_back(existing);
+            }
+        }
+
+        if next_index.is_empty() {
+            storage.remove(&index_key);
+        } else {
+            storage.set(&index_key, &next_index);
+        }
+
+        env.events().publish((REPAY_EVENT,), receipt.clone());
+
+        Ok(receipt)
     }
 }
 

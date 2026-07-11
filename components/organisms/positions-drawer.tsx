@@ -1,6 +1,6 @@
 "use client"
 
-import { LayersIcon } from "lucide-react"
+import { LayersIcon, Loader2Icon } from "lucide-react"
 import * as React from "react"
 
 import { ExternalLink } from "@/components/atoms/external-link"
@@ -16,6 +16,7 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import {
   Drawer,
   DrawerDescription,
@@ -32,70 +33,36 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty"
 import { Skeleton } from "@/components/ui/skeleton"
-import { formatAssetAmount, formatUsd } from "@/features/borrow-flow/format"
-import type { UserPosition } from "@/features/borrow-flow/types"
-import type { AssetAmount } from "@/features/shared/asset-amount"
+import { useRepayPosition } from "@/features/borrow-flow/use-repay-position"
 import type { ChainBorrowReceipt } from "@/features/protocol"
-import {
-  getStellarExpertAccountUrl,
-  getStellarExpertTxUrl,
-} from "@/features/wallet/network"
+import { getStellarExpertAccountUrl } from "@/features/wallet/network"
 import { useMediaQuery } from "@/hooks/use-media-query"
 
 type PositionsDrawerProps = {
+  account?: string | null
   chainLoading?: boolean
   chainPositions?: ChainBorrowReceipt[]
   onOpenChange: (open: boolean) => void
+  onRepaid?: () => void
   open: boolean
-  positions: UserPosition[]
-}
-
-type PositionGroup = {
-  borrowed: AggregateAsset | null
-  healthFactor: number | null
-  latestOpenedAt: string
-  market: string
-  positions: UserPosition[]
-  supplied: AggregateAsset | null
-}
-
-type AggregateAsset = {
-  amount: number
-  symbol: string
-  valueUsd: number
 }
 
 export function PositionsDrawer({
+  account = null,
   chainLoading = false,
   chainPositions = EMPTY_CHAIN_LIST,
   onOpenChange,
+  onRepaid,
   open,
-  positions,
 }: PositionsDrawerProps): React.ReactElement {
   const isMobile = useMediaQuery("max-lg")
-  const groups = React.useMemo(() => groupByMarket(positions), [positions])
-  const chainByMarket = React.useMemo(() => {
-    const byMarket = new Map<string, ChainBorrowReceipt[]>()
-    for (const receipt of chainPositions) {
-      const pair = `${receipt.borrowSymbol}/${receipt.collateralSymbol}`
-      const list = byMarket.get(pair) ?? []
-      list.push(receipt)
-      byMarket.set(pair, list)
-    }
-    return byMarket
-  }, [chainPositions])
-
-  const orphanChainGroups = React.useMemo(() => {
-    const matched = new Set(groups.map((g) => g.market))
-    return Array.from(chainByMarket.entries())
-      .filter(([market]) => !matched.has(market))
-      .map(([, receipts]) => receipts)
-  }, [chainByMarket, groups])
+  const groups = React.useMemo(
+    () => groupChainReceipts(chainPositions),
+    [chainPositions]
+  )
 
   const nothingToShow =
-    groups.length === 0 &&
-    chainPositions.length === 0 &&
-    !chainLoading
+    groups.length === 0 && chainPositions.length === 0 && !chainLoading
 
   return (
     <Drawer
@@ -107,27 +74,21 @@ export function PositionsDrawer({
         <DrawerHeader>
           <DrawerTitle>Positions</DrawerTitle>
           <DrawerDescription className="mt-2">
-            Aggregated borrow positions grouped by market pair.
+            On-chain borrow positions grouped by market pair.
           </DrawerDescription>
         </DrawerHeader>
         <DrawerPanel className="flex flex-col gap-2" hideScrollbar>
           {nothingToShow ? <EmptyState /> : null}
           {groups.map((group) => (
             <GroupCard
-              chainReceipts={chainByMarket.get(group.market) ?? EMPTY_CHAIN_LIST}
+              account={account}
               group={group}
               key={group.market}
+              onRepaid={onRepaid}
             />
           ))}
-          {orphanChainGroups.map((receipts) => (
-            <GroupCard
-              chainReceipts={receipts}
-              group={null}
-              key={receipts[0].proofId}
-            />
-          ))}
-          {chainLoading && groups.length === 0 && chainPositions.length === 0 ? (
-            <GroupCard chainReceipts={EMPTY_CHAIN_LIST} group={null} />
+          {chainLoading && groups.length === 0 ? (
+            <GroupCard account={account} group={null} onRepaid={onRepaid} />
           ) : null}
         </DrawerPanel>
       </DrawerPopup>
@@ -136,6 +97,25 @@ export function PositionsDrawer({
 }
 
 const EMPTY_CHAIN_LIST: ChainBorrowReceipt[] = []
+
+type ChainGroup = {
+  market: string
+  receipts: ChainBorrowReceipt[]
+}
+
+function groupChainReceipts(receipts: ChainBorrowReceipt[]): ChainGroup[] {
+  const byMarket = new Map<string, ChainBorrowReceipt[]>()
+  for (const receipt of receipts) {
+    const pair = `${receipt.borrowSymbol}/${receipt.collateralSymbol}`
+    const list = byMarket.get(pair) ?? []
+    list.push(receipt)
+    byMarket.set(pair, list)
+  }
+  return Array.from(byMarket.entries()).map(([market, list]) => ({
+    market,
+    receipts: list.sort((a, b) => b.confirmedAt - a.confirmedAt),
+  }))
+}
 
 function EmptyState(): React.ReactElement {
   return (
@@ -154,32 +134,29 @@ function EmptyState(): React.ReactElement {
 }
 
 function GroupCard({
-  chainReceipts,
+  account,
   group,
+  onRepaid,
 }: {
-  chainReceipts: ChainBorrowReceipt[]
-  group: PositionGroup | null
+  account: string | null
+  group: ChainGroup | null
+  onRepaid?: () => void
 }): React.ReactElement {
-  const latestChain = chainReceipts[0] ?? null
-  const healthFactor =
-    group?.healthFactor == null ? "N/A" : group.healthFactor.toFixed(2)
-  const subtitle =
-    group?.market ??
-    (latestChain
-      ? `${latestChain.borrowSymbol}/${latestChain.collateralSymbol}`
-      : undefined)
+  const latest = group?.receipts[0] ?? null
+  const subtitle = group?.market
 
   const fields: PositionCardField[] = []
-
-  if (latestChain) {
-    const openedAt = new Date(latestChain.confirmedAt * 1000).toISOString()
+  if (latest) {
     fields.push(
-      { label: "On-chain confirmed", value: formatTimestamp(openedAt) },
+      {
+        label: "On-chain confirmed",
+        value: formatTimestamp(new Date(latest.confirmedAt * 1000).toISOString()),
+      },
       {
         label: "Proof id",
         value: (
           <PrivateValue className="truncate font-mono">
-            {shortHash(latestChain.proofId)}
+            {shortHash(latest.proofId)}
           </PrivateValue>
         ),
       },
@@ -188,45 +165,33 @@ function GroupCard({
         value: (
           <ExternalLink
             className="justify-end font-mono"
-            href={getStellarExpertAccountUrl(latestChain.account)}
+            href={getStellarExpertAccountUrl(latest.account)}
           >
             <PrivateValue className="truncate">
-              {shortHash(latestChain.account)}
+              {shortHash(latest.account)}
             </PrivateValue>
           </ExternalLink>
         ),
       }
     )
+  } else {
+    fields.push(
+      { label: "On-chain confirmed", value: <Skeleton className="ml-auto h-3.5 w-28" /> },
+      { label: "Proof id", value: <Skeleton className="ml-auto h-3.5 w-20" /> },
+      { label: "Account", value: <Skeleton className="ml-auto h-3.5 w-24" /> }
+    )
   }
 
-  fields.push(
-    {
-      label: "Supplied",
-      value: group?.supplied ? (
-        formatAggregate(group.supplied)
-      ) : group ? (
-        "N/A"
-      ) : (
-        <Skeleton className="ml-auto h-3.5 w-24" />
-      ),
-    },
-    {
-      label: "Borrowed",
-      value: group?.borrowed ? (
-        formatAggregate(group.borrowed)
-      ) : group ? (
-        "N/A"
-      ) : (
-        <Skeleton className="ml-auto h-3.5 w-24" />
-      ),
-    },
-    {
-      label: "Health factor (min)",
-      value: group ? healthFactor : <Skeleton className="ml-auto h-3.5 w-12" />,
-    }
-  )
+  fields.push({
+    label: "Amounts",
+    value: (
+      <span className="italic text-muted-foreground">
+        Hidden (private witness)
+      </span>
+    ),
+  })
 
-  const chainCount = chainReceipts.length
+  const chainCount = group?.receipts.length ?? 0
   const badge = (
     <div className="flex items-center gap-1">
       <Badge variant="success">Open</Badge>
@@ -243,7 +208,13 @@ function GroupCard({
       badge={badge}
       fields={fields}
       footer={
-        group ? <ReceiptsAccordion positions={group.positions} /> : null
+        group ? (
+          <ReceiptsAccordion
+            account={account}
+            onRepaid={onRepaid}
+            receipts={group.receipts}
+          />
+        ) : null
       }
       subtitle={subtitle}
       title="Position open"
@@ -252,26 +223,51 @@ function GroupCard({
 }
 
 function ReceiptsAccordion({
-  positions,
+  account,
+  onRepaid,
+  receipts,
 }: {
-  positions: UserPosition[]
+  account: string | null
+  onRepaid?: () => void
+  receipts: ChainBorrowReceipt[]
 }): React.ReactElement {
-  const sorted = [...positions].sort((a, b) =>
-    b.openedAt.localeCompare(a.openedAt)
-  )
+  const {
+    activeProofId,
+    message,
+    repay,
+    status,
+  } = useRepayPosition(account)
+
+  React.useEffect(() => {
+    if (status !== "success") return
+    onRepaid?.()
+  }, [status, onRepaid])
+
   return (
     <Accordion>
       <AccordionItem className="border-b-0 border-t" value="receipts">
         <AccordionTrigger className="gap-2 pt-2 pb-4 text-sm font-normal text-muted-foreground">
           <span>Positions</span>
           <span className="ml-auto font-medium text-foreground">
-            {positions.length}
+            {receipts.length}
           </span>
         </AccordionTrigger>
         <AccordionPanel className="flex flex-col gap-1.5 pb-1 text-xs">
-          {sorted.map((position) => (
-            <ReceiptRow key={position.id} position={position} />
-          ))}
+          {receipts.map((receipt) => {
+            const isActive = activeProofId === receipt.proofId
+            return (
+              <ReceiptRow
+                errorMessage={
+                  isActive && status === "failed" ? message : null
+                }
+                isPending={isActive && status === "pending"}
+                key={receipt.proofId}
+                onRepay={() => repay(receipt.proofId)}
+                receipt={receipt}
+                repayDisabled={!account || status === "pending"}
+              />
+            )
+          })}
         </AccordionPanel>
       </AccordionItem>
     </Accordion>
@@ -279,98 +275,47 @@ function ReceiptsAccordion({
 }
 
 function ReceiptRow({
-  position,
+  errorMessage,
+  isPending,
+  onRepay,
+  receipt,
+  repayDisabled,
 }: {
-  position: UserPosition
+  errorMessage: string | null
+  isPending: boolean
+  onRepay: () => void
+  receipt: ChainBorrowReceipt
+  repayDisabled: boolean
 }): React.ReactElement {
-  const supplied = position.supplied[0]
-  const borrowed = position.borrowed[0]
   return (
     <div className="flex flex-col gap-1 rounded-md border bg-background/64 px-2 py-1.5">
       <div className="flex items-center justify-between gap-2">
-        <ExternalLink
-          className="font-mono text-foreground"
-          href={getStellarExpertTxUrl(position.receiptHash)}
-        >
-          <PrivateValue className="truncate">
-            {shortHash(position.receiptHash)}
-          </PrivateValue>
-        </ExternalLink>
+        <PrivateValue className="truncate font-mono text-foreground">
+          {shortHash(receipt.proofId)}
+        </PrivateValue>
         <span className="text-muted-foreground">
-          {formatTimestamp(position.openedAt)}
+          {formatTimestamp(new Date(receipt.confirmedAt * 1000).toISOString())}
         </span>
       </div>
-      <div className="grid grid-cols-2 gap-2 text-muted-foreground">
-        <div className="flex flex-col">
-          <span className="text-[10px] uppercase tracking-wide">Supplied</span>
-          <span className="text-foreground">
-            {supplied
-              ? `${formatAssetAmount(supplied.amount, supplied.symbol)} (${formatUsd(supplied.valueUsd)})`
-              : "N/A"}
-          </span>
-        </div>
-        <div className="flex flex-col text-right">
-          <span className="text-[10px] uppercase tracking-wide">Borrowed</span>
-          <span className="text-foreground">
-            {borrowed
-              ? `${formatAssetAmount(borrowed.amount, borrowed.symbol)} (${formatUsd(borrowed.valueUsd)})`
-              : "N/A"}
-          </span>
-        </div>
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+          {errorMessage ?? "Owner-signed close"}
+        </span>
+        <Button
+          disabled={repayDisabled}
+          onClick={onRepay}
+          size="sm"
+          type="button"
+          variant="outline"
+        >
+          {isPending ? (
+            <Loader2Icon aria-hidden="true" className="animate-spin" />
+          ) : null}
+          Repay
+        </Button>
       </div>
     </div>
   )
-}
-
-function groupByMarket(positions: UserPosition[]): PositionGroup[] {
-  const buckets = new Map<string, UserPosition[]>()
-  for (const position of positions) {
-    const list = buckets.get(position.market) ?? []
-    list.push(position)
-    buckets.set(position.market, list)
-  }
-
-  return Array.from(buckets.entries()).map(([market, list]) => ({
-    borrowed: aggregateFirst(list.map((p) => p.borrowed[0])),
-    healthFactor: minHealthFactor(list),
-    latestOpenedAt:
-      list.map((p) => p.openedAt).sort().at(-1) ?? new Date(0).toISOString(),
-    market,
-    positions: list,
-    supplied: aggregateFirst(list.map((p) => p.supplied[0])),
-  }))
-}
-
-function aggregateFirst(
-  items: (AssetAmount | undefined)[]
-): AggregateAsset | null {
-  const filtered = items.filter((item): item is AssetAmount => Boolean(item))
-  if (filtered.length === 0) return null
-
-  const symbol = filtered[0].symbol
-  const homogeneous = filtered.every((item) => item.symbol === symbol)
-  if (!homogeneous) return null
-
-  return filtered.reduce<AggregateAsset>(
-    (acc, item) => ({
-      amount: acc.amount + item.amount,
-      symbol,
-      valueUsd: acc.valueUsd + item.valueUsd,
-    }),
-    { amount: 0, symbol, valueUsd: 0 }
-  )
-}
-
-function minHealthFactor(positions: UserPosition[]): number | null {
-  const numbers = positions
-    .map((p) => p.healthFactor)
-    .filter((n): n is number => n !== null)
-  if (numbers.length === 0) return null
-  return Math.min(...numbers)
-}
-
-function formatAggregate(asset: AggregateAsset): string {
-  return `${formatAssetAmount(asset.amount, asset.symbol)} (${formatUsd(asset.valueUsd)})`
 }
 
 function shortHash(hash: string): string {

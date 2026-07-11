@@ -14,15 +14,8 @@ describe("market data", () => {
     ])
   })
 
-  it("keeps EURC markets behind coming soon cards", () => {
-    const eurcMarkets = marketCards.filter((market) =>
-      getMarketPair(market).includes("EURC")
-    )
-
-    expect(eurcMarkets).toHaveLength(4)
-    expect(eurcMarkets.every((market) => market.status === "comingSoon")).toBe(
-      true
-    )
+  it("exposes all six pairs as live", () => {
+    expect(marketCards.every((market) => market.status === "live")).toBe(true)
   })
 
   it("uses success chart tone and explicit asset prices", () => {

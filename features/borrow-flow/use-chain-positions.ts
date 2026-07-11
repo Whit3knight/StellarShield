@@ -15,9 +15,18 @@ import { fetchChainBorrowPositions } from "./chain-positions"
 export function useChainPositions(
   account: string | null,
   enabled: boolean
-): { isLoading: boolean; receipts: ChainBorrowReceipt[] } {
+): {
+  isLoading: boolean
+  receipts: ChainBorrowReceipt[]
+  refresh: () => void
+} {
   const [receipts, setReceipts] = React.useState<ChainBorrowReceipt[]>([])
   const [isLoading, setIsLoading] = React.useState(false)
+  const [refreshToken, setRefreshToken] = React.useState(0)
+
+  const refresh = React.useCallback(() => {
+    setRefreshToken((token) => token + 1)
+  }, [])
 
   React.useEffect(() => {
     if (!account || !enabled) return
@@ -41,7 +50,7 @@ export function useChainPositions(
       setReceipts([])
       setIsLoading(false)
     }
-  }, [account, enabled])
+  }, [account, enabled, refreshToken])
 
-  return { isLoading, receipts }
+  return { isLoading, receipts, refresh }
 }

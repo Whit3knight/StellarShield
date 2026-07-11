@@ -40,7 +40,7 @@ if (typeof window !== "undefined") {
 export const networks = {
   testnet: {
     networkPassphrase: "Test SDF Network ; September 2015",
-    contractId: "CCZRYWEPMWCTLCY6DQXV3OHJFO2AE4SZAV7EHQZRW7EG6IVLU3SD2MNV",
+    contractId: "CBXQMX5MB3QVAYOYBGUUUMXYHLFO2BQW2HFIV5JAZHGGYTBVYZBQXKAL",
   }
 } as const
 
@@ -53,7 +53,8 @@ export const Errors = {
   6: {message:"Unauthorized"},
   7: {message:"AlreadyInitialized"},
   8: {message:"NotInitialized"},
-  9: {message:"MarketExists"}
+  9: {message:"MarketExists"},
+  10: {message:"PositionNotFound"}
 }
 
 
@@ -128,6 +129,17 @@ export interface Client {
   admin: (options?: MethodOptions) => Promise<AssembledTransaction<Option<string>>>
 
   /**
+   * Construct and simulate a repay transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   * Close a borrow position. Owner-authed; deletes the receipt and
+   * drops the proof_id from the per-account index. Real production
+   * would settle the actual debt + collateral movement here; this
+   * skeleton just retires the on-chain record.
+   * 
+   * Returns the closed receipt so callers get audit info.
+   */
+  repay: ({account, proof_id}: {account: string, proof_id: Buffer}, options?: MethodOptions) => Promise<AssembledTransaction<Result<BorrowReceipt>>>
+
+  /**
    * Construct and simulate a borrow transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    */
   borrow: ({intent, proof}: {intent: BorrowIntent, proof: BorrowProof}, options?: MethodOptions) => Promise<AssembledTransaction<Result<BorrowReceipt>>>
@@ -184,8 +196,9 @@ export class Client extends ContractClient {
   constructor(public readonly options: ContractClientOptions) {
     super(
       new ContractSpec([ "AAAAAAAAAAAAAAAFYWRtaW4AAAAAAAAAAAAAAQAAA+gAAAAT",
+        "AAAAAAAAAR1DbG9zZSBhIGJvcnJvdyBwb3NpdGlvbi4gT3duZXItYXV0aGVkOyBkZWxldGVzIHRoZSByZWNlaXB0IGFuZApkcm9wcyB0aGUgcHJvb2ZfaWQgZnJvbSB0aGUgcGVyLWFjY291bnQgaW5kZXguIFJlYWwgcHJvZHVjdGlvbgp3b3VsZCBzZXR0bGUgdGhlIGFjdHVhbCBkZWJ0ICsgY29sbGF0ZXJhbCBtb3ZlbWVudCBoZXJlOyB0aGlzCnNrZWxldG9uIGp1c3QgcmV0aXJlcyB0aGUgb24tY2hhaW4gcmVjb3JkLgoKUmV0dXJucyB0aGUgY2xvc2VkIHJlY2VpcHQgc28gY2FsbGVycyBnZXQgYXVkaXQgaW5mby4AAAAAAAAFcmVwYXkAAAAAAAACAAAAAAAAAAdhY2NvdW50AAAAABMAAAAAAAAACHByb29mX2lkAAAD7gAAACAAAAABAAAD6QAAB9AAAAANQm9ycm93UmVjZWlwdAAAAAAAAAM=",
         "AAAAAAAAAAAAAAAGYm9ycm93AAAAAAACAAAAAAAAAAZpbnRlbnQAAAAAB9AAAAAMQm9ycm93SW50ZW50AAAAAAAAAAVwcm9vZgAAAAAAB9AAAAALQm9ycm93UHJvb2YAAAAAAQAAA+kAAAfQAAAADUJvcnJvd1JlY2VpcHQAAAAAAAAD",
-        "AAAABAAAAAAAAAAAAAAABUVycm9yAAAAAAAACQAAAAAAAAANSW50ZW50RXhwaXJlZAAAAAAAAAEAAAAAAAAADVByb29mUmVwbGF5ZWQAAAAAAAACAAAAAAAAAAlSZXNlcnZlZDMAAAAAAAADAAAAAAAAAAtTdGFsZU9yYWNsZQAAAAAEAAAAAAAAAAxJbnZhbGlkUHJvb2YAAAAFAAAAAAAAAAxVbmF1dGhvcml6ZWQAAAAGAAAAAAAAABJBbHJlYWR5SW5pdGlhbGl6ZWQAAAAAAAcAAAAAAAAADk5vdEluaXRpYWxpemVkAAAAAAAIAAAAAAAAAAxNYXJrZXRFeGlzdHMAAAAJ",
+        "AAAABAAAAAAAAAAAAAAABUVycm9yAAAAAAAACgAAAAAAAAANSW50ZW50RXhwaXJlZAAAAAAAAAEAAAAAAAAADVByb29mUmVwbGF5ZWQAAAAAAAACAAAAAAAAAAlSZXNlcnZlZDMAAAAAAAADAAAAAAAAAAtTdGFsZU9yYWNsZQAAAAAEAAAAAAAAAAxJbnZhbGlkUHJvb2YAAAAFAAAAAAAAAAxVbmF1dGhvcml6ZWQAAAAGAAAAAAAAABJBbHJlYWR5SW5pdGlhbGl6ZWQAAAAAAAcAAAAAAAAADk5vdEluaXRpYWxpemVkAAAAAAAIAAAAAAAAAAxNYXJrZXRFeGlzdHMAAAAJAAAAAAAAABBQb3NpdGlvbk5vdEZvdW5kAAAACg==",
         "AAAAAAAAAO9MYXRlc3QgcmVjZWlwdCBmb3IgYGFjY291bnRgLiBSZXR1cm5zIHRoZSBtb3N0IHJlY2VudCBlbnRyeQpmcm9tIHRoZSBwZXItYWNjb3VudCBpbmRleDsgYE5vbmVgIGlmIHRoZSBhY2NvdW50IGhhcyBuZXZlcgpib3Jyb3dlZC4gS2VwdCBmb3IgYmFjay1jb21wYXQgd2l0aCB0aGUgZHJhd2VyJ3Mgc2luZ2xlLXNsb3QKcGF0aCDigJQgbmV3IGNvbnN1bWVycyBzaG91bGQgY2FsbCBgcG9zaXRpb25zX2J5X2FjY291bnRgLgAAAAAIcG9zaXRpb24AAAABAAAAAAAAAAdhY2NvdW50AAAAABMAAAABAAAD6AAAB9AAAAANQm9ycm93UmVjZWlwdAAAAA==",
         "AAAAAAAAAHpPbmUtc2hvdCBpbml0LiBBZG1pbiBpcyB0aGUgb25seSBwcmluY2lwYWwgYWxsb3dlZCB0byByZWdpc3RlcgptYXJrZXRzLiBEZXBsb3kgc2NyaXB0cyBjYWxsIHRoaXMgaW1tZWRpYXRlbHkgYWZ0ZXIgdXBsb2FkLgAAAAAACmluaXRpYWxpemUAAAAAAAEAAAAAAAAABWFkbWluAAAAAAAAEwAAAAEAAAPpAAAD7QAAAAAAAAAD",
         "AAAAAAAAAAAAAAAMbGlzdF9tYXJrZXRzAAAAAAAAAAEAAAPqAAAH0AAAAApNYXJrZXRNZXRhAAA=",
@@ -200,6 +213,7 @@ export class Client extends ContractClient {
   }
   public readonly fromJSON = {
     admin: this.txFromJSON<Option<string>>,
+        repay: this.txFromJSON<Result<BorrowReceipt>>,
         borrow: this.txFromJSON<Result<BorrowReceipt>>,
         position: this.txFromJSON<Option<BorrowReceipt>>,
         initialize: this.txFromJSON<Result<void>>,
