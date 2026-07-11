@@ -1,4 +1,6 @@
+import { fetchReflectorPrice } from "@/features/markets/prices"
 import { err, ok } from "@/features/protocol"
+import { getConfiguredHorizonUrl } from "@/features/wallet/network"
 import { createStableId } from "@/lib/stable-id"
 
 import { ensureSnarkjsArtefacts } from "./preload"
@@ -125,7 +127,12 @@ async function runCircomCircuit(
     (snarkjsModule as { default?: unknown }).default ?? snarkjsModule
 
   const oracleEpoch = Math.floor(nowMs / 1000)
-  const inputs = mapParamsToCircuitInputs(params, oracleEpoch)
+  const inputs = await mapParamsToCircuitInputs(
+    params,
+    oracleEpoch,
+    undefined,
+    signal
+  )
 
   const groth16 = (snarkjs as {
     groth16: {
@@ -168,22 +175,47 @@ async function runCircomCircuit(
   }
 }
 
-export function mapParamsToCircuitInputs(
+export type CircuitInputDeps = {
+  fetchBalance?: (
+    account: string,
+    symbol: string,
+    signal?: AbortSignal
+  ) => Promise<number | null>
+  fetchPrice?: (
+    symbol: string,
+    signal?: AbortSignal
+  ) => Promise<bigint | null>
+}
+
+export async function mapParamsToCircuitInputs(
   params: GenerateBorrowProofParams,
-  oracleEpoch: number
-): Groth16CircuitInputs {
+  oracleEpoch: number,
+  deps: CircuitInputDeps = {},
+  signal?: AbortSignal
+): Promise<Groth16CircuitInputs> {
   const salt = fieldFromString(`${params.market}:${oracleEpoch}`)
-  const price = "1"
   const collateralAmount = Math.max(1, Math.floor(params.collateral.amount))
   const borrowAmount = Math.max(1, Math.floor(params.borrow.amount))
+
+  const fetchPrice = deps.fetchPrice ?? defaultFetchPrice
+  const fetchBalance = deps.fetchBalance ?? defaultFetchBalance
+
+  const oraclePrice =
+    (await safeFetch(() => fetchPrice(params.borrow.symbol, signal))) ?? 1n
+  const walletBalance = params.account
+    ? await safeFetch(() =>
+        fetchBalance(params.account!, params.collateral.symbol, signal)
+      )
+    : null
+  const rawCollateralBalance =
+    walletBalance !== null && walletBalance >= collateralAmount
+      ? walletBalance
+      : collateralAmount
 
   return {
     account: fieldFromString(params.account ?? "disconnected"),
     market: fieldFromString(params.market),
     proof_id: fieldFromString(
-      // Include oracleEpoch so each proof-gen yields a fresh proofId
-      // — contract's persistent proofUsed guard would otherwise reject
-      // any retry with identical amounts as `ProofReplayed`.
       createStableId(
         "proof",
         params.account ?? "disconnected",
@@ -204,10 +236,57 @@ export function mapParamsToCircuitInputs(
     ).toString(),
     max_ltv_bps: Math.round(params.maxLtv * LTV_BPS_SCALE).toString(),
     oracle_epoch: oracleEpoch.toString(),
-    oracle_price: price,
+    oracle_price: oraclePrice.toString(),
     oracle_price_salt: salt,
-    raw_collateral_balance: collateralAmount.toString(),
+    raw_collateral_balance: rawCollateralBalance.toString(),
   }
+}
+
+async function safeFetch<T>(
+  fn: () => Promise<T | null>
+): Promise<T | null> {
+  try {
+    return await fn()
+  } catch {
+    return null
+  }
+}
+
+async function defaultFetchPrice(
+  symbol: string,
+  signal?: AbortSignal
+): Promise<bigint | null> {
+  const record = await fetchReflectorPrice(
+    symbol as import("@/features/markets").SupportedAssetSymbol,
+    signal
+  )
+  return record?.price ?? null
+}
+
+async function defaultFetchBalance(
+  account: string,
+  symbol: string,
+  signal?: AbortSignal
+): Promise<number | null> {
+  const url = `${getConfiguredHorizonUrl()}/accounts/${account}`
+  const response = await fetch(url, { signal })
+  if (!response.ok) return null
+
+  const data = (await response.json()) as {
+    balances?: {
+      asset_type?: string
+      asset_code?: string
+      balance?: string
+    }[]
+  }
+  const entry =
+    symbol === "XLM"
+      ? data.balances?.find((b) => b.asset_type === "native")
+      : data.balances?.find((b) => b.asset_code === symbol)
+
+  if (!entry?.balance) return null
+  const parsed = Number.parseFloat(entry.balance)
+  return Number.isFinite(parsed) ? Math.floor(parsed) : null
 }
 
 /**

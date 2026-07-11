@@ -2,6 +2,7 @@
 
 import * as React from "react"
 
+import { useAssetPriceRefresher } from "@/features/markets"
 import { mockProtocolAdapter, type ProtocolAdapter } from "@/features/protocol"
 import { createSorobanProtocolAdapter } from "@/features/protocol/soroban-adapter"
 import {
@@ -65,6 +66,7 @@ export function AdapterProvider({
     () => ({ protocol, prover }),
     [protocol, prover]
   )
+  useAssetPriceRefresher()
 
   return (
     <AdapterContext.Provider value={value}>{children}</AdapterContext.Provider>

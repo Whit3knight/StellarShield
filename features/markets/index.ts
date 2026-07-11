@@ -6,6 +6,12 @@ export {
   getMarketPair,
   getMarketSearchValue,
 } from "./utils"
+export {
+  fetchReflectorPrice,
+  reflectorPriceToUsd,
+  type ReflectorPrice,
+} from "./prices"
+export { useAssetPriceRefresher, useAssetPrices } from "./use-asset-prices"
 export type {
   Asset,
   ChartPoint,

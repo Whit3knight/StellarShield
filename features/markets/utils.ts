@@ -1,4 +1,5 @@
 import { assets } from "./data"
+import { readCachedAssetPrice } from "./price-cache"
 import type { Market, SupportedAssetSymbol } from "./types"
 
 export function getMarketPair(
@@ -12,7 +13,7 @@ export function getAsset(symbol: SupportedAssetSymbol) {
 }
 
 export function getAssetPriceUsd(symbol: SupportedAssetSymbol): number {
-  return getAsset(symbol).priceUsd
+  return readCachedAssetPrice(symbol)
 }
 
 export function formatZeroAssetBalance(symbol: SupportedAssetSymbol): string {

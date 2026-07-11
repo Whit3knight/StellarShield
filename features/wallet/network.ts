@@ -85,6 +85,18 @@ export function getConfiguredContractId(): string | null {
   return contractId.length > 0 ? contractId : null
 }
 
+export function getConfiguredReflectorCexContractId(): string | null {
+  const value =
+    process.env.NEXT_PUBLIC_STELLAR_REFLECTOR_CEX_CONTRACT_ID?.trim() ?? ""
+  return value.length > 0 ? value : null
+}
+
+export function getConfiguredReflectorFxContractId(): string | null {
+  const value =
+    process.env.NEXT_PUBLIC_STELLAR_REFLECTOR_FX_CONTRACT_ID?.trim() ?? ""
+  return value.length > 0 ? value : null
+}
+
 export function getStellarExpertAccountUrl(address: string): string {
   const network = getConfiguredStellarNetwork()
   const path = network === "public" ? "public" : network
