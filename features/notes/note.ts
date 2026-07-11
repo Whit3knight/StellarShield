@@ -7,11 +7,12 @@
 //   commitment  = Poseidon(amount, asset_tag, sk, salt)
 //   nullifier   = Poseidon(sk, index)
 //
-// Circuits mirror this exact hash layout — see Track Z circom sources.
-// Any drift breaks every proof.
+// Uses the BLS12-381 Fr Poseidon in ./poseidon.ts, which mirrors the
+// circom circuits compiled with `-p bls12381` and the Rust contract
+// port at `contracts/borrow-pool/src/poseidon.rs`. Any drift between
+// the three copies breaks every proof.
 
-// @ts-expect-error — circomlibjs ships no TS types.
-import { buildPoseidon } from "circomlibjs"
+import { FR_ORDER, poseidon } from "./poseidon"
 
 export const SUPPORTED_ASSETS = ["XLM", "USDC", "EURC"] as const
 export type ShieldedAsset = (typeof SUPPORTED_ASSETS)[number]
@@ -33,22 +34,6 @@ export type ShieldedNote = {
   tree: NoteTree
 }
 
-// Poseidon over the same field the circuit uses. `circomlibjs` returns
-// values as byte arrays; we normalize to `bigint` for downstream code.
-type PoseidonInstance = {
-  F: { toObject: (value: unknown) => bigint }
-  (inputs: bigint[]): unknown
-}
-
-let poseidonCache: Promise<PoseidonInstance> | null = null
-
-async function getPoseidon(): Promise<PoseidonInstance> {
-  if (!poseidonCache) {
-    poseidonCache = buildPoseidon() as Promise<PoseidonInstance>
-  }
-  return poseidonCache
-}
-
 /**
  * Numeric tag identifying the asset inside a commitment. Fixed per
  * asset so the circuit can constrain "commitment.asset_tag matches
@@ -65,17 +50,10 @@ export function assetTag(asset: ShieldedAsset): bigint {
  * chain observers can't invert it back to `{ amount, asset, sk, salt }`
  * because Poseidon is one-way.
  */
-export async function computeCommitment(
+export function computeCommitment(
   note: Pick<ShieldedNote, "amount" | "asset" | "sk" | "salt">
-): Promise<bigint> {
-  const poseidon = await getPoseidon()
-  const raw = poseidon([
-    note.amount,
-    assetTag(note.asset),
-    note.sk,
-    note.salt,
-  ])
-  return poseidon.F.toObject(raw)
+): bigint {
+  return poseidon([note.amount, assetTag(note.asset), note.sk, note.salt])
 }
 
 /**
@@ -83,13 +61,8 @@ export async function computeCommitment(
  * globally; any second attempt to spend the same note is rejected.
  * Derived from `sk` so only the owner can compute it.
  */
-export async function computeNullifier(
-  sk: bigint,
-  index: number
-): Promise<bigint> {
-  const poseidon = await getPoseidon()
-  const raw = poseidon([sk, BigInt(index)])
-  return poseidon.F.toObject(raw)
+export function computeNullifier(sk: bigint, index: number): bigint {
+  return poseidon([sk, BigInt(index)])
 }
 
 /**
@@ -103,9 +76,7 @@ export function randomFieldElement(): bigint {
   for (const byte of bytes) {
     value = (value << 8n) | BigInt(byte)
   }
-  // Field order for BLS12-381 Fr — clamp so the result is < r. Rejection
-  // sampling would be cleaner but this bias is negligible for salts.
-  const FR_ORDER =
-    0x73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001n
+  // Clamp so the result is < r. Rejection sampling would be cleaner
+  // but this bias is negligible for salts.
   return value % FR_ORDER
 }

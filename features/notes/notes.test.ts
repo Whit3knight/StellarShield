@@ -8,6 +8,7 @@ import {
   randomFieldElement,
   SUPPORTED_ASSETS,
 } from "./note"
+import { FR_ORDER, poseidon } from "./poseidon"
 import {
   decodeMemoBundle,
   deriveShieldedIdentity,
@@ -27,42 +28,38 @@ describe("shielded note primitives", () => {
     expect(() => assetTag("BTC" as (typeof SUPPORTED_ASSETS)[number])).toThrow()
   })
 
-  it("computes deterministic commitments for identical inputs", async () => {
+  it("computes deterministic commitments for identical inputs", () => {
     const params = {
       amount: 100n,
       asset: "XLM" as const,
       salt: 42n,
       sk: 7n,
     }
-    const first = await computeCommitment(params)
-    const second = await computeCommitment(params)
+    const first = computeCommitment(params)
+    const second = computeCommitment(params)
     expect(first).toBe(second)
   })
 
-  it("commitment changes when any input changes", async () => {
+  it("commitment changes when any input changes", () => {
     const base = {
       amount: 100n,
       asset: "XLM" as const,
       salt: 1n,
       sk: 1n,
     }
-    const baseline = await computeCommitment(base)
-    expect(await computeCommitment({ ...base, amount: 101n })).not.toBe(
-      baseline
-    )
-    expect(await computeCommitment({ ...base, salt: 2n })).not.toBe(baseline)
-    expect(await computeCommitment({ ...base, sk: 2n })).not.toBe(baseline)
-    expect(
-      await computeCommitment({ ...base, asset: "USDC" })
-    ).not.toBe(baseline)
+    const baseline = computeCommitment(base)
+    expect(computeCommitment({ ...base, amount: 101n })).not.toBe(baseline)
+    expect(computeCommitment({ ...base, salt: 2n })).not.toBe(baseline)
+    expect(computeCommitment({ ...base, sk: 2n })).not.toBe(baseline)
+    expect(computeCommitment({ ...base, asset: "USDC" })).not.toBe(baseline)
   })
 
-  it("nullifier is deterministic per (sk, index)", async () => {
-    const first = await computeNullifier(9n, 4)
-    const second = await computeNullifier(9n, 4)
+  it("nullifier is deterministic per (sk, index)", () => {
+    const first = computeNullifier(9n, 4)
+    const second = computeNullifier(9n, 4)
     expect(first).toBe(second)
-    expect(await computeNullifier(9n, 5)).not.toBe(first)
-    expect(await computeNullifier(10n, 4)).not.toBe(first)
+    expect(computeNullifier(9n, 5)).not.toBe(first)
+    expect(computeNullifier(10n, 4)).not.toBe(first)
   })
 
   it("DENOMINATION covers every supported asset", () => {
@@ -72,13 +69,38 @@ describe("shielded note primitives", () => {
   })
 
   it("randomFieldElement returns values inside BLS12-381 Fr order", () => {
-    const FR_ORDER =
-      0x73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001n
     for (let index = 0; index < 20; index++) {
       const value = randomFieldElement()
       expect(value).toBeGreaterThanOrEqual(0n)
       expect(value).toBeLessThan(FR_ORDER)
     }
+  })
+
+  it("poseidon outputs stay inside the field", () => {
+    const inputs: bigint[][] = [
+      [0n, 0n],
+      [1n, 2n],
+      [123n, 456n, 789n, 999n],
+      [
+        FR_ORDER - 1n,
+        FR_ORDER - 2n,
+        FR_ORDER - 3n,
+        FR_ORDER - 4n,
+        FR_ORDER - 5n,
+        FR_ORDER - 6n,
+      ],
+    ]
+    for (const set of inputs) {
+      const output = poseidon(set)
+      expect(output).toBeGreaterThanOrEqual(0n)
+      expect(output).toBeLessThan(FR_ORDER)
+    }
+  })
+
+  it("poseidon rejects unsupported widths", () => {
+    expect(() => poseidon([1n, 2n, 3n])).toThrow()
+    expect(() => poseidon([1n, 2n, 3n, 4n, 5n])).toThrow()
+    expect(() => poseidon([1n])).toThrow()
   })
 })
 
