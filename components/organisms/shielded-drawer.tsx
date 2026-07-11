@@ -28,7 +28,11 @@ import {
   type ShieldedAsset,
   type ShieldedNote,
 } from "@/features/notes"
-import { useDeposit, useShieldedPool } from "@/features/shielded-pool"
+import {
+  useDeposit,
+  useShieldedPool,
+  useWithdraw,
+} from "@/features/shielded-pool"
 import { useMediaQuery } from "@/hooks/use-media-query"
 
 type ShieldedDrawerProps = {
@@ -47,6 +51,11 @@ export function ShieldedDrawer({
   const notes = useNotes()
   const walletSeed = identity?.secretKey ?? null
   const { deposit, status } = useDeposit(account, walletSeed)
+  const {
+    activeNoteIndex: withdrawingIndex,
+    status: withdrawStatus,
+    withdraw,
+  } = useWithdraw(account)
 
   const balances = React.useMemo(() => summariseByAsset(notes), [notes])
 
@@ -80,7 +89,16 @@ export function ShieldedDrawer({
                 }}
                 depositStatus={status}
               />
-              <NoteList notes={notes} isScanning={isScanning} />
+              <NoteList
+                notes={notes}
+                isScanning={isScanning}
+                onWithdraw={(note) => void withdraw(note)}
+                withdrawingIndex={
+                  withdrawStatus === "idle" || withdrawStatus === "success"
+                    ? null
+                    : withdrawingIndex
+                }
+              />
             </>
           )}
         </DrawerPanel>
@@ -141,9 +159,13 @@ function BalanceGrid({
 function NoteList({
   notes,
   isScanning,
+  onWithdraw,
+  withdrawingIndex,
 }: {
   notes: ShieldedNote[]
   isScanning: boolean
+  onWithdraw: (note: ShieldedNote) => void
+  withdrawingIndex: number | null
 }): React.ReactElement {
   if (isScanning && notes.length === 0) {
     return (
@@ -163,20 +185,37 @@ function NoteList({
   }
   return (
     <div className="flex flex-col gap-1.5">
-      {notes.map((note) => (
-        <div
-          className="flex items-center justify-between gap-2 rounded-md border bg-background/64 px-2 py-1.5 text-xs"
-          key={`${note.tree}-${note.index}`}
-        >
-          <div className="flex items-center gap-2">
-            <Badge variant="outline">{note.asset}</Badge>
-            <span className="font-mono">#{note.index}</span>
+      {notes.map((note) => {
+        const isBusy = withdrawingIndex === note.index
+        return (
+          <div
+            className="flex items-center justify-between gap-2 rounded-md border bg-background/64 px-2 py-1.5 text-xs"
+            key={`${note.tree}-${note.index}`}
+          >
+            <div className="flex items-center gap-2">
+              <Badge variant="outline">{note.asset}</Badge>
+              <span className="font-mono">#{note.index}</span>
+              <PrivateValue className="truncate font-mono text-muted-foreground">
+                {`${note.amount.toString()} ${note.asset}`}
+              </PrivateValue>
+            </div>
+            {note.tree === "deposit" ? (
+              <Button
+                disabled={isBusy || withdrawingIndex !== null}
+                onClick={() => onWithdraw(note)}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                {isBusy ? (
+                  <Loader2Icon aria-hidden="true" className="animate-spin" />
+                ) : null}
+                Withdraw
+              </Button>
+            ) : null}
           </div>
-          <PrivateValue className="truncate font-mono">
-            {`${note.amount.toString()} ${note.asset}`}
-          </PrivateValue>
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
 }

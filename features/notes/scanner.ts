@@ -142,10 +142,23 @@ function decodeDepositEvent(
   } catch {
     return null
   }
-  if (!Array.isArray(native) || native.length !== 2) return null
+  if (!Array.isArray(native)) return null
 
-  const rawIndex = native[0]
-  const rawMemo = native[1]
+  // Event body is (index, root, leaf, memo) after Phase 2 upgrade;
+  // fall back to the legacy (index, memo) shape so pre-upgrade
+  // events still decode until the retention window rolls over.
+  let rawIndex: unknown
+  let rawMemo: unknown
+  if (native.length === 4) {
+    rawIndex = native[0]
+    rawMemo = native[3]
+  } else if (native.length === 2) {
+    rawIndex = native[0]
+    rawMemo = native[1]
+  } else {
+    return null
+  }
+
   const index =
     typeof rawIndex === "bigint" ? Number(rawIndex) : Number(rawIndex ?? -1)
   if (!Number.isFinite(index) || index < 0) return null

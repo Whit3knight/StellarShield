@@ -10,3 +10,13 @@ export {
 } from "./deposit"
 export { useDeposit } from "./use-deposit"
 export { useShieldedPool } from "./use-shielded-pool"
+export { useWithdraw } from "./use-withdraw"
+export {
+  proveWithdraw,
+  type WithdrawProofInputs,
+  type WithdrawProofResult,
+} from "./withdraw-prover"
+export {
+  fetchDepositWitnesses,
+  type WithdrawWitness,
+} from "./withdraw-tree"

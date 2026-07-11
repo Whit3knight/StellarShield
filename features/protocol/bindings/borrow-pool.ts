@@ -308,6 +308,18 @@ export interface Client {
   deposit_shielded: ({from, asset, proof, memo}: {from: string, asset: string, proof: BorrowProof, memo: Buffer}, options?: MethodOptions) => Promise<AssembledTransaction<Result<u64>>>
 
   /**
+   * Construct and simulate a withdraw_shielded transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   * Burn one deposit note via zk proof, release the fixed
+   * denomination to `to`. Prover shows Merkle inclusion at the
+   * current deposit_root plus a valid nullifier so the contract
+   * can block reuse.
+   * 
+   * Public signals order: [asset_tag, denomination, deposit_root,
+   * nullifier].
+   */
+  withdraw_shielded: ({to, asset, proof}: {to: string, asset: string, proof: BorrowProof}, options?: MethodOptions) => Promise<AssembledTransaction<Result<void>>>
+
+  /**
    * Construct and simulate a deposit_next_index transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    */
   deposit_next_index: ({asset}: {asset: string}, options?: MethodOptions) => Promise<AssembledTransaction<u64>>
@@ -373,6 +385,7 @@ export class Client extends ContractClient {
         "AAAAAAAAAAAAAAAPc2V0X3Jpc2tfcGFyYW1zAAAAAAEAAAAAAAAABnBhcmFtcwAAAAAH0AAAAApSaXNrUGFyYW1zAAAAAAABAAAD6QAAA+0AAAAAAAAAAw==",
         "AAAAAQAAAK9Bbm9ueW1pemVkIHJlY2VpcHQ6IG5vIGJvcnJvdyAvIGNvbGxhdGVyYWwgYW1vdW50cy4gVXNlcnMgc3RvcmUKdGhlaXIgb3duIG51bWJlcnMgY2xpZW50LXNpZGUgKHNlc3Npb24gc3RvcmUpLiBDaGFpbiByZWNvcmRzIG9ubHkKdGhlIGZhY3QgdGhhdCBhIHByb29mLWJhY2tlZCBwb3NpdGlvbiBleGlzdHMuAAAAAAAAAAANQm9ycm93UmVjZWlwdAAAAAAAAAYAAAAAAAAAB2FjY291bnQAAAAAEwAAAAAAAAANYm9ycm93X3N5bWJvbAAAAAAAABEAAAAAAAAAEWNvbGxhdGVyYWxfc3ltYm9sAAAAAAAAEQAAAAAAAAAMY29uZmlybWVkX2F0AAAABgAAAAAAAAAGbWFya2V0AAAAAAARAAAAAAAAAAhwcm9vZl9pZAAAA+4AAAAg",
         "AAAAAAAAAAAAAAAQZGVwb3NpdF9zaGllbGRlZAAAAAQAAAAAAAAABGZyb20AAAATAAAAAAAAAAVhc3NldAAAAAAAABEAAAAAAAAABXByb29mAAAAAAAH0AAAAAtCb3Jyb3dQcm9vZgAAAAAAAAAABG1lbW8AAAAOAAAAAQAAA+kAAAAGAAAAAw==",
+        "AAAAAAAAAQhCdXJuIG9uZSBkZXBvc2l0IG5vdGUgdmlhIHprIHByb29mLCByZWxlYXNlIHRoZSBmaXhlZApkZW5vbWluYXRpb24gdG8gYHRvYC4gUHJvdmVyIHNob3dzIE1lcmtsZSBpbmNsdXNpb24gYXQgdGhlCmN1cnJlbnQgZGVwb3NpdF9yb290IHBsdXMgYSB2YWxpZCBudWxsaWZpZXIgc28gdGhlIGNvbnRyYWN0CmNhbiBibG9jayByZXVzZS4KClB1YmxpYyBzaWduYWxzIG9yZGVyOiBbYXNzZXRfdGFnLCBkZW5vbWluYXRpb24sIGRlcG9zaXRfcm9vdCwKbnVsbGlmaWVyXS4AAAARd2l0aGRyYXdfc2hpZWxkZWQAAAAAAAADAAAAAAAAAAJ0bwAAAAAAEwAAAAAAAAAFYXNzZXQAAAAAAAARAAAAAAAAAAVwcm9vZgAAAAAAB9AAAAALQm9ycm93UHJvb2YAAAAAAQAAA+kAAAPtAAAAAAAAAAM=",
         "AAAAAAAAAAAAAAASZGVwb3NpdF9uZXh0X2luZGV4AAAAAAABAAAAAAAAAAVhc3NldAAAAAAAABEAAAABAAAABg==",
         "AAAAAAAAAAAAAAAScmVmbGVjdG9yX2NvbnRyYWN0AAAAAAAAAAAAAQAAA+gAAAAT",
         "AAAAAAAAAAAAAAATaW5pdGlhbGl6ZV9zaGllbGRlZAAAAAADAAAAAAAAAAlyZWZsZWN0b3IAAAAAAAATAAAAAAAAAARyYXRlAAAH0AAAAApSYXRlUGFyYW1zAAAAAAAAAAAABHJpc2sAAAfQAAAAClJpc2tQYXJhbXMAAAAAAAEAAAPpAAAD7QAAAAAAAAAD",
@@ -410,6 +423,7 @@ export class Client extends ContractClient {
         set_rate_params: this.txFromJSON<Result<void>>,
         set_risk_params: this.txFromJSON<Result<void>>,
         deposit_shielded: this.txFromJSON<Result<u64>>,
+        withdraw_shielded: this.txFromJSON<Result<void>>,
         deposit_next_index: this.txFromJSON<u64>,
         reflector_contract: this.txFromJSON<Option<string>>,
         initialize_shielded: this.txFromJSON<Result<void>>,

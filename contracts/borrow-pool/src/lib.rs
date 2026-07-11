@@ -15,6 +15,7 @@ mod rate;
 mod state;
 mod tokens;
 mod verifier;
+mod withdraw_verifier;
 
 use state::{RateParams, RiskParams};
 
@@ -125,6 +126,7 @@ pub enum Error {
 const BORROW_EVENT: Symbol = symbol_short!("borrow");
 const REPAY_EVENT: Symbol = symbol_short!("repay");
 const DEPOSIT_EVENT: Symbol = symbol_short!("deposit");
+const WITHDRAW_EVENT: Symbol = symbol_short!("withdraw");
 
 #[contract]
 pub struct BorrowPool;
@@ -363,9 +365,93 @@ impl BorrowPool {
             state::total_deposit(&env, &asset).saturating_add(1),
         );
 
-        env.events()
-            .publish((DEPOSIT_EVENT, asset.clone()), (next_index, memo));
+        // Publish `(index, commitment, memo)` so any client can
+        // reconstruct the tree from events without contract storage
+        // reads. Commitment is public (a Poseidon output that leaks
+        // nothing about amount/sk/salt); memo remains encrypted for
+        // the recipient only.
+        env.events().publish(
+            (DEPOSIT_EVENT, asset.clone()),
+            (next_index, new_root.to_bytes(), leaf.to_bytes(), memo),
+        );
         Ok(next_index)
+    }
+
+    /// Burn one deposit note via zk proof, release the fixed
+    /// denomination to `to`. Prover shows Merkle inclusion at the
+    /// current deposit_root plus a valid nullifier so the contract
+    /// can block reuse.
+    ///
+    /// Public signals order: [asset_tag, denomination, deposit_root,
+    /// nullifier].
+    pub fn withdraw_shielded(
+        env: Env,
+        to: Address,
+        asset: Symbol,
+        proof: BorrowProof,
+    ) -> Result<(), Error> {
+        to.require_auth();
+
+        if proof.public_signals.len() != 4 {
+            return Err(Error::InvalidProof);
+        }
+        let asset_tag_fr = proof.public_signals.get(0).unwrap();
+        let denomination_fr = proof.public_signals.get(1).unwrap();
+        let deposit_root_fr = proof.public_signals.get(2).unwrap();
+        let nullifier_fr = proof.public_signals.get(3).unwrap();
+
+        let expected_tag =
+            notes::asset_tag(&env, &asset).ok_or(Error::AssetUnknown)?;
+        if fr_to_u32(&asset_tag_fr) != expected_tag {
+            return Err(Error::DenominationMismatch);
+        }
+        let denomination =
+            notes::denomination(&env, &asset).ok_or(Error::AssetUnknown)?;
+        if fr_to_i128(&denomination_fr) != denomination {
+            return Err(Error::DenominationMismatch);
+        }
+
+        // Contract's stored deposit root must match the value the
+        // prover attests to. If they diverge the leaf either doesn't
+        // exist or lives in an older tree state.
+        let stored_root =
+            state::deposit_root(&env, &asset).ok_or(Error::InvalidProof)?;
+        if stored_root != deposit_root_fr.to_bytes() {
+            return Err(Error::InvalidProof);
+        }
+
+        let nullifier_bytes = nullifier_fr.to_bytes();
+        if state::nullifier_used(&env, &nullifier_bytes) {
+            return Err(Error::ProofReplayed);
+        }
+
+        if !withdraw_verifier::verify_groth16(
+            &env,
+            proof.a.clone(),
+            proof.b.clone(),
+            proof.c.clone(),
+            proof.public_signals.clone(),
+        ) {
+            return Err(Error::InvalidProof);
+        }
+
+        state::mark_nullifier_used(&env, &nullifier_bytes);
+
+        // Release tokens back to the caller.
+        tokens::transfer_out(&env, &asset, &to, denomination);
+
+        // Aggregate accounting: one fewer active deposit note.
+        state::set_total_deposit(
+            &env,
+            &asset,
+            state::total_deposit(&env, &asset).saturating_sub(1),
+        );
+
+        env.events().publish(
+            (WITHDRAW_EVENT, asset.clone()),
+            (nullifier_bytes.clone(), to.clone()),
+        );
+        Ok(())
     }
 }
 

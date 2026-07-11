@@ -32,3 +32,12 @@ export {
   shieldedIdentityFromAddress,
   useShieldedIdentity,
 } from "./use-shielded-identity"
+export {
+  append,
+  DEPTH,
+  emptyRoot,
+  verifyInclusion,
+  zeroHashes,
+  type AppendResult,
+  type MerklePath,
+} from "./merkle"
