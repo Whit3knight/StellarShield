@@ -6,6 +6,7 @@ use soroban_sdk::{
     symbol_short, Address, BytesN, Env, Symbol, Vec,
 };
 
+mod merkle;
 mod poseidon;
 mod poseidon_constants;
 mod verifier;
