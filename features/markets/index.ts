@@ -16,7 +16,12 @@ export {
   fetchRegisteredMarkets,
   type ChainMarket,
 } from "./chain-markets"
+export {
+  fetchMarketStats,
+  type MarketStat,
+} from "./market-stats"
 export { useAssetPriceRefresher, useAssetPrices } from "./use-asset-prices"
+export { useMarketStats } from "./use-market-stats"
 export { useRegisteredMarkets } from "./use-registered-markets"
 export type {
   Asset,
