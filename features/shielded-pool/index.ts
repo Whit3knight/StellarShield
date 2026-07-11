@@ -38,3 +38,8 @@ export {
   type RepayProofResult,
 } from "./repay-prover"
 export { useRepay } from "./use-repay"
+export {
+  proveLiquidate,
+  type LiquidateProofInputs,
+  type LiquidateProofResult,
+} from "./liquidate-prover"
