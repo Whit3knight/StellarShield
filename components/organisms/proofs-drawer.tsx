@@ -1,15 +1,19 @@
 "use client"
 
-import {
-  CheckIcon,
-  ChevronDownIcon,
-  ChevronRightIcon,
-  CopyIcon,
-  ShieldCheckIcon,
-} from "lucide-react"
+import { CheckIcon, CopyIcon, ShieldCheckIcon } from "lucide-react"
 import * as React from "react"
 
 import { PrivateValue } from "@/components/atoms/private-value"
+import {
+  PositionCard,
+  type PositionCardField,
+} from "@/components/molecules/position-card"
+import {
+  Accordion,
+  AccordionItem,
+  AccordionPanel,
+  AccordionTrigger,
+} from "@/components/ui/accordion"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -20,7 +24,13 @@ import {
   DrawerPopup,
   DrawerTitle,
 } from "@/components/ui/drawer"
-import { cn } from "@/lib/utils"
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty"
 import type { BorrowEligibilityProof } from "@/features/proofs"
 import { useMediaQuery } from "@/hooks/use-media-query"
 
@@ -30,29 +40,27 @@ type ProofsDrawerProps = {
   proofs: BorrowEligibilityProof[]
 }
 
+type ProofGroup = {
+  failedCount: number
+  latestExpiresAt: string
+  latestGeneratedAt: string
+  market: string
+  proofs: BorrowEligibilityProof[]
+  publicInputs: BorrowEligibilityProof["publicInputs"]
+  verifiedCount: number
+}
+
 export function ProofsDrawer({
   onOpenChange,
   open,
   proofs,
 }: ProofsDrawerProps): React.ReactElement {
-  const [expandedId, setExpandedId] = React.useState<string | null>(null)
   const isMobile = useMediaQuery("max-lg")
-
-  const handleOpenChange = React.useCallback(
-    (next: boolean) => {
-      if (!next) setExpandedId(null)
-      onOpenChange(next)
-    },
-    [onOpenChange]
-  )
-
-  const handleToggle = React.useCallback((id: string) => {
-    setExpandedId((current) => (current === id ? null : id))
-  }, [])
+  const groups = React.useMemo(() => groupByMarket(proofs), [proofs])
 
   return (
     <Drawer
-      onOpenChange={handleOpenChange}
+      onOpenChange={onOpenChange}
       open={open}
       position={isMobile ? "bottom" : "right"}
     >
@@ -60,21 +68,14 @@ export function ProofsDrawer({
         <DrawerHeader>
           <DrawerTitle>Proofs</DrawerTitle>
           <DrawerDescription className="mt-2">
-            Eligibility proofs generated during this session.
+            Eligibility proofs grouped by market pair.
           </DrawerDescription>
         </DrawerHeader>
         <DrawerPanel className="flex flex-col gap-2" hideScrollbar>
-          {proofs.length === 0 ? (
+          {groups.length === 0 ? (
             <EmptyState />
           ) : (
-            proofs.map((proof) => (
-              <ProofRow
-                expanded={expandedId === proof.id}
-                key={proof.id}
-                onToggle={handleToggle}
-                proof={proof}
-              />
-            ))
+            groups.map((group) => <GroupCard group={group} key={group.market} />)
           )}
         </DrawerPanel>
       </DrawerPopup>
@@ -84,83 +85,79 @@ export function ProofsDrawer({
 
 function EmptyState(): React.ReactElement {
   return (
-    <div className="flex flex-col items-center gap-2 rounded-md border bg-muted/16 px-4 py-8 text-center text-sm text-muted-foreground">
-      <ShieldCheckIcon aria-hidden="true" className="size-6 opacity-60" />
-      <span>No proofs generated yet.</span>
-      <span className="text-xs">
-        Complete the verification step in a borrow flow to record a proof.
-      </span>
-    </div>
+    <Empty>
+      <EmptyHeader>
+        <EmptyMedia variant="icon">
+          <ShieldCheckIcon />
+        </EmptyMedia>
+        <EmptyTitle>No proofs generated yet</EmptyTitle>
+        <EmptyDescription>
+          Complete the verification step in a borrow flow to record a proof.
+        </EmptyDescription>
+      </EmptyHeader>
+    </Empty>
   )
 }
 
-function ProofRow({
-  expanded,
-  onToggle,
-  proof,
-}: {
-  expanded: boolean
-  onToggle: (id: string) => void
-  proof: BorrowEligibilityProof
-}): React.ReactElement {
+function GroupCard({ group }: { group: ProofGroup }): React.ReactElement {
+  const badge = pickBadge(group)
+  const fields: PositionCardField[] = [
+    { label: "HF min", value: group.publicInputs.healthFactorMin },
+    { label: "Max LTV", value: group.publicInputs.maxLtv },
+    {
+      label: "Latest expiry",
+      value: formatRelativeExpiry(new Date(group.latestExpiresAt)),
+    },
+  ]
+
   return (
-    <div
-      className={cn(
-        "flex flex-col gap-2 rounded-md border bg-background text-sm transition-colors",
-        expanded && "border-border/80 bg-muted/16"
-      )}
-    >
-      <button
-        aria-expanded={expanded}
-        aria-label={
-          expanded ? `Collapse proof ${proof.id}` : `Expand proof ${proof.id}`
-        }
-        className="flex flex-col gap-1 rounded-md px-3 py-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-        onClick={() => onToggle(proof.id)}
-        type="button"
-      >
-        <div className="flex items-start justify-between gap-2">
-          <span className="font-medium text-foreground">{proof.claim}</span>
-          <div className="flex items-center gap-2">
-            <Badge
-              variant={proof.status === "Verified" ? "default" : "destructive"}
-            >
-              {proof.status}
-            </Badge>
-            {expanded ? (
-              <ChevronDownIcon
-                aria-hidden="true"
-                className="size-4 text-muted-foreground"
-              />
-            ) : (
-              <ChevronRightIcon
-                aria-hidden="true"
-                className="size-4 text-muted-foreground"
-              />
-            )}
-          </div>
-        </div>
-        <div className="flex flex-col gap-0.5 text-xs text-muted-foreground">
-          <span className="font-mono truncate">
-            <PrivateValue>{proof.id}</PrivateValue>
-          </span>
-          <span>Market: {proof.publicInputs.market}</span>
-          <span>
-            HF ≥ {proof.publicInputs.healthFactorMin} · LTV{" "}
-            {proof.publicInputs.maxLtv}
-          </span>
-          <span className="text-[10px] uppercase tracking-wide text-muted-foreground/72">
-            Expires {formatTimestamp(proof.expiresAt)}
-          </span>
-        </div>
-      </button>
-
-      {expanded ? <ProofDetails proof={proof} /> : null}
-    </div>
+    <PositionCard
+      badge={badge}
+      fields={fields}
+      footer={<ProofIdsAccordion proofs={group.proofs} />}
+      title={group.market}
+    />
   )
 }
 
-function ProofDetails({
+function pickBadge(group: ProofGroup): React.ReactElement {
+  if (group.failedCount > 0 && group.verifiedCount === 0) {
+    return <Badge variant="destructive">Failed</Badge>
+  }
+  if (group.failedCount > 0) {
+    return <Badge variant="warning">Mixed</Badge>
+  }
+  return <Badge variant="success">Verified</Badge>
+}
+
+function ProofIdsAccordion({
+  proofs,
+}: {
+  proofs: BorrowEligibilityProof[]
+}): React.ReactElement {
+  const sorted = [...proofs].sort((a, b) =>
+    (b.generatedAt ?? "").localeCompare(a.generatedAt ?? "")
+  )
+  return (
+    <Accordion>
+      <AccordionItem className="border-b-0 border-t" value="proofs">
+        <AccordionTrigger className="gap-2 pt-2 pb-4 text-sm font-normal text-muted-foreground">
+          <span>Proofs</span>
+          <span className="ml-auto font-medium text-foreground">
+            {proofs.length}
+          </span>
+        </AccordionTrigger>
+        <AccordionPanel className="flex flex-col gap-1.5 pb-1 text-xs">
+          {sorted.map((proof) => (
+            <ProofIdRow key={proof.id} proof={proof} />
+          ))}
+        </AccordionPanel>
+      </AccordionItem>
+    </Accordion>
+  )
+}
+
+function ProofIdRow({
   proof,
 }: {
   proof: BorrowEligibilityProof
@@ -169,81 +166,78 @@ function ProofDetails({
 
   React.useEffect(() => {
     if (!copied) return
-
     const timer = window.setTimeout(() => setCopied(false), 1_200)
-
     return () => window.clearTimeout(timer)
   }, [copied])
 
-  const handleCopy = React.useCallback(
-    async (event: React.MouseEvent<HTMLButtonElement>) => {
-      event.stopPropagation()
-
-      try {
-        await navigator.clipboard.writeText(proof.id)
-        setCopied(true)
-      } catch {
-        setCopied(false)
-      }
-    },
-    [proof.id]
-  )
-
-  const expiresAt = new Date(proof.expiresAt)
-  const relativeExpiry = formatRelativeExpiry(expiresAt)
+  const handleCopy = React.useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(proof.id)
+      setCopied(true)
+    } catch {
+      setCopied(false)
+    }
+  }, [proof.id])
 
   return (
-    <div className="flex flex-col gap-3 border-t bg-background/64 px-3 pt-3 pb-3 text-xs">
-      <section className="flex flex-col gap-1">
-        <span className="font-medium text-muted-foreground">Proof id</span>
-        <div className="flex items-start gap-2 rounded-md border bg-background p-2">
-          <PrivateValue className="flex-1 font-mono text-xs break-all">
-            {proof.id}
-          </PrivateValue>
-          <Button
-            aria-label={copied ? "Proof id copied" : "Copy proof id"}
-            onClick={handleCopy}
-            size="icon-sm"
-            title={copied ? "Copied" : "Copy proof id"}
-            type="button"
-            variant="ghost"
-          >
-            {copied ? (
-              <CheckIcon aria-hidden="true" />
-            ) : (
-              <CopyIcon aria-hidden="true" />
-            )}
-          </Button>
-        </div>
-      </section>
-
-      <section className="flex flex-col gap-1">
-        <span className="font-medium text-muted-foreground">Public inputs</span>
-        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 rounded-md border bg-background px-3 py-2">
-          <dt className="text-muted-foreground">Market</dt>
-          <dd className="text-right font-medium">
-            {proof.publicInputs.market}
-          </dd>
-          <dt className="text-muted-foreground">Health factor min</dt>
-          <dd className="text-right font-medium">
-            {proof.publicInputs.healthFactorMin}
-          </dd>
-          <dt className="text-muted-foreground">Max LTV</dt>
-          <dd className="text-right font-medium">
-            {proof.publicInputs.maxLtv}
-          </dd>
-        </dl>
-      </section>
-
-      <section className="flex flex-col gap-1">
-        <span className="font-medium text-muted-foreground">Expiry</span>
-        <div className="flex items-center justify-between gap-2 rounded-md border bg-background px-3 py-2">
-          <span>{formatTimestamp(proof.expiresAt)}</span>
-          <span className="text-muted-foreground">{relativeExpiry}</span>
-        </div>
-      </section>
+    <div className="flex items-center justify-between gap-2 rounded-md border bg-background/64 px-2 py-1.5">
+      <div className="flex min-w-0 items-center gap-1 font-mono">
+        <PrivateValue className="truncate">{shortHash(proof.id)}</PrivateValue>
+        <Button
+          aria-label={copied ? "Proof id copied" : "Copy proof id"}
+          onClick={handleCopy}
+          size="icon-xs"
+          title={copied ? "Copied" : "Copy proof id"}
+          type="button"
+          variant="ghost"
+        >
+          {copied ? (
+            <CheckIcon aria-hidden="true" />
+          ) : (
+            <CopyIcon aria-hidden="true" />
+          )}
+        </Button>
+      </div>
+      <span className="text-muted-foreground">
+        {formatTimestamp(proof.generatedAt)}
+      </span>
     </div>
   )
+}
+
+function groupByMarket(proofs: BorrowEligibilityProof[]): ProofGroup[] {
+  const buckets = new Map<string, BorrowEligibilityProof[]>()
+  for (const proof of proofs) {
+    const key = proof.publicInputs.market
+    const list = buckets.get(key) ?? []
+    list.push(proof)
+    buckets.set(key, list)
+  }
+
+  return Array.from(buckets.entries()).map(([market, list]) => {
+    const latestExpiresAt =
+      list.map((p) => p.expiresAt).sort().at(-1) ?? new Date(0).toISOString()
+    const latestGeneratedAt =
+      list
+        .map((p) => p.generatedAt ?? "")
+        .filter(Boolean)
+        .sort()
+        .at(-1) ?? new Date(0).toISOString()
+    return {
+      failedCount: list.filter((p) => p.status === "Failed").length,
+      latestExpiresAt,
+      latestGeneratedAt,
+      market,
+      proofs: list,
+      publicInputs: list[0].publicInputs,
+      verifiedCount: list.filter((p) => p.status === "Verified").length,
+    }
+  })
+}
+
+function shortHash(hash: string): string {
+  if (hash.length <= 20) return hash
+  return `${hash.slice(0, 8)}…${hash.slice(-6)}`
 }
 
 function formatRelativeExpiry(expiresAt: Date): string {
@@ -251,24 +245,15 @@ function formatRelativeExpiry(expiresAt: Date): string {
   const past = diff < 0
   const seconds = Math.abs(Math.round(diff / 1_000))
 
-  if (seconds < 60) {
-    return past ? `${seconds}s ago` : `in ${seconds}s`
-  }
+  if (seconds < 60) return past ? `${seconds}s ago` : `in ${seconds}s`
 
   const minutes = Math.round(seconds / 60)
-
-  if (minutes < 60) {
-    return past ? `${minutes}m ago` : `in ${minutes}m`
-  }
+  if (minutes < 60) return past ? `${minutes}m ago` : `in ${minutes}m`
 
   const hours = Math.round(minutes / 60)
-
-  if (hours < 48) {
-    return past ? `${hours}h ago` : `in ${hours}h`
-  }
+  if (hours < 48) return past ? `${hours}h ago` : `in ${hours}h`
 
   const days = Math.round(hours / 24)
-
   return past ? `${days}d ago` : `in ${days}d`
 }
 

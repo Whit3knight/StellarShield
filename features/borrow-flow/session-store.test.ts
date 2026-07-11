@@ -26,6 +26,7 @@ function proof(id: string): BorrowEligibilityProof {
   return {
     claim: "Borrow eligibility verified",
     expiresAt: "2026-07-09T00:10:00.000Z",
+    generatedAt: "2026-07-09T00:00:00.000Z",
     id,
     publicInputs: {
       healthFactorMin: "1.25",

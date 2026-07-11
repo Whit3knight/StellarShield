@@ -54,7 +54,12 @@ function readStored(): BorrowSessionState {
       positions: Array.isArray(parsed.positions)
         ? parsed.positions.slice(0, POSITION_HISTORY_CAP)
         : [],
-      proofs: (parsed.proofs ?? []).slice(0, PROOF_HISTORY_CAP),
+      proofs: (parsed.proofs ?? [])
+        .slice(0, PROOF_HISTORY_CAP)
+        .map((proof) => ({
+          ...proof,
+          generatedAt: proof.generatedAt ?? proof.expiresAt,
+        })),
     }
   } catch {
     try {

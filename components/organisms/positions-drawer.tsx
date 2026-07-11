@@ -1,9 +1,20 @@
 "use client"
 
-import { ChevronDownIcon, ChevronRightIcon, LayersIcon } from "lucide-react"
+import { LayersIcon } from "lucide-react"
 import * as React from "react"
 
+import { ExternalLink } from "@/components/atoms/external-link"
 import { PrivateValue } from "@/components/atoms/private-value"
+import {
+  PositionCard,
+  type PositionCardField,
+} from "@/components/molecules/position-card"
+import {
+  Accordion,
+  AccordionItem,
+  AccordionPanel,
+  AccordionTrigger,
+} from "@/components/ui/accordion"
 import { Badge } from "@/components/ui/badge"
 import {
   Drawer,
@@ -13,42 +24,65 @@ import {
   DrawerPopup,
   DrawerTitle,
 } from "@/components/ui/drawer"
-import { cn } from "@/lib/utils"
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty"
+import { Skeleton } from "@/components/ui/skeleton"
+import { formatAssetAmount, formatUsd } from "@/features/borrow-flow/format"
 import type { UserPosition } from "@/features/borrow-flow/types"
+import type { AssetAmount } from "@/features/shared/asset-amount"
 import type { ChainBorrowReceipt } from "@/features/protocol"
+import {
+  getStellarExpertAccountUrl,
+  getStellarExpertTxUrl,
+} from "@/features/wallet/network"
 import { useMediaQuery } from "@/hooks/use-media-query"
 
 type PositionsDrawerProps = {
+  chainLoading?: boolean
   chainPosition?: ChainBorrowReceipt | null
   onOpenChange: (open: boolean) => void
   open: boolean
   positions: UserPosition[]
 }
 
+type PositionGroup = {
+  borrowed: AggregateAsset | null
+  healthFactor: number | null
+  latestOpenedAt: string
+  market: string
+  positions: UserPosition[]
+  supplied: AggregateAsset | null
+}
+
+type AggregateAsset = {
+  amount: number
+  symbol: string
+  valueUsd: number
+}
+
 export function PositionsDrawer({
+  chainLoading = false,
   chainPosition,
   onOpenChange,
   open,
   positions,
 }: PositionsDrawerProps): React.ReactElement {
-  const [expandedId, setExpandedId] = React.useState<string | null>(null)
   const isMobile = useMediaQuery("max-lg")
-
-  const handleOpenChange = React.useCallback(
-    (next: boolean) => {
-      if (!next) setExpandedId(null)
-      onOpenChange(next)
-    },
-    [onOpenChange]
-  )
-
-  const handleToggle = React.useCallback((id: string) => {
-    setExpandedId((current) => (current === id ? null : id))
-  }, [])
+  const groups = React.useMemo(() => groupByMarket(positions), [positions])
+  const chainMarketPair = chainPosition
+    ? `${chainPosition.borrowSymbol}/${chainPosition.collateralSymbol}`
+    : null
+  const chainHasMatch =
+    chainMarketPair !== null && groups.some((g) => g.market === chainMarketPair)
 
   return (
     <Drawer
-      onOpenChange={handleOpenChange}
+      onOpenChange={onOpenChange}
       open={open}
       position={isMobile ? "bottom" : "right"}
     >
@@ -56,23 +90,30 @@ export function PositionsDrawer({
         <DrawerHeader>
           <DrawerTitle>Positions</DrawerTitle>
           <DrawerDescription className="mt-2">
-            Borrow positions opened during this session.
+            Aggregated borrow positions grouped by market pair.
           </DrawerDescription>
         </DrawerHeader>
         <DrawerPanel className="flex flex-col gap-2" hideScrollbar>
-          {chainPosition ? <ChainPositionRow receipt={chainPosition} /> : null}
-          {positions.length === 0 && !chainPosition ? (
+          {groups.length === 0 && !chainPosition && !chainLoading ? (
             <EmptyState />
-          ) : (
-            positions.map((position) => (
-              <PositionRow
-                expanded={expandedId === position.id}
-                key={position.id}
-                onToggle={handleToggle}
-                position={position}
-              />
-            ))
-          )}
+          ) : null}
+          {groups.map((group) => (
+            <GroupCard
+              chainReceipt={
+                chainPosition && chainMarketPair === group.market
+                  ? chainPosition
+                  : null
+              }
+              group={group}
+              key={group.market}
+            />
+          ))}
+          {chainLoading && groups.length === 0 ? (
+            <GroupCard chainReceipt={null} group={null} />
+          ) : null}
+          {!chainLoading && chainPosition && !chainHasMatch ? (
+            <GroupCard chainReceipt={chainPosition} group={null} />
+          ) : null}
         </DrawerPanel>
       </DrawerPopup>
     </Drawer>
@@ -81,202 +122,237 @@ export function PositionsDrawer({
 
 function EmptyState(): React.ReactElement {
   return (
-    <div className="flex flex-col items-center gap-2 rounded-md border bg-muted/16 px-4 py-8 text-center text-sm text-muted-foreground">
-      <LayersIcon aria-hidden="true" className="size-6 opacity-60" />
-      <span>No positions yet.</span>
-      <span className="text-xs">
-        Complete a borrow flow to open a position and see it here.
-      </span>
-    </div>
+    <Empty>
+      <EmptyHeader>
+        <EmptyMedia variant="icon">
+          <LayersIcon />
+        </EmptyMedia>
+        <EmptyTitle>No positions yet</EmptyTitle>
+        <EmptyDescription>
+          Complete a borrow flow to open a position and see it here.
+        </EmptyDescription>
+      </EmptyHeader>
+    </Empty>
   )
 }
 
-function PositionRow({
-  expanded,
-  onToggle,
-  position,
+function GroupCard({
+  chainReceipt,
+  group,
 }: {
-  expanded: boolean
-  onToggle: (id: string) => void
-  position: UserPosition
+  chainReceipt: ChainBorrowReceipt | null
+  group: PositionGroup | null
 }): React.ReactElement {
   const healthFactor =
-    position.healthFactor === null
-      ? "N/A"
-      : position.healthFactor.toFixed(2)
-  const borrowingPowerUsed = `${Math.round(
-    position.borrowingPowerUsed * 100
-  )}%`
-  const primaryBorrow = position.borrowed[0]
+    group?.healthFactor == null ? "N/A" : group.healthFactor.toFixed(2)
+  const subtitle =
+    group?.market ??
+    (chainReceipt
+      ? `${chainReceipt.borrowSymbol}/${chainReceipt.collateralSymbol}`
+      : undefined)
+
+  const fields: PositionCardField[] = []
+
+  if (chainReceipt) {
+    const openedAt = new Date(chainReceipt.confirmedAt * 1000).toISOString()
+    fields.push(
+      { label: "On-chain confirmed", value: formatTimestamp(openedAt) },
+      {
+        label: "Proof id",
+        value: (
+          <PrivateValue className="truncate font-mono">
+            {shortHash(chainReceipt.proofId)}
+          </PrivateValue>
+        ),
+      },
+      {
+        label: "Account",
+        value: (
+          <ExternalLink
+            className="justify-end font-mono"
+            href={getStellarExpertAccountUrl(chainReceipt.account)}
+          >
+            <PrivateValue className="truncate">
+              {shortHash(chainReceipt.account)}
+            </PrivateValue>
+          </ExternalLink>
+        ),
+      }
+    )
+  }
+
+  fields.push(
+    {
+      label: "Supplied",
+      value: group?.supplied ? (
+        formatAggregate(group.supplied)
+      ) : group ? (
+        "N/A"
+      ) : (
+        <Skeleton className="ml-auto h-3.5 w-24" />
+      ),
+    },
+    {
+      label: "Borrowed",
+      value: group?.borrowed ? (
+        formatAggregate(group.borrowed)
+      ) : group ? (
+        "N/A"
+      ) : (
+        <Skeleton className="ml-auto h-3.5 w-24" />
+      ),
+    },
+    {
+      label: "Health factor (min)",
+      value: group ? healthFactor : <Skeleton className="ml-auto h-3.5 w-12" />,
+    }
+  )
+
+  const badge = (
+    <div className="flex items-center gap-1">
+      <Badge variant="success">Open</Badge>
+      {chainReceipt ? <Badge variant="outline">Testnet</Badge> : null}
+    </div>
+  )
 
   return (
-    <div
-      className={cn(
-        "flex flex-col gap-2 rounded-md border bg-background text-sm transition-colors",
-        expanded && "border-border/80 bg-muted/16"
-      )}
-    >
-      <button
-        aria-expanded={expanded}
-        aria-label={
-          expanded
-            ? `Collapse position ${position.id}`
-            : `Expand position ${position.id}`
-        }
-        className="flex flex-col gap-1 rounded-md px-3 py-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-        onClick={() => onToggle(position.id)}
-        type="button"
-      >
-        <div className="flex items-start justify-between gap-2">
-          <span className="font-medium text-foreground">{position.market}</span>
-          <div className="flex items-center gap-2">
-            <Badge variant="default">{position.status}</Badge>
-            {expanded ? (
-              <ChevronDownIcon
-                aria-hidden="true"
-                className="size-4 text-muted-foreground"
-              />
-            ) : (
-              <ChevronRightIcon
-                aria-hidden="true"
-                className="size-4 text-muted-foreground"
-              />
-            )}
-          </div>
-        </div>
-        <div className="flex flex-col gap-0.5 text-xs text-muted-foreground">
-          {primaryBorrow ? (
-            <span>
-              Borrowed {primaryBorrow.amount} {primaryBorrow.symbol}
-            </span>
-          ) : null}
-          <span>Health factor {healthFactor}</span>
-          <span>Borrow APR {position.borrowApr}</span>
-        </div>
-      </button>
-
-      {expanded ? (
-        <PositionDetails
-          borrowingPowerUsed={borrowingPowerUsed}
-          healthFactor={healthFactor}
-          position={position}
-        />
-      ) : null}
-    </div>
+    <PositionCard
+      badge={badge}
+      fields={fields}
+      footer={
+        group ? <ReceiptsAccordion positions={group.positions} /> : null
+      }
+      subtitle={subtitle}
+      title="Position open"
+    />
   )
 }
 
-function PositionDetails({
-  borrowingPowerUsed,
-  healthFactor,
+function ReceiptsAccordion({
+  positions,
+}: {
+  positions: UserPosition[]
+}): React.ReactElement {
+  const sorted = [...positions].sort((a, b) =>
+    b.openedAt.localeCompare(a.openedAt)
+  )
+  return (
+    <Accordion>
+      <AccordionItem className="border-b-0 border-t" value="receipts">
+        <AccordionTrigger className="gap-2 pt-2 pb-4 text-sm font-normal text-muted-foreground">
+          <span>Positions</span>
+          <span className="ml-auto font-medium text-foreground">
+            {positions.length}
+          </span>
+        </AccordionTrigger>
+        <AccordionPanel className="flex flex-col gap-1.5 pb-1 text-xs">
+          {sorted.map((position) => (
+            <ReceiptRow key={position.id} position={position} />
+          ))}
+        </AccordionPanel>
+      </AccordionItem>
+    </Accordion>
+  )
+}
+
+function ReceiptRow({
   position,
 }: {
-  borrowingPowerUsed: string
-  healthFactor: string
   position: UserPosition
 }): React.ReactElement {
+  const supplied = position.supplied[0]
+  const borrowed = position.borrowed[0]
   return (
-    <div className="flex flex-col gap-3 border-t bg-background/64 px-3 pt-3 pb-3 text-xs">
-      <AssetList label="Supplied" items={position.supplied} />
-      <AssetList label="Borrowed" items={position.borrowed} />
-
-      <section className="flex flex-col gap-1">
-        <span className="font-medium text-muted-foreground">Health</span>
-        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 rounded-md border bg-background px-3 py-2">
-          <dt className="text-muted-foreground">Health factor</dt>
-          <dd className="text-right font-medium">{healthFactor}</dd>
-          <dt className="text-muted-foreground">Borrowing power used</dt>
-          <dd className="text-right font-medium">{borrowingPowerUsed}</dd>
-          <dt className="text-muted-foreground">Borrow APR</dt>
-          <dd className="text-right font-medium">{position.borrowApr}</dd>
-        </dl>
-      </section>
-
-      <section className="flex flex-col gap-1">
-        <span className="font-medium text-muted-foreground">Timing</span>
-        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 rounded-md border bg-background px-3 py-2">
-          <dt className="text-muted-foreground">Opened</dt>
-          <dd className="text-right font-medium">
-            {formatTimestamp(position.openedAt)}
-          </dd>
-          <dt className="text-muted-foreground">Next payment due</dt>
-          <dd className="text-right font-medium">
-            {formatTimestamp(position.nextPaymentDue)}
-          </dd>
-        </dl>
-      </section>
-
-      <section className="flex flex-col gap-1">
-        <span className="font-medium text-muted-foreground">Receipt</span>
-        <div className="rounded-md border bg-background p-2 font-mono break-all">
-          <PrivateValue>{position.receiptHash}</PrivateValue>
-        </div>
-      </section>
-    </div>
-  )
-}
-
-function AssetList({
-  items,
-  label,
-}: {
-  items: UserPosition["supplied"]
-  label: string
-}): React.ReactElement {
-  return (
-    <section className="flex flex-col gap-1">
-      <span className="font-medium text-muted-foreground">{label}</span>
-      <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 rounded-md border bg-background px-3 py-2">
-        {items.length === 0 ? (
-          <>
-            <dt className="text-muted-foreground">—</dt>
-            <dd className="text-right">None</dd>
-          </>
-        ) : (
-          items.map((item) => (
-            <React.Fragment key={item.symbol}>
-              <dt className="text-muted-foreground">{item.symbol}</dt>
-              <dd className="text-right font-medium">
-                <PrivateValue>{item.amount.toString()}</PrivateValue>
-              </dd>
-            </React.Fragment>
-          ))
-        )}
-      </dl>
-    </section>
-  )
-}
-
-function ChainPositionRow({
-  receipt,
-}: {
-  receipt: ChainBorrowReceipt
-}): React.ReactElement {
-  const openedAt = new Date(receipt.confirmedAt * 1000).toISOString()
-  return (
-    <div className="flex flex-col gap-2 rounded-md border border-primary/40 bg-primary/8 px-3 py-2 text-sm">
-      <div className="flex items-start justify-between gap-2">
-        <span className="font-medium text-foreground">On-chain position</span>
-        <Badge variant="outline">Testnet</Badge>
+    <div className="flex flex-col gap-1 rounded-md border bg-background/64 px-2 py-1.5">
+      <div className="flex items-center justify-between gap-2">
+        <ExternalLink
+          className="font-mono text-foreground"
+          href={getStellarExpertTxUrl(position.receiptHash)}
+        >
+          <PrivateValue className="truncate">
+            {shortHash(position.receiptHash)}
+          </PrivateValue>
+        </ExternalLink>
+        <span className="text-muted-foreground">
+          {formatTimestamp(position.openedAt)}
+        </span>
       </div>
-      <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
-        <dt className="text-muted-foreground">Market</dt>
-        <dd className="text-right font-mono">{receipt.market}</dd>
-        <dt className="text-muted-foreground">Borrowed</dt>
-        <dd className="text-right font-mono">{receipt.borrowSymbol}</dd>
-        <dt className="text-muted-foreground">Collateral</dt>
-        <dd className="text-right font-mono">{receipt.collateralSymbol}</dd>
-        <dt className="text-muted-foreground">Amounts</dt>
-        <dd className="text-right text-muted-foreground italic">Hidden (private witness)</dd>
-        <dt className="text-muted-foreground">Confirmed</dt>
-        <dd className="text-right">{formatTimestamp(openedAt)}</dd>
-        <dt className="text-muted-foreground">Proof id</dt>
-        <dd className="text-right font-mono break-all">
-          <PrivateValue>{receipt.proofId}</PrivateValue>
-        </dd>
-      </dl>
+      <div className="grid grid-cols-2 gap-2 text-muted-foreground">
+        <div className="flex flex-col">
+          <span className="text-[10px] uppercase tracking-wide">Supplied</span>
+          <span className="text-foreground">
+            {supplied
+              ? `${formatAssetAmount(supplied.amount, supplied.symbol)} (${formatUsd(supplied.valueUsd)})`
+              : "N/A"}
+          </span>
+        </div>
+        <div className="flex flex-col text-right">
+          <span className="text-[10px] uppercase tracking-wide">Borrowed</span>
+          <span className="text-foreground">
+            {borrowed
+              ? `${formatAssetAmount(borrowed.amount, borrowed.symbol)} (${formatUsd(borrowed.valueUsd)})`
+              : "N/A"}
+          </span>
+        </div>
+      </div>
     </div>
   )
+}
+
+function groupByMarket(positions: UserPosition[]): PositionGroup[] {
+  const buckets = new Map<string, UserPosition[]>()
+  for (const position of positions) {
+    const list = buckets.get(position.market) ?? []
+    list.push(position)
+    buckets.set(position.market, list)
+  }
+
+  return Array.from(buckets.entries()).map(([market, list]) => ({
+    borrowed: aggregateFirst(list.map((p) => p.borrowed[0])),
+    healthFactor: minHealthFactor(list),
+    latestOpenedAt:
+      list.map((p) => p.openedAt).sort().at(-1) ?? new Date(0).toISOString(),
+    market,
+    positions: list,
+    supplied: aggregateFirst(list.map((p) => p.supplied[0])),
+  }))
+}
+
+function aggregateFirst(
+  items: (AssetAmount | undefined)[]
+): AggregateAsset | null {
+  const filtered = items.filter((item): item is AssetAmount => Boolean(item))
+  if (filtered.length === 0) return null
+
+  const symbol = filtered[0].symbol
+  const homogeneous = filtered.every((item) => item.symbol === symbol)
+  if (!homogeneous) return null
+
+  return filtered.reduce<AggregateAsset>(
+    (acc, item) => ({
+      amount: acc.amount + item.amount,
+      symbol,
+      valueUsd: acc.valueUsd + item.valueUsd,
+    }),
+    { amount: 0, symbol, valueUsd: 0 }
+  )
+}
+
+function minHealthFactor(positions: UserPosition[]): number | null {
+  const numbers = positions
+    .map((p) => p.healthFactor)
+    .filter((n): n is number => n !== null)
+  if (numbers.length === 0) return null
+  return Math.min(...numbers)
+}
+
+function formatAggregate(asset: AggregateAsset): string {
+  return `${formatAssetAmount(asset.amount, asset.symbol)} (${formatUsd(asset.valueUsd)})`
+}
+
+function shortHash(hash: string): string {
+  if (hash.length <= 20) return hash
+  return `${hash.slice(0, 8)}…${hash.slice(-6)}`
 }
 
 function formatTimestamp(timestamp: string): string {

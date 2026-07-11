@@ -87,7 +87,10 @@ function SessionDrawers({
 }): React.ReactElement {
   const { activityDrawer, positionsDrawer, proofsDrawer } = useNavMenus()
   const { activities, positions, proofs } = useBorrowSession()
-  const chainPosition = useChainPosition(account, positionsDrawer.open)
+  const { isLoading: chainLoading, receipt: chainPosition } = useChainPosition(
+    account,
+    positionsDrawer.open
+  )
 
   return (
     <>
@@ -97,6 +100,7 @@ function SessionDrawers({
         open={activityDrawer.open}
       />
       <PositionsDrawer
+        chainLoading={chainLoading}
         chainPosition={chainPosition}
         onOpenChange={positionsDrawer.setOpen}
         open={positionsDrawer.open}
@@ -120,29 +124,32 @@ function SessionDrawers({
 function useChainPosition(
   account: string | null,
   drawerOpen: boolean
-): ChainBorrowReceipt | null {
+): { isLoading: boolean; receipt: ChainBorrowReceipt | null } {
   const { protocol } = useAdapters()
-  const [chainPosition, setChainPosition] =
-    React.useState<ChainBorrowReceipt | null>(null)
+  const [receipt, setReceipt] = React.useState<ChainBorrowReceipt | null>(null)
+  const [isLoading, setIsLoading] = React.useState(false)
 
   React.useEffect(() => {
     if (!account || !drawerOpen || !protocol.readChainPosition) return
 
     const controller = new AbortController()
     void (async () => {
+      setIsLoading(true)
       const result = await protocol.readChainPosition!(
         { account },
         controller.signal
       )
       if (controller.signal.aborted) return
-      setChainPosition(result.ok ? result.value : null)
+      setReceipt(result.ok ? result.value : null)
+      setIsLoading(false)
     })()
 
     return () => {
       controller.abort()
-      setChainPosition(null)
+      setReceipt(null)
+      setIsLoading(false)
     }
   }, [account, drawerOpen, protocol])
 
-  return chainPosition
+  return { isLoading, receipt }
 }

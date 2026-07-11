@@ -34,6 +34,7 @@ export function buildBorrowProof({
       ? "Borrow eligibility verified"
       : "Borrow eligibility failed",
     expiresAt: new Date(now + PROOF_TTL_MS).toISOString(),
+    generatedAt: new Date(now).toISOString(),
     id: createStableId(
       "proof",
       account ?? "disconnected",

@@ -32,6 +32,7 @@ export type BorrowEligibilityProof = {
   claim: string
   contractPayload?: BorrowContractPayload
   expiresAt: string
+  generatedAt: string
   id: string
   publicInputs: BorrowProofPublicInputs
   status: BorrowProofStatus

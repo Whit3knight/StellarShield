@@ -289,6 +289,7 @@ function buildProofRecord(
       : "Borrow eligibility failed",
     contractPayload: payload,
     expiresAt: new Date(nowMs + PROOF_TTL_MS).toISOString(),
+    generatedAt: new Date(nowMs).toISOString(),
     id: createStableId(
       "proof",
       params.account ?? "disconnected",

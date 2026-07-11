@@ -8,10 +8,16 @@ import {
 import * as React from "react"
 
 import type { ConnectedAccount } from "@/app/_constants/account"
+import { ExternalLink } from "@/components/atoms/external-link"
 import { MetricTile } from "@/components/atoms/metric-tile"
 import { PrivateValue } from "@/components/atoms/private-value"
+import {
+  PositionCard,
+  type PositionCardField,
+} from "@/components/molecules/position-card"
 import { Badge } from "@/components/ui/badge"
 import type { MarketCardData } from "@/features/markets"
+import { getStellarExpertTxUrl } from "@/features/wallet/network"
 
 import type {
   BorrowFlowMetrics,
@@ -121,77 +127,51 @@ function OpenPositionSummary({
 }): React.ReactElement {
   const supplied = position.supplied[0]
   const borrowed = position.borrowed[0]
+  const healthFactor =
+    position.healthFactor === null ? "N/A" : position.healthFactor.toFixed(2)
+
+  const fields: PositionCardField[] = [
+    {
+      label: "Supplied",
+      value: supplied
+        ? `${formatAssetAmount(supplied.amount, supplied.symbol)} (${formatUsd(supplied.valueUsd)})`
+        : "N/A",
+    },
+    {
+      label: "Borrowed",
+      value: borrowed
+        ? `${formatAssetAmount(borrowed.amount, borrowed.symbol)} (${formatUsd(borrowed.valueUsd)})`
+        : "N/A",
+    },
+    { label: "Health factor", value: healthFactor },
+    {
+      label: "Receipt",
+      value: (
+        <ExternalLink
+          className="justify-end font-mono"
+          href={getStellarExpertTxUrl(position.receiptHash)}
+        >
+          <PrivateValue className="truncate">
+            {shortHash(position.receiptHash)}
+          </PrivateValue>
+        </ExternalLink>
+      ),
+    },
+  ]
 
   return (
-    <section className="rounded-lg border bg-background/72 p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h3 className="font-medium text-sm">Position open</h3>
-          <p className="mt-1 text-muted-foreground text-xs">
-            {position.market}
-          </p>
-        </div>
-        <Badge variant="success">{position.status}</Badge>
-      </div>
-      <div className="mt-3 grid gap-2 text-sm">
-        <PositionRow
-          label="Supplied"
-          value={
-            supplied
-              ? `${formatAssetAmount(supplied.amount, supplied.symbol)} (${formatUsd(supplied.valueUsd)})`
-              : "N/A"
-          }
-        />
-        <PositionRow
-          label="Borrowed"
-          value={
-            borrowed
-              ? `${formatAssetAmount(borrowed.amount, borrowed.symbol)} (${formatUsd(borrowed.valueUsd)})`
-              : "N/A"
-          }
-        />
-        <PositionRow
-          label="Health factor"
-          value={
-            position.healthFactor === null
-              ? "N/A"
-              : position.healthFactor.toFixed(2)
-          }
-        />
-        <PositionRow label="Receipt" privateValue value={shortHash(position.receiptHash)} />
-      </div>
-    </section>
+    <PositionCard
+      badge={<Badge variant="success">{position.status}</Badge>}
+      fields={fields}
+      subtitle={position.market}
+      title="Position open"
+    />
   )
 }
 
 function shortHash(hash: string): string {
   if (hash.length <= 20) return hash
   return `${hash.slice(0, 8)}…${hash.slice(-6)}`
-}
-
-function PositionRow({
-  label,
-  privateValue = false,
-  value,
-}: {
-  label: string
-  privateValue?: boolean
-  value: string
-}): React.ReactElement {
-  return (
-    <div className="flex items-start justify-between gap-3 border-b pb-2 last:border-b-0 last:pb-0">
-      <span className="text-muted-foreground">{label}</span>
-      {privateValue ? (
-        <PrivateValue className="max-w-[60%] text-right font-medium break-words">
-          {value}
-        </PrivateValue>
-      ) : (
-        <span className="max-w-[60%] text-right font-medium break-words">
-          {value}
-        </span>
-      )}
-    </div>
-  )
 }
 
 function getTimelineRows(
