@@ -377,6 +377,26 @@ export interface Client {
   deposit_next_index: ({asset}: {asset: string}, options?: MethodOptions) => Promise<AssembledTransaction<u64>>
 
   /**
+   * Construct and simulate a liquidate_shielded transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   * Shielded liquidation. Permissionless — any caller who holds the
+   * memo openings for an underwater loan can burn its nullifier.
+   * Contract cross-checks the 3 bond commitments in the proof match
+   * the stored `LiquidationBond` and enforces the risk-params
+   * threshold. No bounty payout in v1: pool simply retains the
+   * unclaimed collateral. See docs/liquidation-design.md.
+   * 
+   * Public signals:
+   * [0] loan_commitment
+   * [1] borrow_amount_commit
+   * [2] collateral_value_commit
+   * [3] borrow_price_commit
+   * [4] current_price
+   * [5] threshold_bps
+   * [6] loan_nullifier
+   */
+  liquidate_shielded: ({liquidator, borrow_asset, proof}: {liquidator: string, borrow_asset: string, proof: BorrowProof}, options?: MethodOptions) => Promise<AssembledTransaction<Result<void>>>
+
+  /**
    * Construct and simulate a reflector_contract transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    */
   reflector_contract: (options?: MethodOptions) => Promise<AssembledTransaction<Option<string>>>
@@ -475,6 +495,7 @@ export class Client extends ContractClient {
         "AAAAAAAAAAAAAAAQbGlxdWlkYXRpb25fYm9uZAAAAAEAAAAAAAAAD2xvYW5fY29tbWl0bWVudAAAAAPuAAAAIAAAAAEAAAPoAAAH0AAAAA9MaXF1aWRhdGlvbkJvbmQA",
         "AAAAAAAAAQhCdXJuIG9uZSBkZXBvc2l0IG5vdGUgdmlhIHprIHByb29mLCByZWxlYXNlIHRoZSBmaXhlZApkZW5vbWluYXRpb24gdG8gYHRvYC4gUHJvdmVyIHNob3dzIE1lcmtsZSBpbmNsdXNpb24gYXQgdGhlCmN1cnJlbnQgZGVwb3NpdF9yb290IHBsdXMgYSB2YWxpZCBudWxsaWZpZXIgc28gdGhlIGNvbnRyYWN0CmNhbiBibG9jayByZXVzZS4KClB1YmxpYyBzaWduYWxzIG9yZGVyOiBbYXNzZXRfdGFnLCBkZW5vbWluYXRpb24sIGRlcG9zaXRfcm9vdCwKbnVsbGlmaWVyXS4AAAARd2l0aGRyYXdfc2hpZWxkZWQAAAAAAAADAAAAAAAAAAJ0bwAAAAAAEwAAAAAAAAAFYXNzZXQAAAAAAAARAAAAAAAAAAVwcm9vZgAAAAAAB9AAAAALQm9ycm93UHJvb2YAAAAAAQAAA+kAAAPtAAAAAAAAAAM=",
         "AAAAAAAAAAAAAAASZGVwb3NpdF9uZXh0X2luZGV4AAAAAAABAAAAAAAAAAVhc3NldAAAAAAAABEAAAABAAAABg==",
+        "AAAAAAAAAhJTaGllbGRlZCBsaXF1aWRhdGlvbi4gUGVybWlzc2lvbmxlc3Mg4oCUIGFueSBjYWxsZXIgd2hvIGhvbGRzIHRoZQptZW1vIG9wZW5pbmdzIGZvciBhbiB1bmRlcndhdGVyIGxvYW4gY2FuIGJ1cm4gaXRzIG51bGxpZmllci4KQ29udHJhY3QgY3Jvc3MtY2hlY2tzIHRoZSAzIGJvbmQgY29tbWl0bWVudHMgaW4gdGhlIHByb29mIG1hdGNoCnRoZSBzdG9yZWQgYExpcXVpZGF0aW9uQm9uZGAgYW5kIGVuZm9yY2VzIHRoZSByaXNrLXBhcmFtcwp0aHJlc2hvbGQuIE5vIGJvdW50eSBwYXlvdXQgaW4gdjE6IHBvb2wgc2ltcGx5IHJldGFpbnMgdGhlCnVuY2xhaW1lZCBjb2xsYXRlcmFsLiBTZWUgZG9jcy9saXF1aWRhdGlvbi1kZXNpZ24ubWQuCgpQdWJsaWMgc2lnbmFsczoKWzBdIGxvYW5fY29tbWl0bWVudApbMV0gYm9ycm93X2Ftb3VudF9jb21taXQKWzJdIGNvbGxhdGVyYWxfdmFsdWVfY29tbWl0ClszXSBib3Jyb3dfcHJpY2VfY29tbWl0Cls0XSBjdXJyZW50X3ByaWNlCls1XSB0aHJlc2hvbGRfYnBzCls2XSBsb2FuX251bGxpZmllcgAAAAAAEmxpcXVpZGF0ZV9zaGllbGRlZAAAAAAAAwAAAAAAAAAKbGlxdWlkYXRvcgAAAAAAEwAAAAAAAAAMYm9ycm93X2Fzc2V0AAAAEQAAAAAAAAAFcHJvb2YAAAAAAAfQAAAAC0JvcnJvd1Byb29mAAAAAAEAAAPpAAAD7QAAAAAAAAAD",
         "AAAAAAAAAAAAAAAScmVmbGVjdG9yX2NvbnRyYWN0AAAAAAAAAAAAAQAAA+gAAAAT",
         "AAAAAAAAAAAAAAATaW5pdGlhbGl6ZV9zaGllbGRlZAAAAAADAAAAAAAAAAlyZWZsZWN0b3IAAAAAAAATAAAAAAAAAARyYXRlAAAH0AAAAApSYXRlUGFyYW1zAAAAAAAAAAAABHJpc2sAAAfQAAAAClJpc2tQYXJhbXMAAAAAAAEAAAPpAAAD7QAAAAAAAAAD",
         "AAAAAAAAAAAAAAAUcG9zaXRpb25zX2J5X2FjY291bnQAAAABAAAAAAAAAAdhY2NvdW50AAAAABMAAAABAAAD6gAAB9AAAAANQm9ycm93UmVjZWlwdAAAAA==",
@@ -520,6 +541,7 @@ export class Client extends ContractClient {
         liquidation_bond: this.txFromJSON<Option<LiquidationBond>>,
         withdraw_shielded: this.txFromJSON<Result<void>>,
         deposit_next_index: this.txFromJSON<u64>,
+        liquidate_shielded: this.txFromJSON<Result<void>>,
         reflector_contract: this.txFromJSON<Option<string>>,
         initialize_shielded: this.txFromJSON<Result<void>>,
         positions_by_account: this.txFromJSON<Array<BorrowReceipt>>,

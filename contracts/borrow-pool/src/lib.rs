@@ -8,6 +8,7 @@ use soroban_sdk::{
 
 mod borrow_verifier;
 mod deposit_verifier;
+mod liquidate_verifier;
 mod merkle;
 mod notes;
 mod poseidon;
@@ -129,6 +130,7 @@ const BORROW_EVENT: Symbol = symbol_short!("borrow");
 const REPAY_EVENT: Symbol = symbol_short!("repay");
 const DEPOSIT_EVENT: Symbol = symbol_short!("deposit");
 const WITHDRAW_EVENT: Symbol = symbol_short!("withdraw");
+const LIQUIDATE_EVENT: Symbol = symbol_short!("liquidat");
 
 #[contract]
 pub struct BorrowPool;
@@ -806,6 +808,98 @@ impl BorrowPool {
         env.events().publish(
             (REPAY_EVENT, asset.clone()),
             (loan_nul_bytes, dep_nul_bytes, from.clone()),
+        );
+        Ok(())
+    }
+
+    /// Shielded liquidation. Permissionless — any caller who holds the
+    /// memo openings for an underwater loan can burn its nullifier.
+    /// Contract cross-checks the 3 bond commitments in the proof match
+    /// the stored `LiquidationBond` and enforces the risk-params
+    /// threshold. No bounty payout in v1: pool simply retains the
+    /// unclaimed collateral. See docs/liquidation-design.md.
+    ///
+    /// Public signals:
+    ///   [0] loan_commitment
+    ///   [1] borrow_amount_commit
+    ///   [2] collateral_value_commit
+    ///   [3] borrow_price_commit
+    ///   [4] current_price
+    ///   [5] threshold_bps
+    ///   [6] loan_nullifier
+    pub fn liquidate_shielded(
+        env: Env,
+        liquidator: Address,
+        borrow_asset: Symbol,
+        proof: BorrowProof,
+    ) -> Result<(), Error> {
+        liquidator.require_auth();
+
+        if proof.public_signals.len() != 7 {
+            return Err(Error::InvalidProof);
+        }
+        let loan_commit_fr = proof.public_signals.get(0).unwrap();
+        let borrow_amount_commit_fr = proof.public_signals.get(1).unwrap();
+        let collateral_value_commit_fr = proof.public_signals.get(2).unwrap();
+        let borrow_price_commit_fr = proof.public_signals.get(3).unwrap();
+        let threshold_fr = proof.public_signals.get(5).unwrap();
+        let nullifier_fr = proof.public_signals.get(6).unwrap();
+
+        let loan_commit_bytes = loan_commit_fr.to_bytes();
+        let bond = state::liquidation_bond(&env, &loan_commit_bytes)
+            .ok_or(Error::InvalidProof)?;
+
+        if bond.borrow_amount_commit != borrow_amount_commit_fr.to_bytes()
+            || bond.collateral_value_commit != collateral_value_commit_fr.to_bytes()
+            || bond.borrow_price_commit != borrow_price_commit_fr.to_bytes()
+        {
+            return Err(Error::InvalidProof);
+        }
+
+        let expected_borrow_tag =
+            notes::asset_tag(&env, &borrow_asset).ok_or(Error::AssetUnknown)?;
+        if bond.borrow_asset_tag != expected_borrow_tag {
+            return Err(Error::DenominationMismatch);
+        }
+
+        let risk = state::risk_params(&env).ok_or(Error::NotInitialized)?;
+        if fr_to_u32(&threshold_fr) != risk.liquidation_threshold_bps {
+            return Err(Error::InvalidProof);
+        }
+
+        let now = env.ledger().timestamp();
+        if proof.oracle_epoch + MAX_ORACLE_AGE_SECS < now {
+            return Err(Error::StaleOracle);
+        }
+        if proof.oracle_epoch > now + ORACLE_FUTURE_SKEW_SECS {
+            return Err(Error::StaleOracle);
+        }
+
+        let nullifier_bytes = nullifier_fr.to_bytes();
+        if state::nullifier_used(&env, &nullifier_bytes) {
+            return Err(Error::ProofReplayed);
+        }
+
+        if !liquidate_verifier::verify_groth16(
+            &env,
+            proof.a.clone(),
+            proof.b.clone(),
+            proof.c.clone(),
+            proof.public_signals.clone(),
+        ) {
+            return Err(Error::InvalidProof);
+        }
+
+        state::mark_nullifier_used(&env, &nullifier_bytes);
+        state::set_total_borrow(
+            &env,
+            &borrow_asset,
+            state::total_borrow(&env, &borrow_asset).saturating_sub(1),
+        );
+
+        env.events().publish(
+            (LIQUIDATE_EVENT, borrow_asset.clone()),
+            (loan_commit_bytes, nullifier_bytes, liquidator.clone()),
         );
         Ok(())
     }
