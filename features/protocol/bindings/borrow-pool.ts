@@ -276,6 +276,24 @@ export interface Client {
   admin_transfer: ({new_admin}: {new_admin: string}, options?: MethodOptions) => Promise<AssembledTransaction<Result<void>>>
 
   /**
+   * Construct and simulate a borrow_shielded transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   * Shielded borrow. Consumes N=4 collateral notes via nullifiers,
+   * appends a new loan-note commitment to the loan tree, emits an
+   * encrypted memo attaching the note metadata for the borrower.
+   * 
+   * Public signals order (must match the borrow circuit):
+   * [0]     borrow_amount
+   * [1]     borrow_asset_tag
+   * [2]     collateral_asset_tag
+   * [3]     hf_min_bps
+   * [4]     max_ltv_bps
+   * [5]     deposit_root
+   * [6]     borrow_commitment
+   * [7..11] nullifiers[0..4]
+   */
+  borrow_shielded: ({from, collateral_asset, borrow_asset, proof, memo}: {from: string, collateral_asset: string, borrow_asset: string, proof: BorrowProof, memo: Buffer}, options?: MethodOptions) => Promise<AssembledTransaction<Result<u64>>>
+
+  /**
    * Construct and simulate a liquidity_index transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    */
   liquidity_index: ({asset}: {asset: string}, options?: MethodOptions) => Promise<AssembledTransaction<IndexSnapshot>>
@@ -378,6 +396,7 @@ export class Client extends ContractClient {
         "AAAAAQAAAAAAAAAAAAAAC0JvcnJvd1Byb29mAAAAAAUAAAA3R3JvdGgxNiBwcm9vZiBvdmVyIEJMUzEyLTM4MTogQSAoRzEpICsgQiAoRzIpICsgQyAoRzEpLgAAAAABYQAAAAAAA+4AAABgAAAAAAAAAAFiAAAAAAAD7gAAAMAAAAAAAAAAAWMAAAAAAAPuAAAAYAAAAG1PcmFjbGUgZXBvY2ggdGhlIHByb29mIHdhcyBnZW5lcmF0ZWQgYWdhaW5zdC4gQ3Jvc3MtY2hlY2sgYWdhaW5zdAp0aGUgY3VycmVudCBsZWRnZXIgdGltZXN0YW1wIGZvciBmcmVzaG5lc3MuAAAAAAAADG9yYWNsZV9lcG9jaAAAAAYAAAB7UHVibGljIHNpZ25hbHMgaW4gY2lyY3VpdC1kZWNsYXJhdGlvbiBvcmRlciBmb2xsb3dlZCBieSB0aGUKcHVibGljIG91dHB1dCAoYG9yYWNsZV9wcmljZV9jb21taXRtZW50YCkg4oCUIHRvdGFsIDExIGVudHJpZXMuAAAAAA5wdWJsaWNfc2lnbmFscwAAAAAD6gAAAAw=",
         "AAAAAAAAAFpBZG1pbi1nYXRlZCBvd25lcnNoaXAgdHJhbnNmZXIuIE5ldyBhZG1pbiB0YWtlcyBvdmVyCmByZWdpc3Rlcl9tYXJrZXRgICsgYHVwZ3JhZGVgIHJpZ2h0cy4AAAAAAA5hZG1pbl90cmFuc2ZlcgAAAAAAAQAAAAAAAAAJbmV3X2FkbWluAAAAAAAAEwAAAAEAAAPpAAAD7QAAAAAAAAAD",
         "AAAAAQAAAQZQaGFzZS0xIHByaXZhY3k6IGFtb3VudCBmaWVsZHMgbW92ZWQgdG8gY2lyY3VpdC1wcml2YXRlIHdpdG5lc3MuCkNoYWluIG5vIGxvbmdlciBzZWVzIHRoZSByYXcgYm9ycm93IC8gY29sbGF0ZXJhbCBhbW91bnRzIOKAlCBvbmx5IHRoZQpwb2xpY3kgdGhyZXNob2xkcywgbWFya2V0IGNvbnRleHQsIGFuZCBhY2NvdW50IChzdGlsbCB2aXNpYmxlIHZpYQp0eCBzb3VyY2UgYXV0aCkuIFBoYXNlIDIgd2lsbCBzd2FwIGBhY2NvdW50YCBmb3IgYSBudWxsaWZpZXIuAAAAAAAAAAAADEJvcnJvd0ludGVudAAAAAgAAAAAAAAAB2FjY291bnQAAAAAEwAAAAAAAAANYm9ycm93X3N5bWJvbAAAAAAAABEAAAAAAAAAEWNvbGxhdGVyYWxfc3ltYm9sAAAAAAAAEQAAAAAAAAAKZXhwaXJlc19hdAAAAAAABgAAAAAAAAARaGVhbHRoX2ZhY3Rvcl9icHMAAAAAAAAEAAAAAAAAAAZtYXJrZXQAAAAAABEAAAAAAAAAC21heF9sdHZfYnBzAAAAAAQAAAAAAAAACHByb29mX2lkAAAD7gAAACA=",
+        "AAAAAAAAAatTaGllbGRlZCBib3Jyb3cuIENvbnN1bWVzIE49NCBjb2xsYXRlcmFsIG5vdGVzIHZpYSBudWxsaWZpZXJzLAphcHBlbmRzIGEgbmV3IGxvYW4tbm90ZSBjb21taXRtZW50IHRvIHRoZSBsb2FuIHRyZWUsIGVtaXRzIGFuCmVuY3J5cHRlZCBtZW1vIGF0dGFjaGluZyB0aGUgbm90ZSBtZXRhZGF0YSBmb3IgdGhlIGJvcnJvd2VyLgoKUHVibGljIHNpZ25hbHMgb3JkZXIgKG11c3QgbWF0Y2ggdGhlIGJvcnJvdyBjaXJjdWl0KToKWzBdICAgICBib3Jyb3dfYW1vdW50ClsxXSAgICAgYm9ycm93X2Fzc2V0X3RhZwpbMl0gICAgIGNvbGxhdGVyYWxfYXNzZXRfdGFnClszXSAgICAgaGZfbWluX2JwcwpbNF0gICAgIG1heF9sdHZfYnBzCls1XSAgICAgZGVwb3NpdF9yb290Cls2XSAgICAgYm9ycm93X2NvbW1pdG1lbnQKWzcuLjExXSBudWxsaWZpZXJzWzAuLjRdAAAAAA9ib3Jyb3dfc2hpZWxkZWQAAAAABQAAAAAAAAAEZnJvbQAAABMAAAAAAAAAEGNvbGxhdGVyYWxfYXNzZXQAAAARAAAAAAAAAAxib3Jyb3dfYXNzZXQAAAARAAAAAAAAAAVwcm9vZgAAAAAAB9AAAAALQm9ycm93UHJvb2YAAAAAAAAAAARtZW1vAAAADgAAAAEAAAPpAAAABgAAAAM=",
         "AAAAAAAAAAAAAAAPbGlxdWlkaXR5X2luZGV4AAAAAAEAAAAAAAAABWFzc2V0AAAAAAAAEQAAAAEAAAfQAAAADUluZGV4U25hcHNob3QAAAA=",
         "AAAAAAAAAAAAAAAPbG9hbl9uZXh0X2luZGV4AAAAAAEAAAAAAAAABWFzc2V0AAAAAAAAEQAAAAEAAAAG",
         "AAAAAAAAAGdBZG1pbi1nYXRlZC4gQXBwZW5kcyBgbWFya2V0YCB0byB0aGUgcmVnaXN0cnkg4oCUIG5vLW9wIGlmIGEKbWFya2V0IHdpdGggdGhlIHNhbWUgYGtleWAgYWxyZWFkeSBleGlzdHMuAAAAAA9yZWdpc3Rlcl9tYXJrZXQAAAAAAQAAAAAAAAAGbWFya2V0AAAAAAfQAAAACk1hcmtldE1ldGEAAAAAAAEAAAPpAAAD7QAAAAAAAAAD",
@@ -417,6 +436,7 @@ export class Client extends ContractClient {
         total_borrow: this.txFromJSON<u128>,
         total_deposit: this.txFromJSON<u128>,
         admin_transfer: this.txFromJSON<Result<void>>,
+        borrow_shielded: this.txFromJSON<Result<u64>>,
         liquidity_index: this.txFromJSON<IndexSnapshot>,
         loan_next_index: this.txFromJSON<u64>,
         register_market: this.txFromJSON<Result<void>>,

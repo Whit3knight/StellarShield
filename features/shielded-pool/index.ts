@@ -20,3 +20,9 @@ export {
   fetchDepositWitnesses,
   type WithdrawWitness,
 } from "./withdraw-tree"
+export {
+  proveBorrow,
+  validateCollateralNotes,
+  type BorrowProofInputs,
+  type BorrowProofResult,
+} from "./borrow-prover"

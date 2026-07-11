@@ -6,6 +6,7 @@ use soroban_sdk::{
     symbol_short, Address, BytesN, Env, Symbol, Vec,
 };
 
+mod borrow_verifier;
 mod deposit_verifier;
 mod merkle;
 mod notes;
@@ -452,6 +453,150 @@ impl BorrowPool {
             (nullifier_bytes.clone(), to.clone()),
         );
         Ok(())
+    }
+
+    /// Shielded borrow. Consumes N=4 collateral notes via nullifiers,
+    /// appends a new loan-note commitment to the loan tree, emits an
+    /// encrypted memo attaching the note metadata for the borrower.
+    ///
+    /// Public signals order (must match the borrow circuit):
+    ///   [0]     borrow_amount
+    ///   [1]     borrow_asset_tag
+    ///   [2]     collateral_asset_tag
+    ///   [3]     hf_min_bps
+    ///   [4]     max_ltv_bps
+    ///   [5]     deposit_root
+    ///   [6]     borrow_commitment
+    ///   [7..11] nullifiers[0..4]
+    pub fn borrow_shielded(
+        env: Env,
+        from: Address,
+        collateral_asset: Symbol,
+        borrow_asset: Symbol,
+        proof: BorrowProof,
+        memo: soroban_sdk::Bytes,
+    ) -> Result<u64, Error> {
+        from.require_auth();
+
+        if proof.public_signals.len() != 11 {
+            return Err(Error::InvalidProof);
+        }
+        let borrow_amount_fr = proof.public_signals.get(0).unwrap();
+        let borrow_tag_fr = proof.public_signals.get(1).unwrap();
+        let collateral_tag_fr = proof.public_signals.get(2).unwrap();
+        let hf_min_fr = proof.public_signals.get(3).unwrap();
+        let max_ltv_fr = proof.public_signals.get(4).unwrap();
+        let deposit_root_fr = proof.public_signals.get(5).unwrap();
+        let borrow_commit_fr = proof.public_signals.get(6).unwrap();
+
+        // Asset + risk parameter cross-check. Contract's stored risk
+        // params dictate what the proof MUST have used; the circuit
+        // treats them as public inputs so the caller can't manufacture
+        // a friendlier LTV.
+        let expected_borrow_tag =
+            notes::asset_tag(&env, &borrow_asset).ok_or(Error::AssetUnknown)?;
+        let expected_collateral_tag = notes::asset_tag(&env, &collateral_asset)
+            .ok_or(Error::AssetUnknown)?;
+        if fr_to_u32(&borrow_tag_fr) != expected_borrow_tag {
+            return Err(Error::DenominationMismatch);
+        }
+        if fr_to_u32(&collateral_tag_fr) != expected_collateral_tag {
+            return Err(Error::DenominationMismatch);
+        }
+
+        let risk = state::risk_params(&env).ok_or(Error::NotInitialized)?;
+        if fr_to_u32(&hf_min_fr) != risk.hf_min_bps {
+            return Err(Error::InvalidProof);
+        }
+        if fr_to_u32(&max_ltv_fr) != risk.max_ltv_bps {
+            return Err(Error::InvalidProof);
+        }
+
+        // Deposit root sanity: must match the current on-chain state.
+        let stored_root = state::deposit_root(&env, &collateral_asset)
+            .ok_or(Error::InvalidProof)?;
+        if stored_root != deposit_root_fr.to_bytes() {
+            return Err(Error::InvalidProof);
+        }
+
+        // Nullifier freshness: all four must be unused.
+        let mut nullifier_bytes: [soroban_sdk::BytesN<32>; 4] = [
+            proof.public_signals.get(7).unwrap().to_bytes(),
+            proof.public_signals.get(8).unwrap().to_bytes(),
+            proof.public_signals.get(9).unwrap().to_bytes(),
+            proof.public_signals.get(10).unwrap().to_bytes(),
+        ];
+        for null in nullifier_bytes.iter() {
+            if state::nullifier_used(&env, null) {
+                return Err(Error::ProofReplayed);
+            }
+        }
+        // Reject duplicate nullifiers within the same proof — the
+        // circuit doesn't range-check indices, so a prover could try
+        // to double-spend one note across two of the four slots.
+        for i in 0..nullifier_bytes.len() {
+            for j in (i + 1)..nullifier_bytes.len() {
+                if nullifier_bytes[i] == nullifier_bytes[j] {
+                    return Err(Error::ProofReplayed);
+                }
+            }
+        }
+
+        if !borrow_verifier::verify_groth16(
+            &env,
+            proof.a.clone(),
+            proof.b.clone(),
+            proof.c.clone(),
+            proof.public_signals.clone(),
+        ) {
+            return Err(Error::InvalidProof);
+        }
+
+        for null in nullifier_bytes.iter_mut() {
+            state::mark_nullifier_used(&env, null);
+        }
+
+        // Append the new loan-note commitment to the loan tree for
+        // `borrow_asset` and persist the updated frontier + root.
+        let next_index = state::loan_next_index(&env, &borrow_asset);
+        let capacity = 1u64 << (merkle::DEPTH as u64);
+        if next_index >= capacity {
+            return Err(Error::TreeCapacityExceeded);
+        }
+
+        let mut frontier_arr =
+            load_frontier(&env, state::loan_frontier(&env, &borrow_asset));
+        let leaf = borrow_commit_fr.clone();
+        let new_root = merkle::append(&env, &leaf, &mut frontier_arr, next_index);
+
+        state::set_loan_frontier(&env, &borrow_asset, &frontier_to_vec(&env, &frontier_arr));
+        state::set_loan_root(&env, &borrow_asset, &new_root.to_bytes());
+        state::set_loan_next_index(&env, &borrow_asset, next_index + 1);
+
+        // Aggregate accounting.
+        state::set_total_deposit(
+            &env,
+            &collateral_asset,
+            state::total_deposit(&env, &collateral_asset).saturating_sub(4),
+        );
+        state::set_total_borrow(
+            &env,
+            &borrow_asset,
+            state::total_borrow(&env, &borrow_asset).saturating_add(1),
+        );
+        rate::accrue_borrow_index(&env, &borrow_asset);
+
+        let borrow_amount_native = fr_to_i128(&borrow_amount_fr);
+        // Silence unused-var lint until the borrow event carries this
+        // downstream — right now it's redundant with what the memo
+        // encrypts, and public amount would defeat the whole point.
+        let _ = borrow_amount_native;
+
+        env.events().publish(
+            (BORROW_EVENT, collateral_asset.clone(), borrow_asset.clone()),
+            (next_index, new_root.to_bytes(), leaf.to_bytes(), memo),
+        );
+        Ok(next_index)
     }
 }
 
