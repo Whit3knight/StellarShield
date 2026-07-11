@@ -40,7 +40,7 @@ if (typeof window !== "undefined") {
 export const networks = {
   testnet: {
     networkPassphrase: "Test SDF Network ; September 2015",
-    contractId: "CBN74SFJX2E5WJYXT7JCHJKDGXVXTH6M2U3NUENOVZZISRU5BSDILSUE",
+    contractId: "CCZRYWEPMWCTLCY6DQXV3OHJFO2AE4SZAV7EHQZRW7EG6IVLU3SD2MNV",
   }
 } as const
 
@@ -49,7 +49,23 @@ export const Errors = {
   2: {message:"ProofReplayed"},
   3: {message:"Reserved3"},
   4: {message:"StaleOracle"},
-  5: {message:"InvalidProof"}
+  5: {message:"InvalidProof"},
+  6: {message:"Unauthorized"},
+  7: {message:"AlreadyInitialized"},
+  8: {message:"NotInitialized"},
+  9: {message:"MarketExists"}
+}
+
+
+/**
+ * Static metadata for a market pair. Registered by the admin at
+ * deploy time or via `register_market`. Amount thresholds and rate
+ * curves stay off-chain until interest accrual lands.
+ */
+export interface MarketMeta {
+  borrow_symbol: string;
+  collateral_symbol: string;
+  key: string;
 }
 
 
@@ -107,14 +123,47 @@ export interface BorrowReceipt {
 
 export interface Client {
   /**
+   * Construct and simulate a admin transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   */
+  admin: (options?: MethodOptions) => Promise<AssembledTransaction<Option<string>>>
+
+  /**
    * Construct and simulate a borrow transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    */
   borrow: ({intent, proof}: {intent: BorrowIntent, proof: BorrowProof}, options?: MethodOptions) => Promise<AssembledTransaction<Result<BorrowReceipt>>>
 
   /**
    * Construct and simulate a position transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   * Latest receipt for `account`. Returns the most recent entry
+   * from the per-account index; `None` if the account has never
+   * borrowed. Kept for back-compat with the drawer's single-slot
+   * path — new consumers should call `positions_by_account`.
    */
   position: ({account}: {account: string}, options?: MethodOptions) => Promise<AssembledTransaction<Option<BorrowReceipt>>>
+
+  /**
+   * Construct and simulate a initialize transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   * One-shot init. Admin is the only principal allowed to register
+   * markets. Deploy scripts call this immediately after upload.
+   */
+  initialize: ({admin}: {admin: string}, options?: MethodOptions) => Promise<AssembledTransaction<Result<void>>>
+
+  /**
+   * Construct and simulate a list_markets transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   */
+  list_markets: (options?: MethodOptions) => Promise<AssembledTransaction<Array<MarketMeta>>>
+
+  /**
+   * Construct and simulate a register_market transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   * Admin-gated. Appends `market` to the registry — no-op if a
+   * market with the same `key` already exists.
+   */
+  register_market: ({market}: {market: MarketMeta}, options?: MethodOptions) => Promise<AssembledTransaction<Result<void>>>
+
+  /**
+   * Construct and simulate a positions_by_account transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   */
+  positions_by_account: ({account}: {account: string}, options?: MethodOptions) => Promise<AssembledTransaction<Array<BorrowReceipt>>>
 
 }
 export class Client extends ContractClient {
@@ -134,17 +183,28 @@ export class Client extends ContractClient {
   }
   constructor(public readonly options: ContractClientOptions) {
     super(
-      new ContractSpec([ "AAAAAAAAAAAAAAAGYm9ycm93AAAAAAACAAAAAAAAAAZpbnRlbnQAAAAAB9AAAAAMQm9ycm93SW50ZW50AAAAAAAAAAVwcm9vZgAAAAAAB9AAAAALQm9ycm93UHJvb2YAAAAAAQAAA+kAAAfQAAAADUJvcnJvd1JlY2VpcHQAAAAAAAAD",
-        "AAAABAAAAAAAAAAAAAAABUVycm9yAAAAAAAABQAAAAAAAAANSW50ZW50RXhwaXJlZAAAAAAAAAEAAAAAAAAADVByb29mUmVwbGF5ZWQAAAAAAAACAAAAAAAAAAlSZXNlcnZlZDMAAAAAAAADAAAAAAAAAAtTdGFsZU9yYWNsZQAAAAAEAAAAAAAAAAxJbnZhbGlkUHJvb2YAAAAF",
-        "AAAAAAAAAAAAAAAIcG9zaXRpb24AAAABAAAAAAAAAAdhY2NvdW50AAAAABMAAAABAAAD6AAAB9AAAAANQm9ycm93UmVjZWlwdAAAAA==",
+      new ContractSpec([ "AAAAAAAAAAAAAAAFYWRtaW4AAAAAAAAAAAAAAQAAA+gAAAAT",
+        "AAAAAAAAAAAAAAAGYm9ycm93AAAAAAACAAAAAAAAAAZpbnRlbnQAAAAAB9AAAAAMQm9ycm93SW50ZW50AAAAAAAAAAVwcm9vZgAAAAAAB9AAAAALQm9ycm93UHJvb2YAAAAAAQAAA+kAAAfQAAAADUJvcnJvd1JlY2VpcHQAAAAAAAAD",
+        "AAAABAAAAAAAAAAAAAAABUVycm9yAAAAAAAACQAAAAAAAAANSW50ZW50RXhwaXJlZAAAAAAAAAEAAAAAAAAADVByb29mUmVwbGF5ZWQAAAAAAAACAAAAAAAAAAlSZXNlcnZlZDMAAAAAAAADAAAAAAAAAAtTdGFsZU9yYWNsZQAAAAAEAAAAAAAAAAxJbnZhbGlkUHJvb2YAAAAFAAAAAAAAAAxVbmF1dGhvcml6ZWQAAAAGAAAAAAAAABJBbHJlYWR5SW5pdGlhbGl6ZWQAAAAAAAcAAAAAAAAADk5vdEluaXRpYWxpemVkAAAAAAAIAAAAAAAAAAxNYXJrZXRFeGlzdHMAAAAJ",
+        "AAAAAAAAAO9MYXRlc3QgcmVjZWlwdCBmb3IgYGFjY291bnRgLiBSZXR1cm5zIHRoZSBtb3N0IHJlY2VudCBlbnRyeQpmcm9tIHRoZSBwZXItYWNjb3VudCBpbmRleDsgYE5vbmVgIGlmIHRoZSBhY2NvdW50IGhhcyBuZXZlcgpib3Jyb3dlZC4gS2VwdCBmb3IgYmFjay1jb21wYXQgd2l0aCB0aGUgZHJhd2VyJ3Mgc2luZ2xlLXNsb3QKcGF0aCDigJQgbmV3IGNvbnN1bWVycyBzaG91bGQgY2FsbCBgcG9zaXRpb25zX2J5X2FjY291bnRgLgAAAAAIcG9zaXRpb24AAAABAAAAAAAAAAdhY2NvdW50AAAAABMAAAABAAAD6AAAB9AAAAANQm9ycm93UmVjZWlwdAAAAA==",
+        "AAAAAAAAAHpPbmUtc2hvdCBpbml0LiBBZG1pbiBpcyB0aGUgb25seSBwcmluY2lwYWwgYWxsb3dlZCB0byByZWdpc3RlcgptYXJrZXRzLiBEZXBsb3kgc2NyaXB0cyBjYWxsIHRoaXMgaW1tZWRpYXRlbHkgYWZ0ZXIgdXBsb2FkLgAAAAAACmluaXRpYWxpemUAAAAAAAEAAAAAAAAABWFkbWluAAAAAAAAEwAAAAEAAAPpAAAD7QAAAAAAAAAD",
+        "AAAAAAAAAAAAAAAMbGlzdF9tYXJrZXRzAAAAAAAAAAEAAAPqAAAH0AAAAApNYXJrZXRNZXRhAAA=",
+        "AAAAAQAAALJTdGF0aWMgbWV0YWRhdGEgZm9yIGEgbWFya2V0IHBhaXIuIFJlZ2lzdGVyZWQgYnkgdGhlIGFkbWluIGF0CmRlcGxveSB0aW1lIG9yIHZpYSBgcmVnaXN0ZXJfbWFya2V0YC4gQW1vdW50IHRocmVzaG9sZHMgYW5kIHJhdGUKY3VydmVzIHN0YXkgb2ZmLWNoYWluIHVudGlsIGludGVyZXN0IGFjY3J1YWwgbGFuZHMuAAAAAAAAAAAACk1hcmtldE1ldGEAAAAAAAMAAAAAAAAADWJvcnJvd19zeW1ib2wAAAAAAAARAAAAAAAAABFjb2xsYXRlcmFsX3N5bWJvbAAAAAAAABEAAAAAAAAAA2tleQAAAAAR",
         "AAAAAQAAAAAAAAAAAAAAC0JvcnJvd1Byb29mAAAAAAUAAAA3R3JvdGgxNiBwcm9vZiBvdmVyIEJMUzEyLTM4MTogQSAoRzEpICsgQiAoRzIpICsgQyAoRzEpLgAAAAABYQAAAAAAA+4AAABgAAAAAAAAAAFiAAAAAAAD7gAAAMAAAAAAAAAAAWMAAAAAAAPuAAAAYAAAAG1PcmFjbGUgZXBvY2ggdGhlIHByb29mIHdhcyBnZW5lcmF0ZWQgYWdhaW5zdC4gQ3Jvc3MtY2hlY2sgYWdhaW5zdAp0aGUgY3VycmVudCBsZWRnZXIgdGltZXN0YW1wIGZvciBmcmVzaG5lc3MuAAAAAAAADG9yYWNsZV9lcG9jaAAAAAYAAAB7UHVibGljIHNpZ25hbHMgaW4gY2lyY3VpdC1kZWNsYXJhdGlvbiBvcmRlciBmb2xsb3dlZCBieSB0aGUKcHVibGljIG91dHB1dCAoYG9yYWNsZV9wcmljZV9jb21taXRtZW50YCkg4oCUIHRvdGFsIDExIGVudHJpZXMuAAAAAA5wdWJsaWNfc2lnbmFscwAAAAAD6gAAAAw=",
         "AAAAAQAAAQZQaGFzZS0xIHByaXZhY3k6IGFtb3VudCBmaWVsZHMgbW92ZWQgdG8gY2lyY3VpdC1wcml2YXRlIHdpdG5lc3MuCkNoYWluIG5vIGxvbmdlciBzZWVzIHRoZSByYXcgYm9ycm93IC8gY29sbGF0ZXJhbCBhbW91bnRzIOKAlCBvbmx5IHRoZQpwb2xpY3kgdGhyZXNob2xkcywgbWFya2V0IGNvbnRleHQsIGFuZCBhY2NvdW50IChzdGlsbCB2aXNpYmxlIHZpYQp0eCBzb3VyY2UgYXV0aCkuIFBoYXNlIDIgd2lsbCBzd2FwIGBhY2NvdW50YCBmb3IgYSBudWxsaWZpZXIuAAAAAAAAAAAADEJvcnJvd0ludGVudAAAAAgAAAAAAAAAB2FjY291bnQAAAAAEwAAAAAAAAANYm9ycm93X3N5bWJvbAAAAAAAABEAAAAAAAAAEWNvbGxhdGVyYWxfc3ltYm9sAAAAAAAAEQAAAAAAAAAKZXhwaXJlc19hdAAAAAAABgAAAAAAAAARaGVhbHRoX2ZhY3Rvcl9icHMAAAAAAAAEAAAAAAAAAAZtYXJrZXQAAAAAABEAAAAAAAAAC21heF9sdHZfYnBzAAAAAAQAAAAAAAAACHByb29mX2lkAAAD7gAAACA=",
-        "AAAAAQAAAK9Bbm9ueW1pemVkIHJlY2VpcHQ6IG5vIGJvcnJvdyAvIGNvbGxhdGVyYWwgYW1vdW50cy4gVXNlcnMgc3RvcmUKdGhlaXIgb3duIG51bWJlcnMgY2xpZW50LXNpZGUgKHNlc3Npb24gc3RvcmUpLiBDaGFpbiByZWNvcmRzIG9ubHkKdGhlIGZhY3QgdGhhdCBhIHByb29mLWJhY2tlZCBwb3NpdGlvbiBleGlzdHMuAAAAAAAAAAANQm9ycm93UmVjZWlwdAAAAAAAAAYAAAAAAAAAB2FjY291bnQAAAAAEwAAAAAAAAANYm9ycm93X3N5bWJvbAAAAAAAABEAAAAAAAAAEWNvbGxhdGVyYWxfc3ltYm9sAAAAAAAAEQAAAAAAAAAMY29uZmlybWVkX2F0AAAABgAAAAAAAAAGbWFya2V0AAAAAAARAAAAAAAAAAhwcm9vZl9pZAAAA+4AAAAg" ]),
+        "AAAAAAAAAGdBZG1pbi1nYXRlZC4gQXBwZW5kcyBgbWFya2V0YCB0byB0aGUgcmVnaXN0cnkg4oCUIG5vLW9wIGlmIGEKbWFya2V0IHdpdGggdGhlIHNhbWUgYGtleWAgYWxyZWFkeSBleGlzdHMuAAAAAA9yZWdpc3Rlcl9tYXJrZXQAAAAAAQAAAAAAAAAGbWFya2V0AAAAAAfQAAAACk1hcmtldE1ldGEAAAAAAAEAAAPpAAAD7QAAAAAAAAAD",
+        "AAAAAQAAAK9Bbm9ueW1pemVkIHJlY2VpcHQ6IG5vIGJvcnJvdyAvIGNvbGxhdGVyYWwgYW1vdW50cy4gVXNlcnMgc3RvcmUKdGhlaXIgb3duIG51bWJlcnMgY2xpZW50LXNpZGUgKHNlc3Npb24gc3RvcmUpLiBDaGFpbiByZWNvcmRzIG9ubHkKdGhlIGZhY3QgdGhhdCBhIHByb29mLWJhY2tlZCBwb3NpdGlvbiBleGlzdHMuAAAAAAAAAAANQm9ycm93UmVjZWlwdAAAAAAAAAYAAAAAAAAAB2FjY291bnQAAAAAEwAAAAAAAAANYm9ycm93X3N5bWJvbAAAAAAAABEAAAAAAAAAEWNvbGxhdGVyYWxfc3ltYm9sAAAAAAAAEQAAAAAAAAAMY29uZmlybWVkX2F0AAAABgAAAAAAAAAGbWFya2V0AAAAAAARAAAAAAAAAAhwcm9vZl9pZAAAA+4AAAAg",
+        "AAAAAAAAAAAAAAAUcG9zaXRpb25zX2J5X2FjY291bnQAAAABAAAAAAAAAAdhY2NvdW50AAAAABMAAAABAAAD6gAAB9AAAAANQm9ycm93UmVjZWlwdAAAAA==" ]),
       options
     )
   }
   public readonly fromJSON = {
-    borrow: this.txFromJSON<Result<BorrowReceipt>>,
-        position: this.txFromJSON<Option<BorrowReceipt>>
+    admin: this.txFromJSON<Option<string>>,
+        borrow: this.txFromJSON<Result<BorrowReceipt>>,
+        position: this.txFromJSON<Option<BorrowReceipt>>,
+        initialize: this.txFromJSON<Result<void>>,
+        list_markets: this.txFromJSON<Array<MarketMeta>>,
+        register_market: this.txFromJSON<Result<void>>,
+        positions_by_account: this.txFromJSON<Array<BorrowReceipt>>
   }
 }
