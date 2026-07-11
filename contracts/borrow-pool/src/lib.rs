@@ -8,9 +8,10 @@ use soroban_sdk::{
 
 mod verifier;
 
-// ponytail: skeleton contract. Real pool needs liquidity accounting, oracle
-// price lookups, interest accrual, and repay/liquidate paths. Add each when
-// its economics are pinned down.
+// ponytail: skeleton contract. Real pool needs liquidity accounting, interest
+// accrual, and repay/liquidate paths. Reflector price commitment cross-check
+// stays on the roadmap — recomputing the circuit's Poseidon output on-chain
+// requires either a BLS12-381 Poseidon crate or a circuit switch to SHA256.
 
 /// Maximum age of an oracle epoch relative to the current ledger timestamp.
 /// Proofs whose `oracle_epoch` fall outside this window are rejected as
@@ -62,7 +63,7 @@ pub struct BorrowProof {
 /// their own numbers client-side (session store). Chain records only
 /// the fact that a proof-backed position exists.
 #[contracttype]
-#[derive(Clone)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BorrowReceipt {
     pub account: Address,
     pub proof_id: BytesN<32>,
@@ -72,9 +73,23 @@ pub struct BorrowReceipt {
     pub confirmed_at: u64,
 }
 
+/// Static metadata for a market pair. Registered by the admin at
+/// deploy time or via `register_market`. Amount thresholds and rate
+/// curves stay off-chain until interest accrual lands.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MarketMeta {
+    pub key: Symbol,
+    pub borrow_symbol: Symbol,
+    pub collateral_symbol: Symbol,
+}
+
 #[contracttype]
 enum DataKey {
-    Position(Address),
+    Admin,
+    Markets,
+    Position(Address, BytesN<32>),
+    PositionsByAccount(Address),
     ProofUsed(BytesN<32>),
 }
 
@@ -84,11 +99,13 @@ enum DataKey {
 pub enum Error {
     IntentExpired = 1,
     ProofReplayed = 2,
-    // Phase-1: amount validity is asserted inside the circuit's
-    // private-witness constraints — no chain-side amount error.
     Reserved3 = 3,
     StaleOracle = 4,
     InvalidProof = 5,
+    Unauthorized = 6,
+    AlreadyInitialized = 7,
+    NotInitialized = 8,
+    MarketExists = 9,
 }
 
 const BORROW_EVENT: Symbol = symbol_short!("borrow");
@@ -98,6 +115,49 @@ pub struct BorrowPool;
 
 #[contractimpl]
 impl BorrowPool {
+    /// One-shot init. Admin is the only principal allowed to register
+    /// markets. Deploy scripts call this immediately after upload.
+    pub fn initialize(env: Env, admin: Address) -> Result<(), Error> {
+        let storage = env.storage().instance();
+        if storage.has(&DataKey::Admin) {
+            return Err(Error::AlreadyInitialized);
+        }
+        storage.set(&DataKey::Admin, &admin);
+        Ok(())
+    }
+
+    /// Admin-gated. Appends `market` to the registry — no-op if a
+    /// market with the same `key` already exists.
+    pub fn register_market(env: Env, market: MarketMeta) -> Result<(), Error> {
+        let admin = Self::require_admin(&env)?;
+        admin.require_auth();
+
+        let storage = env.storage().instance();
+        let mut markets: Vec<MarketMeta> =
+            storage.get(&DataKey::Markets).unwrap_or_else(|| Vec::new(&env));
+
+        for existing in markets.iter() {
+            if existing.key == market.key {
+                return Err(Error::MarketExists);
+            }
+        }
+
+        markets.push_back(market);
+        storage.set(&DataKey::Markets, &markets);
+        Ok(())
+    }
+
+    pub fn list_markets(env: Env) -> Vec<MarketMeta> {
+        env.storage()
+            .instance()
+            .get(&DataKey::Markets)
+            .unwrap_or_else(|| Vec::new(&env))
+    }
+
+    pub fn admin(env: Env) -> Option<Address> {
+        env.storage().instance().get(&DataKey::Admin)
+    }
+
     pub fn borrow(
         env: Env,
         intent: BorrowIntent,
@@ -126,9 +186,9 @@ impl BorrowPool {
 
         // Groth16 verify. Public signals order matches the circuit's
         // public inputs (account, market, proof_id, collateral_symbol,
-        // borrow_symbol, collateral_amount, borrow_amount, hf_min_bps,
-        // max_ltv_bps, oracle_epoch) followed by the public output
-        // (oracle_price_commitment).
+        // borrow_symbol, hf_min_bps, max_ltv_bps, oracle_epoch) followed
+        // by the public output (oracle_price_commitment). Amounts moved
+        // to private witness for Phase-1 privacy.
         if !verifier::verify_groth16(
             &env,
             proof.a.clone(),
@@ -139,8 +199,8 @@ impl BorrowPool {
             return Err(Error::InvalidProof);
         }
 
-        let proof_key = DataKey::ProofUsed(intent.proof_id.clone());
         let storage = env.storage().persistent();
+        let proof_key = DataKey::ProofUsed(intent.proof_id.clone());
         if storage.has(&proof_key) {
             return Err(Error::ProofReplayed);
         }
@@ -155,15 +215,64 @@ impl BorrowPool {
             confirmed_at: now,
         };
 
-        storage.set(&DataKey::Position(intent.account.clone()), &receipt);
+        // Position now keyed by (account, proof_id) so each borrow
+        // gets its own storage slot instead of overwriting the prior
+        // receipt.
+        storage.set(
+            &DataKey::Position(intent.account.clone(), intent.proof_id.clone()),
+            &receipt,
+        );
+
+        // Append proof_id to the per-account index so
+        // `positions_by_account` can enumerate without scanning storage.
+        let index_key = DataKey::PositionsByAccount(intent.account.clone());
+        let mut index: Vec<BytesN<32>> = storage
+            .get(&index_key)
+            .unwrap_or_else(|| Vec::new(&env));
+        index.push_back(intent.proof_id.clone());
+        storage.set(&index_key, &index);
+
         env.events().publish((BORROW_EVENT,), receipt.clone());
 
         Ok(receipt)
     }
 
+    /// Latest receipt for `account`. Returns the most recent entry
+    /// from the per-account index; `None` if the account has never
+    /// borrowed. Kept for back-compat with the drawer's single-slot
+    /// path — new consumers should call `positions_by_account`.
     pub fn position(env: Env, account: Address) -> Option<BorrowReceipt> {
+        let storage = env.storage().persistent();
+        let index: Vec<BytesN<32>> = storage
+            .get(&DataKey::PositionsByAccount(account.clone()))
+            .unwrap_or_else(|| Vec::new(&env));
+        let last = index.get(index.len().checked_sub(1)?)?;
+        storage.get(&DataKey::Position(account, last))
+    }
+
+    pub fn positions_by_account(env: Env, account: Address) -> Vec<BorrowReceipt> {
+        let storage = env.storage().persistent();
+        let index: Vec<BytesN<32>> = storage
+            .get(&DataKey::PositionsByAccount(account.clone()))
+            .unwrap_or_else(|| Vec::new(&env));
+
+        let mut out: Vec<BorrowReceipt> = Vec::new(&env);
+        for proof_id in index.iter() {
+            if let Some(receipt) =
+                storage.get::<_, BorrowReceipt>(&DataKey::Position(account.clone(), proof_id))
+            {
+                out.push_back(receipt);
+            }
+        }
+        out
+    }
+}
+
+impl BorrowPool {
+    fn require_admin(env: &Env) -> Result<Address, Error> {
         env.storage()
-            .persistent()
-            .get(&DataKey::Position(account))
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)
     }
 }

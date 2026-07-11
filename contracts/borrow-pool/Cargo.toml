@@ -12,3 +12,9 @@ doctest = false
 
 [dependencies]
 soroban-sdk = { workspace = true }
+
+# ponytail: no soroban-sdk `testutils` dev-dep yet — upstream
+# soroban-env-host 22.1.x pulls in ed25519-dalek 3.0 which fails to
+# build against its rand_core version. Rust unit tests deferred to the
+# integration path (TS + redeployed contract). When soroban-sdk 23
+# lands with the fix, re-add `testutils` and restore src/test.rs.
