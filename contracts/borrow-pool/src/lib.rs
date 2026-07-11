@@ -13,6 +13,7 @@ mod notes;
 mod poseidon;
 mod poseidon_constants;
 mod rate;
+mod repay_verifier;
 mod state;
 mod tokens;
 mod verifier;
@@ -597,6 +598,173 @@ impl BorrowPool {
             (next_index, new_root.to_bytes(), leaf.to_bytes(), memo),
         );
         Ok(next_index)
+    }
+
+    /// Loan-tree variant of withdraw. Same Groth16 circuit as the
+    /// deposit-side withdraw, but the contract checks the caller's
+    /// declared `amount` against the loan tree's root instead of the
+    /// fixed deposit denomination. Payout size is variable (whatever
+    /// the borrow proof committed to), so this DOES leak the loan
+    /// amount publicly on Horizon — accepted trade-off for MVP: chain
+    /// observer sees an unlinkable withdrawal of amount X, no wallet
+    /// linkage to any specific borrow tx.
+    ///
+    /// Public signals order (same as withdraw_shielded):
+    ///   [0] asset_tag
+    ///   [1] amount           (borrow amount minted by borrow_shielded)
+    ///   [2] loan_root
+    ///   [3] nullifier
+    pub fn withdraw_loan_shielded(
+        env: Env,
+        to: Address,
+        asset: Symbol,
+        proof: BorrowProof,
+    ) -> Result<i128, Error> {
+        to.require_auth();
+
+        if proof.public_signals.len() != 4 {
+            return Err(Error::InvalidProof);
+        }
+        let asset_tag_fr = proof.public_signals.get(0).unwrap();
+        let amount_fr = proof.public_signals.get(1).unwrap();
+        let loan_root_fr = proof.public_signals.get(2).unwrap();
+        let nullifier_fr = proof.public_signals.get(3).unwrap();
+
+        let expected_tag =
+            notes::asset_tag(&env, &asset).ok_or(Error::AssetUnknown)?;
+        if fr_to_u32(&asset_tag_fr) != expected_tag {
+            return Err(Error::DenominationMismatch);
+        }
+
+        let amount = fr_to_i128(&amount_fr);
+        if amount <= 0 {
+            return Err(Error::InvalidProof);
+        }
+
+        let stored_root =
+            state::loan_root(&env, &asset).ok_or(Error::InvalidProof)?;
+        if stored_root != loan_root_fr.to_bytes() {
+            return Err(Error::InvalidProof);
+        }
+
+        let nullifier_bytes = nullifier_fr.to_bytes();
+        if state::nullifier_used(&env, &nullifier_bytes) {
+            return Err(Error::ProofReplayed);
+        }
+
+        if !withdraw_verifier::verify_groth16(
+            &env,
+            proof.a.clone(),
+            proof.b.clone(),
+            proof.c.clone(),
+            proof.public_signals.clone(),
+        ) {
+            return Err(Error::InvalidProof);
+        }
+
+        state::mark_nullifier_used(&env, &nullifier_bytes);
+
+        tokens::transfer_out(&env, &asset, &to, amount);
+
+        state::set_total_borrow(
+            &env,
+            &asset,
+            state::total_borrow(&env, &asset).saturating_sub(1),
+        );
+
+        env.events().publish(
+            (WITHDRAW_EVENT, asset.clone(), Symbol::new(&env, "loan")),
+            (nullifier_bytes.clone(), to.clone(), amount),
+        );
+        Ok(amount)
+    }
+
+    /// Shielded repay. Burns one loan note + one same-asset deposit
+    /// note. Circuit enforces `deposit.amount >= loan.amount` so the
+    /// pool is made whole; the delta becomes realized fee. Both
+    /// nullifiers marked used, aggregate borrow + deposit counters
+    /// decremented. No public transfer.
+    ///
+    /// Public signals:
+    ///   [0] asset_tag
+    ///   [1] loan_root
+    ///   [2] deposit_root
+    ///   [3] loan_nullifier
+    ///   [4] deposit_nullifier
+    pub fn repay_shielded(
+        env: Env,
+        from: Address,
+        asset: Symbol,
+        proof: BorrowProof,
+    ) -> Result<(), Error> {
+        from.require_auth();
+
+        if proof.public_signals.len() != 5 {
+            return Err(Error::InvalidProof);
+        }
+        let asset_tag_fr = proof.public_signals.get(0).unwrap();
+        let loan_root_fr = proof.public_signals.get(1).unwrap();
+        let deposit_root_fr = proof.public_signals.get(2).unwrap();
+        let loan_nul_fr = proof.public_signals.get(3).unwrap();
+        let dep_nul_fr = proof.public_signals.get(4).unwrap();
+
+        let expected_tag =
+            notes::asset_tag(&env, &asset).ok_or(Error::AssetUnknown)?;
+        if fr_to_u32(&asset_tag_fr) != expected_tag {
+            return Err(Error::DenominationMismatch);
+        }
+
+        let stored_loan_root =
+            state::loan_root(&env, &asset).ok_or(Error::InvalidProof)?;
+        if stored_loan_root != loan_root_fr.to_bytes() {
+            return Err(Error::InvalidProof);
+        }
+        let stored_dep_root =
+            state::deposit_root(&env, &asset).ok_or(Error::InvalidProof)?;
+        if stored_dep_root != deposit_root_fr.to_bytes() {
+            return Err(Error::InvalidProof);
+        }
+
+        let loan_nul_bytes = loan_nul_fr.to_bytes();
+        let dep_nul_bytes = dep_nul_fr.to_bytes();
+        if state::nullifier_used(&env, &loan_nul_bytes)
+            || state::nullifier_used(&env, &dep_nul_bytes)
+        {
+            return Err(Error::ProofReplayed);
+        }
+        if loan_nul_bytes == dep_nul_bytes {
+            return Err(Error::InvalidProof);
+        }
+
+        if !repay_verifier::verify_groth16(
+            &env,
+            proof.a.clone(),
+            proof.b.clone(),
+            proof.c.clone(),
+            proof.public_signals.clone(),
+        ) {
+            return Err(Error::InvalidProof);
+        }
+
+        state::mark_nullifier_used(&env, &loan_nul_bytes);
+        state::mark_nullifier_used(&env, &dep_nul_bytes);
+
+        state::set_total_borrow(
+            &env,
+            &asset,
+            state::total_borrow(&env, &asset).saturating_sub(1),
+        );
+        state::set_total_deposit(
+            &env,
+            &asset,
+            state::total_deposit(&env, &asset).saturating_sub(1),
+        );
+
+        env.events().publish(
+            (REPAY_EVENT, asset.clone()),
+            (loan_nul_bytes, dep_nul_bytes, from.clone()),
+        );
+        Ok(())
     }
 }
 

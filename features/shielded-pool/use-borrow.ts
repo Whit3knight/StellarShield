@@ -9,6 +9,7 @@ import {
   type ShieldedAsset,
   type ShieldedNote,
 } from "@/features/notes"
+import { getRiskParams } from "@/features/protocol/risk-params"
 import {
   getConfiguredContractId,
   getConfiguredNetworkPassphrase,
@@ -37,12 +38,9 @@ type UseBorrowResult = {
   status: Status
 }
 
-// Contract-configured risk params — kept here temporarily so the hook
-// doesn't need an extra RPC round trip per borrow. When the frontend
-// gains a `useRiskParams()` reader wired to the bindings' `risk_params`
-// view, swap these in.
-const HF_MIN_BPS = 12_500
-const MAX_LTV_BPS = 6_250
+// Risk params fetched from the contract via getRiskParams() and
+// cached module-wide, so only the first borrow of a session pays the
+// RPC round trip.
 
 /**
  * Runs a full shielded-borrow flow: picks 4 deposit notes of the
@@ -130,13 +128,14 @@ export function useBorrow(
         })
         setStatus("proving")
 
+        const risk = await getRiskParams()
         const prepared = await prepareBorrow({
           account,
           borrowAsset,
           collateralAsset,
           collateralNotes,
-          hfMinBps: HF_MIN_BPS,
-          maxLtvBps: MAX_LTV_BPS,
+          hfMinBps: risk.hfMinBps,
+          maxLtvBps: risk.maxLtvBps,
           walletSeed,
         })
 

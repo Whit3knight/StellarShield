@@ -1,10 +1,11 @@
 # Stellar Shield
 
-Privacy-preserving borrow dashboard on Stellar. Users prove eligibility for a
-borrow position with a Groth16 proof over BLS12-381; the on-chain contract
-verifies the proof, stores an anonymized receipt, and users close the
-position via a signed `repay` call. Amounts stay hidden (private witness);
-only market pair + timestamps + proof id land on chain.
+Zcash-style shielded lending pool on Stellar. Wallet + amount stay hidden.
+Deposit into a per-asset commitment tree, borrow against 4 collateral notes
+with a zk-proof-verified LTV check, withdraw the loan into a wallet, or
+repay by burning a same-asset deposit note against the loan. Nullifiers
+guard against double-spend; encrypted memos let a fresh browser rebuild the
+user's note inventory from public events alone.
 
 ## Stack
 
@@ -49,64 +50,70 @@ or `stellar keys fund default --network testnet`).
 
 ## Architecture
 
+Shielded pool primitives:
+
+- **Note** = `Poseidon(amount, asset_tag, sk, salt)` commitment on a per-asset incremental Merkle tree (depth 20, 3 deposit + 3 loan trees).
+- **Nullifier** = `Poseidon(sk, index)` posted at spend time; replay-guarded on chain.
+- **Shielded identity** = deterministic X25519 keypair derived from the wallet's Freighter signature. Encrypted memos (ChaCha20-Poly1305 over ECDH) attach the note's `(salt, amount, index)` to each deposit / borrow tx so the user can rebuild inventory by scanning public events.
+
 Data flow, top → bottom:
 
 ```
-Freighter → wallet balance polling (Horizon /accounts/{id} every 20s)
-                                    │
-                                    ▼
-Market card → Reflector oracle (Soroban simulate lastprice / decimals)
-              │
-              ▼
-Borrow drawer → Groth16 prover (snarkjs, artefacts in public/circuits-circom)
-                │
-                │ oracle_price + raw_collateral_balance fetched via
-                │ Reflector + Horizon before witness generation
-                ▼
-              Soroban borrow (bindings signAndSend → Freighter)
-                │
-                ▼
-              positions_by_account(account) → drawer receipts
-              ("borrow",) event  ────► notification bell
-                                  ────► activity drawer
-                                  ────► wallet balance refresh
-
-Repay:  drawer button → client.repay(account, proof_id) → signAndSend
-                                              │
-                                              ▼
-                                     ("repay",) event → notify, refresh drawer + balance
+Freighter connect → deriveShieldedIdentity(sig(seed_message))
+       │
+       ▼
+Scanner (features/notes/scanner.ts) → getEvents(deposit|borrow|withdraw|repay)
+       │                                    tryDecrypt each memo
+       ▼
+Note store (features/notes/note-store.ts) → useNotes()
+       │
+       ▼
+Shielded drawer → deposit / borrow / withdraw / repay hooks
+       │
+       ▼
+snarkjs Groth16 prover (public/circuits-circom/shielded/{deposit,borrow,withdraw,repay})
+       │
+       ▼
+client.<op>_shielded(...).signAndSend via Freighter
+       │
+       ▼
+contract emits ("<op>", asset, ...) → next scan pass reflects the state change
 ```
 
 Key boundaries:
 
 - `AdapterProvider` at `app/layout.tsx` picks Soroban vs mock adapter based on env.
 - `features/markets/prices.ts` is the only place that talks to Reflector.
-- `features/borrow-flow/chain-positions.ts` is the only source for the drawer's on-chain position list.
-- `features/borrow-flow/borrow-events.ts` is a tiny pub/sub bus fired on borrow/repay confirm; consumed by the drawer refresh, notification menu, and wallet balance refresh so a fresh confirmation propagates without polling.
-- `features/borrow-flow/session-store.ts` persists only proofs (proof bytes are not on chain); positions + activities come from chain now.
+- `features/notes/scanner.ts` is the sole reader for building the user's note inventory; it consumes deposit + borrow (mints notes), withdraw + repay (marks nullifiers spent).
+- `features/notes/note-store.ts` is the in-memory cache surfaced via `useNotes()`; scan replaces it wholesale each pass.
+- `features/shielded-pool/` owns the hooks (`useDeposit`, `useBorrow`, `useWithdraw`, `useRepay`) plus the prover wrappers.
+- `features/protocol/risk-params.ts` fetches contract-side risk params once per session and exposes `getRiskParams()` / `useRiskParams()`.
 
 ## Contract lifecycle (Rust)
 
-Source: `contracts/borrow-pool/src/lib.rs`. Public API:
+Source: `contracts/borrow-pool/src/lib.rs`. Shielded pool API:
 
 | Method | Auth | Notes |
 | --- | --- | --- |
-| `initialize(admin)` | none (one-shot) | Sets `DataKey::Admin`; further attempts return `AlreadyInitialized`. |
-| `register_market(market)` | admin | Appends `MarketMeta`; rejects duplicate key. |
-| `admin_transfer(new_admin)` | admin | Relocates admin rights. |
-| `upgrade(wasm_hash)` | admin | In-place `update_current_contract_wasm`; contract address + state preserved. |
-| `borrow(intent, proof)` | account | Freshness + Groth16 verify + replay guard, stores `Position(account, proof_id)`, emits `borrow` event with receipt. |
-| `repay(account, proof_id)` | account | Deletes position, drops from index, emits `repay` event. |
-| `positions_by_account(account)` | none (view) | Enumerates receipts. |
-| `position(account)` | none (view) | Latest receipt (back-compat). |
-| `list_markets()` | none (view) | Registered pairs. |
-| `admin()` | none (view) | Current admin. |
+| `initialize_shielded(admin, reflector, rate, risk)` | one-shot | Sets admin + rate/risk params + reflector contract. |
+| `set_reserve(asset, token_contract)` | admin | Registers the SEP-41 token used for a shielded asset. |
+| `set_rate_params(params)` / `set_risk_params(params)` | admin | Runtime knobs. |
+| `register_market(market)` | admin | Static market metadata (borrow/collateral pair). |
+| `admin_transfer(new_admin)` / `upgrade(wasm_hash)` | admin | Same address, same state. |
+| `deposit_shielded(from, asset, commitment, memo)` | account | Pulls fixed denomination, appends leaf, emits `("deposit", asset)` with `(index, root, leaf, memo)`. |
+| `withdraw_shielded(to, asset, proof)` | account | Verifies Groth16, checks nullifier fresh, releases denomination. |
+| `borrow_shielded(from, collateral_asset, borrow_asset, proof, memo)` | account | Consumes 4 collateral nullifiers, appends loan commitment, emits `("borrow", collateral_asset, borrow_asset)`. |
+| `withdraw_loan_shielded(to, asset, proof)` | account | Loan-tree variant of withdraw; releases the borrower's minted loan amount. |
+| `repay_shielded(from, asset, proof)` | account | Burns loan note + same-asset deposit note (deposit >= loan). |
+| `list_markets()` / `rate_params()` / `risk_params()` / `deposit_root(asset)` / `loan_root(asset)` / `total_deposit(asset)` / `total_borrow(asset)` | view | |
 
-Storage keys: `Admin`, `Markets`, `Position(Address, BytesN<32>)`, `PositionsByAccount(Address)`, `ProofUsed(BytesN<32>)`.
+Circuits at `contracts/circuits/shielded-{deposit,withdraw,borrow,repay}/` — Circom 2.1.9, BLS12-381, Poseidon commitments. Verifier bytes embedded in `contracts/borrow-pool/src/vk/<circuit>/*.bin`.
 
 ## Deploy workflow
 
-Fresh deploy (already done for `CBJZP...4N7L`):
+The live contract at `CBJZP...4N7L` was deployed once and upgraded in place
+for each iteration (Phase 1 receipt registry → Phase 2 shielded pool). Fresh
+deploys follow the same pattern:
 
 ```bash
 cd contracts
@@ -116,24 +123,17 @@ stellar contract deploy \
   --source deployer --network testnet
 # → prints CONTRACT_ID
 
-stellar contract invoke --id $CONTRACT_ID --source deployer --network testnet \
-  -- initialize --admin <admin-address>
+stellar contract invoke --id $CONTRACT_ID --source deployer --network testnet -- \
+  initialize_shielded --admin <admin-address> \
+    --reflector CCYOZJCOPG34LLQQ7N24YXBM7LL62R7ONMZ3G6WZAAYPB5OYKOMJRN63 \
+    --rate '{"base_apr_bps":200,"slope_apr_bps":1500,"reserve_factor_bps":1000,"seconds_per_year":31536000}' \
+    --risk '{"hf_min_bps":12500,"liquidation_bonus_bps":500,"liquidation_threshold_bps":8500,"max_ltv_bps":6250}'
 
-for MARKET in "USDC_XLM|USDC|XLM" "XLM_USDC|XLM|USDC" \
-              "EURC_USDC|EURC|USDC" "USDC_EURC|USDC|EURC" \
-              "EURC_XLM|EURC|XLM" "XLM_EURC|XLM|EURC"; do
-  IFS='|' read -r KEY B C <<< "$MARKET"
-  stellar contract invoke --id $CONTRACT_ID --source deployer --network testnet \
-    -- register_market --market "{\"key\":\"$KEY\",\"borrow_symbol\":\"$B\",\"collateral_symbol\":\"$C\"}"
-done
+# Register the SEP-41 token per asset (contract must match the deposit intent):
+stellar contract invoke --id $CONTRACT_ID --source deployer --network testnet -- \
+  set_reserve --asset XLM --token_contract CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC
 
-stellar contract bindings typescript \
-  --contract-id $CONTRACT_ID --network testnet --output-dir /tmp/bindings
-cp /tmp/bindings/src/index.ts features/protocol/bindings/borrow-pool.ts
-# add the pre-existing eslint-disable header line back at the top
-
-# .env.local:
-#   NEXT_PUBLIC_STELLAR_SHIELD_CONTRACT_ID=$CONTRACT_ID
+# Same for each supported asset. Then register markets + bindings as before.
 ```
 
 Subsequent changes: use the in-place upgrade path (same contract id, same
@@ -158,22 +158,22 @@ stellar contract invoke \
 
 ## End-to-end verification
 
-1. `bun run dev` → connect Freighter (testnet).
-2. Market card USD price reflects Reflector — sanity-check with
-   `stellar contract invoke --id CCYOZJCOPG34LLQQ7N24YXBM7LL62R7ONMZ3G6WZAAYPB5OYKOMJRN63 --network testnet -- lastprice --asset '{"Other":"XLM"}'`.
-3. Open a borrow flow → verify → submit → Freighter signs.
-4. Notification bell + activity drawer show the confirmed borrow.
-5. Positions drawer shows an on-chain position (grouped by pair, chain badge = "Testnet").
-6. Click Repay on a receipt → Freighter signs → success toast, drawer refetches, position gone.
-7. `bun run lint && bun run typecheck && bun run test && bun run build` all green.
+1. `bun run dev` → connect Freighter (testnet). Scanner logs "N notes decrypted" once identity derivation completes.
+2. Open the shielded drawer, click Deposit on an asset tile. Freighter signs `deposit_shielded`; on confirm the leaf lands and a new deposit note appears (`#index` badge).
+3. Deposit at least 4 collateral notes of one asset; the `Borrow shielded` panel surfaces viable `collateral → borrow` pairs. Trigger a borrow — prover takes ~15-30s.
+4. On the fresh loan note row, click **Claim** — receives the loan amount into Freighter via `withdraw_loan_shielded`.
+5. Deposit a repay-source note in the loan's asset ≥ loan amount. **Repay** button appears on the loan note. Click → both nullifiers burn, loan note vanishes.
+6. Any Withdraw button on a deposit note calls `withdraw_shielded` and receives the fixed denomination.
+7. Refresh browser (or clear localStorage) → scanner rebuilds the same inventory from public events. No client-side backup needed.
+8. `bun run lint && bun run typecheck && bun run test && bun run build` all green.
 
 ## Deferred
 
-- **Reflector on-chain commitment check**: the circuit produces a Poseidon commitment; the contract currently trusts it. A real oracle cross-check needs Poseidon-on-BLS12-381 in Rust (no crate exists yet). See the top of `contracts/borrow-pool/src/lib.rs`.
-- **Interest accrual + live APR / utilization / TVL**: the contract has no economic model. Displayed numbers are hardcoded.
-- **Chart trend**: hardcoded 7-day series; needs an indexer (Mercury or self-hosted).
-- **Nullifier scheme (Phase-2 privacy)**: swap the `account` field for a nullifier commitment so borrower identity is also hidden.
-- **Rust unit tests**: soroban-sdk `testutils` feature triggers an upstream ed25519-dalek / rand_core conflict against soroban-env-host 22.1.x. Restore `src/test.rs` when soroban-sdk 23 lands.
+- **Interest accrual on repay**: v1 repay burns loan against deposit >= loan amount. The `borrow_index` snapshot / `repay_amount = loan × index` check will land in the v2 repay circuit alongside collateral recovery.
+- **Collateral recovery on repay**: v1 leaves original collateral notes burned. v2 repay circuit will mint recovered collateral commitments back to the deposit tree.
+- **Liquidation**: full ZK liquidation design ratified in `docs/liquidation-design.md` (Option D + D1 — public borrow-time commitment + range-proof circuit + liquidation-service viewing key). Not implemented. Estimated 5-8 sessions across circuit rebuild, contract fn, off-chain service, and trigger UI. Tracked as Track L.
+- **Reflector on-chain commitment cross-check**: borrow circuit publishes a Poseidon commitment over the oracle price; the contract now enforces oracle freshness but not the commitment match. Waiting on a paired oracle attestation channel.
+- **Rust unit tests**: soroban-sdk `testutils` feature triggers an upstream ed25519-dalek / rand_core conflict against soroban-env-host 22.1.x. Fixture cross-checks in `contracts/borrow-pool/tests/{poseidon,merkle}_fixtures.txt` cover the primitives until soroban-sdk 23 lands.
 
 ## Commands cheat sheet
 

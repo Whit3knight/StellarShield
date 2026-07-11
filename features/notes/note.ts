@@ -32,6 +32,8 @@ export type ShieldedNote = {
   salt: bigint
   sk: bigint
   tree: NoteTree
+  /** Unix seconds. Sourced from the mint event's ledgerCloseTime. */
+  openedAt?: number
 }
 
 /**

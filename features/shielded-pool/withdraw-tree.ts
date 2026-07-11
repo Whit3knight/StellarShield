@@ -24,6 +24,130 @@ export type WithdrawWitness = {
   root: bigint
 }
 
+/**
+ * Fetch every borrow event for `asset` and rebuild the loan tree to
+ * produce inclusion witnesses for each borrower's loan note. Same
+ * shape as `fetchDepositWitnesses` but scans the ("borrow", ...)
+ * topic and reads the leaf out of the emitted event body.
+ */
+export async function fetchLoanWitnesses(
+  borrowAsset: string,
+  signal?: AbortSignal
+): Promise<WithdrawWitness[]> {
+  if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
+
+  const contractId = getConfiguredContractId()
+  if (!contractId) return []
+
+  const sdk = await import("@stellar/stellar-sdk")
+  const { rpc } = await import("@stellar/stellar-sdk")
+
+  const server = new rpc.Server(getConfiguredSorobanRpcUrl(), {
+    allowHttp: getConfiguredSorobanRpcUrl().startsWith("http://"),
+  })
+  const latest = await server.getLatestLedger()
+  if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
+
+  const startLedger = Math.max(1, latest.sequence - LEDGER_LOOKBACK)
+  const borrowTopic = sdk.xdr.ScVal.scvSymbol("borrow").toXDR("base64")
+
+  let response: unknown
+  try {
+    response = await server.getEvents({
+      filters: [
+        {
+          type: "contract",
+          contractIds: [contractId],
+          topics: [[borrowTopic]],
+        },
+      ],
+      startLedger,
+      limit: 500,
+    })
+  } catch {
+    return []
+  }
+  if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
+
+  const events = extractEvents(response)
+  // Borrow events carry the borrow_asset symbol as the third topic —
+  // filter here so multi-market users only see the tree they need.
+  const relevant: { index: number; leaf: bigint }[] = []
+  for (const event of events) {
+    const decoded = decodeBorrowEvent(sdk, event, borrowAsset)
+    if (!decoded) continue
+    relevant.push(decoded)
+  }
+  relevant.sort((a, b) => a.index - b.index)
+
+  const { append, DEPTH, verifyInclusion } = await import("@/features/notes")
+  const frontier = new Array<bigint>(DEPTH).fill(0n)
+  const witnesses: WithdrawWitness[] = []
+
+  for (let idx = 0; idx < relevant.length; idx++) {
+    const { leaf, index } = relevant[idx]
+    if (index !== idx) continue
+    const { path, root } = append({ frontier, leaf, nextIndex: index })
+    const pathBits: number[] = []
+    let cursor = index
+    for (let level = 0; level < DEPTH; level++) {
+      pathBits.push(cursor & 1)
+      cursor >>= 1
+    }
+    if (!verifyInclusion({ leaf, leafIndex: index, path, root })) continue
+    witnesses.push({
+      leaf,
+      leafIndex: index,
+      pathBits,
+      pathElements: path,
+      root,
+    })
+  }
+
+  return witnesses
+}
+
+function decodeBorrowEvent(
+  sdk: typeof import("@stellar/stellar-sdk"),
+  event: RpcEvent,
+  expectedBorrowAsset: string
+): { index: number; leaf: bigint } | null {
+  const topics =
+    (Array.isArray(event.topic) && event.topic) ||
+    (Array.isArray(event.topics) && event.topics) ||
+    []
+  if (topics.length < 3) return null
+  const borrowAsset = toScVal(sdk, topics[2])
+  if (!borrowAsset) return null
+  try {
+    const native = sdk.scValToNative(borrowAsset)
+    if (typeof native !== "string" || native !== expectedBorrowAsset) return null
+  } catch {
+    return null
+  }
+
+  const value = toScVal(sdk, event.value)
+  if (!value) return null
+  let native: unknown
+  try {
+    native = sdk.scValToNative(value)
+  } catch {
+    return null
+  }
+  if (!Array.isArray(native) || native.length !== 4) return null
+
+  const rawIndex = native[0]
+  const rawLeaf = native[2]
+  const index =
+    typeof rawIndex === "bigint" ? Number(rawIndex) : Number(rawIndex ?? -1)
+  if (!Number.isFinite(index) || index < 0) return null
+
+  const leaf = bytesToBigInt(rawLeaf)
+  if (leaf === null) return null
+
+  return { index, leaf }
+}
+
 type RpcEvent = {
   contractId?: string
   topic?: unknown[]

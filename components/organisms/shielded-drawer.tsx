@@ -31,6 +31,7 @@ import {
 import {
   useBorrow,
   useDeposit,
+  useRepay,
   useShieldedPool,
   useWithdraw,
 } from "@/features/shielded-pool"
@@ -58,6 +59,11 @@ export function ShieldedDrawer({
     withdraw,
   } = useWithdraw(account)
   const { borrow, status: borrowStatus } = useBorrow(account, walletSeed)
+  const {
+    activeLoanIndex: repayingIndex,
+    status: repayStatus,
+    repay,
+  } = useRepay(account)
 
   const balances = React.useMemo(() => summariseByAsset(notes), [notes])
 
@@ -102,6 +108,12 @@ export function ShieldedDrawer({
                 notes={notes}
                 isScanning={isScanning}
                 onWithdraw={(note) => void withdraw(note)}
+                onRepay={(loan, deposit) => void repay(loan, deposit)}
+                repayingIndex={
+                  repayStatus === "idle" || repayStatus === "success"
+                    ? null
+                    : repayingIndex
+                }
                 withdrawingIndex={
                   withdrawStatus === "idle" || withdrawStatus === "success"
                     ? null
@@ -229,12 +241,16 @@ function BalanceGrid({
 function NoteList({
   notes,
   isScanning,
+  onRepay,
   onWithdraw,
+  repayingIndex,
   withdrawingIndex,
 }: {
   notes: ShieldedNote[]
   isScanning: boolean
+  onRepay: (loan: ShieldedNote, deposit: ShieldedNote) => void
   onWithdraw: (note: ShieldedNote) => void
+  repayingIndex: number | null
   withdrawingIndex: number | null
 }): React.ReactElement {
   if (isScanning && notes.length === 0) {
@@ -256,7 +272,14 @@ function NoteList({
   return (
     <div className="flex flex-col gap-1.5">
       {notes.map((note) => {
-        const isBusy = withdrawingIndex === note.index
+        const isWithdrawBusy = withdrawingIndex === note.index
+        const isRepayBusy = repayingIndex === note.index
+        const anyBusy =
+          withdrawingIndex !== null || repayingIndex !== null
+        const repaySource =
+          note.tree === "loan"
+            ? pickRepaySource(notes, note)
+            : null
         return (
           <div
             className="flex items-center justify-between gap-2 rounded-md border bg-background/64 px-2 py-1.5 text-xs"
@@ -268,26 +291,99 @@ function NoteList({
               <PrivateValue className="truncate font-mono text-muted-foreground">
                 {`${note.amount.toString()} ${note.asset}`}
               </PrivateValue>
+              {note.tree === "loan" && note.openedAt ? (
+                <LoanAgeBadge openedAt={note.openedAt} />
+              ) : null}
             </div>
-            {note.tree === "deposit" ? (
+            <div className="flex items-center gap-1.5">
+              {repaySource ? (
+                <Button
+                  disabled={isRepayBusy || anyBusy}
+                  onClick={() => onRepay(note, repaySource)}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
+                  {isRepayBusy ? (
+                    <Loader2Icon
+                      aria-hidden="true"
+                      className="animate-spin"
+                    />
+                  ) : null}
+                  Repay
+                </Button>
+              ) : null}
               <Button
-                disabled={isBusy || withdrawingIndex !== null}
+                disabled={isWithdrawBusy || anyBusy}
                 onClick={() => onWithdraw(note)}
                 size="sm"
                 type="button"
                 variant="outline"
               >
-                {isBusy ? (
+                {isWithdrawBusy ? (
                   <Loader2Icon aria-hidden="true" className="animate-spin" />
                 ) : null}
-                Withdraw
+                {note.tree === "loan" ? "Claim" : "Withdraw"}
               </Button>
-            ) : null}
+            </div>
           </div>
         )
       })}
     </div>
   )
+}
+
+const STALE_LOAN_SECS = 30 * 24 * 60 * 60
+
+function LoanAgeBadge({ openedAt }: { openedAt: number }): React.ReactElement {
+  const nowSecs = useNowSecs()
+  const age = Math.max(0, nowSecs - openedAt)
+  const stale = age >= STALE_LOAN_SECS
+  return (
+    <Badge variant={stale ? "destructive" : "outline"}>
+      {stale ? "stale · " : ""}
+      {formatAge(age)}
+    </Badge>
+  )
+}
+
+function useNowSecs(): number {
+  return React.useSyncExternalStore(subscribeClock, getNowSecs, getNowSecs)
+}
+
+function getNowSecs(): number {
+  return Math.floor(Date.now() / 1000)
+}
+
+function subscribeClock(callback: () => void): () => void {
+  const id = window.setInterval(callback, 60_000)
+  return () => window.clearInterval(id)
+}
+
+function formatAge(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`
+  if (seconds < 86_400) return `${Math.floor(seconds / 3600)}h`
+  return `${Math.floor(seconds / 86_400)}d`
+}
+
+/**
+ * Smallest deposit note in the same asset whose amount covers the
+ * loan. Prefers minimal over-repayment so the pool retains as little
+ * as possible as fee.
+ */
+function pickRepaySource(
+  notes: ShieldedNote[],
+  loan: ShieldedNote
+): ShieldedNote | null {
+  let best: ShieldedNote | null = null
+  for (const note of notes) {
+    if (note.tree !== "deposit") continue
+    if (note.asset !== loan.asset) continue
+    if (note.amount < loan.amount) continue
+    if (!best || note.amount < best.amount) best = note
+  }
+  return best
 }
 
 function EmptyPanel({

@@ -2,16 +2,14 @@
 //
 // Circuit at contracts/circuits/shielded-withdraw/. Public signals:
 //   [0] asset_tag
-//   [1] denomination
-//   [2] deposit_root
+//   [1] amount (fixed denomination for deposit notes, variable for loan notes)
+//   [2] tree root (deposit_root or loan_root)
 //   [3] nullifier
 
 import {
   assetTag,
   computeCommitment,
   computeNullifier,
-  DENOMINATION,
-  type ShieldedAsset,
   type ShieldedNote,
 } from "@/features/notes"
 
@@ -63,7 +61,7 @@ export async function proveWithdraw(
 
   const witnessInputs: Record<string, string | string[]> = {
     asset_tag: assetTag(inputs.note.asset).toString(),
-    denomination: DENOMINATION[inputs.note.asset as ShieldedAsset].toString(),
+    denomination: inputs.note.amount.toString(),
     deposit_root: inputs.depositRoot.toString(),
     nullifier: nullifier.toString(),
     sk: inputs.note.sk.toString(),

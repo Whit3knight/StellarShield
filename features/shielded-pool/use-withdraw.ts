@@ -16,7 +16,7 @@ import {
 } from "@/features/wallet/network"
 
 import { proveWithdraw } from "./withdraw-prover"
-import { fetchDepositWitnesses } from "./withdraw-tree"
+import { fetchDepositWitnesses, fetchLoanWitnesses } from "./withdraw-tree"
 
 type Status = "idle" | "reconstructing" | "proving" | "signing" | "success" | "failed"
 
@@ -73,7 +73,10 @@ export function useWithdraw(account: string | null): UseWithdrawResult {
 
       try {
         setStatus("reconstructing")
-        const witnesses = await fetchDepositWitnesses(note.asset)
+        const witnesses =
+          note.tree === "loan"
+            ? await fetchLoanWitnesses(note.asset)
+            : await fetchDepositWitnesses(note.asset)
         const commitment = computeCommitment(note)
         const witness = witnesses.find(
           (candidate) =>
@@ -81,7 +84,7 @@ export function useWithdraw(account: string | null): UseWithdrawResult {
         )
         if (!witness) {
           throw new Error(
-            `No matching deposit event found for note #${note.index}. Tree may have advanced beyond RPC retention.`
+            `No matching ${note.tree} event found for note #${note.index}. Tree may have advanced beyond RPC retention.`
           )
         }
         try {
@@ -132,11 +135,18 @@ export function useWithdraw(account: string | null): UseWithdrawResult {
           ),
         }
 
-        const assembled = await client.withdraw_shielded({
-          to: account,
-          asset: note.asset,
-          proof: proofBuffers,
-        })
+        const assembled =
+          note.tree === "loan"
+            ? await client.withdraw_loan_shielded({
+                to: account,
+                asset: note.asset,
+                proof: proofBuffers,
+              })
+            : await client.withdraw_shielded({
+                to: account,
+                asset: note.asset,
+                proof: proofBuffers,
+              })
 
         const { signTransaction: freighter } = await import(
           "@stellar/freighter-api"
@@ -170,7 +180,10 @@ export function useWithdraw(account: string | null): UseWithdrawResult {
         setStatus("success")
         setMessage(hash)
         toastManager.add({
-          title: `Withdrew ${DENOMINATION[note.asset]} ${note.asset}`,
+          title:
+            note.tree === "loan"
+              ? `Withdrew loan (${note.amount.toString()} ${note.asset})`
+              : `Withdrew ${DENOMINATION[note.asset]} ${note.asset}`,
           description: `Nullifier posted, note burned.`,
           type: "success",
           timeout: 6_000,

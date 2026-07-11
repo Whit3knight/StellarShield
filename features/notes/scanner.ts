@@ -18,6 +18,7 @@ import {
 import {
   DENOMINATION,
   SUPPORTED_ASSETS,
+  computeNullifier,
   type ShieldedAsset,
   type ShieldedNote,
 } from "./note"
@@ -36,6 +37,26 @@ type RpcEvent = {
   topic?: unknown[]
   topics?: unknown[]
   value?: unknown
+  ledgerClosedAt?: string
+}
+
+export function eventOpenedAt(event: {
+  ledgerClosedAt?: string
+}): number | undefined {
+  if (!event.ledgerClosedAt) return undefined
+  const ms = Date.parse(event.ledgerClosedAt)
+  if (!Number.isFinite(ms)) return undefined
+  return Math.floor(ms / 1000)
+}
+
+/**
+ * Drop notes whose nullifier appears in `spent`. Pure so it can be
+ * exercised without spinning up an rpc mock.
+ */
+export function filterSpentNotes<
+  T extends { sk: bigint; index: number }
+>(notes: T[], spent: Set<bigint>): T[] {
+  return notes.filter((note) => !spent.has(computeNullifier(note.sk, note.index)))
 }
 
 export type ScanIdentity = {
@@ -76,6 +97,8 @@ export async function scanShieldedNotes(
   const startLedger = Math.max(1, latest.sequence - LEDGER_LOOKBACK)
   const depositTopic = sdk.xdr.ScVal.scvSymbol("deposit").toXDR("base64")
   const borrowTopic = sdk.xdr.ScVal.scvSymbol("borrow").toXDR("base64")
+  const withdrawTopic = sdk.xdr.ScVal.scvSymbol("withdraw").toXDR("base64")
+  const repayTopic = sdk.xdr.ScVal.scvSymbol("repay").toXDR("base64")
 
   let response: unknown
   try {
@@ -91,6 +114,16 @@ export async function scanShieldedNotes(
           contractIds: [contractId],
           topics: [[borrowTopic]],
         },
+        {
+          type: "contract",
+          contractIds: [contractId],
+          topics: [[withdrawTopic]],
+        },
+        {
+          type: "contract",
+          contractIds: [contractId],
+          topics: [[repayTopic]],
+        },
       ],
       startLedger,
       limit: 500,
@@ -103,9 +136,21 @@ export async function scanShieldedNotes(
 
   const events = extractEvents(response)
   const notes: ShieldedNote[] = []
+  const spentNullifiers = new Set<bigint>()
 
   for (const event of events) {
     const topic = decodeTopicSymbol(sdk, event)
+    if (topic === "withdraw") {
+      const nullifier = decodeWithdrawNullifier(sdk, event)
+      if (nullifier !== null) spentNullifiers.add(nullifier)
+      continue
+    }
+    if (topic === "repay") {
+      for (const n of decodeRepayNullifiers(sdk, event)) {
+        spentNullifiers.add(n)
+      }
+      continue
+    }
     if (topic !== "deposit" && topic !== "borrow") continue
 
     const decoded = decodeIndexedEvent(sdk, event)
@@ -120,11 +165,13 @@ export async function scanShieldedNotes(
     const asset = plaintext.asset as ShieldedAsset
     if (!(SUPPORTED_ASSETS as readonly string[]).includes(asset)) continue
 
+    const openedAt = eventOpenedAt(event)
     if (topic === "deposit") {
       notes.push({
         amount: DENOMINATION[asset],
         asset,
         index: decoded.index,
+        openedAt,
         salt: BigInt(plaintext.salt),
         sk: identity.skField,
         tree: "deposit",
@@ -141,6 +188,7 @@ export async function scanShieldedNotes(
         amount,
         asset,
         index: decoded.index,
+        openedAt,
         salt: BigInt(plaintext.salt),
         sk: identity.skField,
         tree: "loan",
@@ -148,9 +196,73 @@ export async function scanShieldedNotes(
     }
   }
 
-  notes.sort((a, b) => b.index - a.index)
-  replaceNotes(notes)
-  return notes
+  const live = filterSpentNotes(notes, spentNullifiers)
+  live.sort((a, b) => b.index - a.index)
+  replaceNotes(live)
+  return live
+}
+
+function decodeWithdrawNullifier(
+  sdk: typeof import("@stellar/stellar-sdk"),
+  event: RpcEvent
+): bigint | null {
+  const value = toScVal(sdk, event.value)
+  if (!value) return null
+  let native: unknown
+  try {
+    native = sdk.scValToNative(value)
+  } catch {
+    return null
+  }
+  if (!Array.isArray(native) || native.length < 1) return null
+  const raw = native[0]
+  if (raw instanceof Uint8Array) return uintToBigint(raw)
+  if (raw && typeof raw === "object" && "length" in raw) {
+    const arr = raw as { length: number; [key: number]: number }
+    const bytes = new Uint8Array(arr.length)
+    for (let i = 0; i < arr.length; i++) bytes[i] = arr[i]
+    return uintToBigint(bytes)
+  }
+  return null
+}
+
+function decodeRepayNullifiers(
+  sdk: typeof import("@stellar/stellar-sdk"),
+  event: RpcEvent
+): bigint[] {
+  const value = toScVal(sdk, event.value)
+  if (!value) return []
+  let native: unknown
+  try {
+    native = sdk.scValToNative(value)
+  } catch {
+    return []
+  }
+  if (!Array.isArray(native) || native.length < 2) return []
+  const out: bigint[] = []
+  for (let i = 0; i < 2; i++) {
+    const raw = native[i]
+    const n = rawToBigInt(raw)
+    if (n !== null) out.push(n)
+  }
+  return out
+}
+
+function rawToBigInt(raw: unknown): bigint | null {
+  if (raw instanceof Uint8Array) return uintToBigint(raw)
+  if (raw && typeof raw === "object" && "length" in raw) {
+    const arr = raw as { length: number; [key: number]: number }
+    const bytes = new Uint8Array(arr.length)
+    for (let i = 0; i < arr.length; i++) bytes[i] = arr[i]
+    return uintToBigint(bytes)
+  }
+  return null
+}
+
+function uintToBigint(bytes: Uint8Array): bigint {
+  let value = 0n
+  for (const byte of bytes) value = (value << 8n) | BigInt(byte)
+  return value
 }
 
 function decodeTopicSymbol(

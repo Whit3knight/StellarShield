@@ -32,3 +32,9 @@ export {
   type PrepareBorrowResult,
 } from "./borrow"
 export { useBorrow } from "./use-borrow"
+export {
+  proveRepay,
+  type RepayProofInputs,
+  type RepayProofResult,
+} from "./repay-prover"
+export { useRepay } from "./use-repay"
