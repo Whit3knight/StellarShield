@@ -17,6 +17,14 @@ export {
   type ChainMarket,
 } from "./chain-markets"
 export {
+  deriveMarketMetrics,
+  formatPercent,
+  formatUsdCompact,
+  normalizeChart,
+  pickRisk,
+  type DerivedMarketMetrics,
+} from "./derive-metrics"
+export {
   fetchMarketStats,
   type MarketStat,
 } from "./market-stats"

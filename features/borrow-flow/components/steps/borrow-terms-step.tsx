@@ -17,8 +17,11 @@ import {
   InputGroupInput,
 } from "@/components/ui/input-group"
 import {
+  deriveMarketMetrics,
+  formatPercent,
   getAssetPriceUsd,
   getMarketPair,
+  useMarketStats,
   type MarketCardData,
 } from "@/features/markets"
 
@@ -65,6 +68,9 @@ export function BorrowTermsStep({
     metrics.borrowingPower
   )
   const marketPair = getMarketPair(market)
+  const { stats } = useMarketStats()
+  const derived = deriveMarketMetrics(stats[marketPair])
+  const liveBorrowApr = formatPercent(derived.borrowApr * 100)
   const minimumCollateralAmount =
     MIN_COLLATERAL_VALUE / getAssetPriceUsd(market.collateral)
   const minimumLoanAmount = MIN_LOAN_VALUE / getAssetPriceUsd(market.symbol)
@@ -173,7 +179,7 @@ export function BorrowTermsStep({
           label="Max borrow"
           value={formatAssetAmount(metrics.maxLoanAmount, market.symbol)}
         />
-        <MetricTile label="Borrow APR" value={market.borrowApr} />
+        <MetricTile label="Borrow APR" value={liveBorrowApr} />
         <MetricTile label="Loan health" value={metrics.loanHealth} />
         <MetricTile
           label="Health factor"

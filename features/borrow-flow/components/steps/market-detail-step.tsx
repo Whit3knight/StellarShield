@@ -1,10 +1,20 @@
+"use client"
+
 import type * as React from "react"
 
 import type { ConnectedAccount } from "@/app/_constants/account"
 import { MetricTile } from "@/components/atoms/metric-tile"
 import { RateTrendChart } from "@/components/molecules/rate-trend-chart"
 import { Card, CardPanel } from "@/components/ui/card"
-import { type MarketCardData } from "@/features/markets"
+import {
+  deriveMarketMetrics,
+  formatPercent,
+  formatUsdCompact,
+  getMarketPair,
+  normalizeChart,
+  useMarketStats,
+  type MarketCardData,
+} from "@/features/markets"
 import { getWalletAssetBalanceDisplay } from "@/features/wallet/utils"
 
 import { formatPairPrice } from "../../format"
@@ -24,29 +34,42 @@ export function MarketDetailStep({
     market.collateral
   )
 
+  const { stats } = useMarketStats()
+  const metrics = deriveMarketMetrics(stats[getMarketPair(market)])
+  const chartPoints = normalizeChart(metrics.chart)
+
   return (
     <>
       <Card className="rounded-lg before:rounded-[calc(var(--radius-lg)-1px)]">
         <CardPanel className="p-0">
           <RateTrendChart
             label="Borrow APR"
-            points={market.chart}
-            tone={market.chartTone}
-            value={market.borrowApr}
+            points={chartPoints}
+            tone="success"
+            value={formatPercent(metrics.borrowApr * 100)}
           />
         </CardPanel>
       </Card>
 
       <div className="grid grid-cols-2 gap-3">
-        <MetricTile label="Supply APY" value={market.supplyApy} />
+        <MetricTile
+          label="Supply APY"
+          value={formatPercent(metrics.supplyApy * 100)}
+        />
         <MetricTile label="Pair price" value={formatPairPrice(market)} />
         <MetricTile label={`${market.symbol} balance`} value={borrowBalance} />
         <MetricTile
           label={`${market.collateral} collateral`}
           value={collateralBalance}
         />
-        <MetricTile label="Available" value={market.availableFunds} />
-        <MetricTile label="Utilization" value={market.utilization} />
+        <MetricTile
+          label="Available"
+          value={formatUsdCompact(metrics.availableFundsUsd)}
+        />
+        <MetricTile
+          label="Utilization"
+          value={formatPercent(metrics.utilization * 100)}
+        />
       </div>
 
       <div className="rounded-md border bg-muted/48 p-3 text-sm">

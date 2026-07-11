@@ -7,28 +7,17 @@ import { RateTrendChart } from "@/components/molecules/rate-trend-chart"
 import { Card, CardPanel } from "@/components/ui/card"
 import { Frame, FrameHeader, FrameTitle } from "@/components/ui/frame"
 import {
+  deriveMarketMetrics,
+  formatPercent,
+  formatUsdCompact,
   getAssetPriceUsd,
   getMarketPair,
+  normalizeChart,
+  pickRisk,
   useMarketStats,
   type MarketCardData,
 } from "@/features/markets"
 import { cn } from "@/lib/utils"
-
-// Skeleton pool has no interest model, but we still want the card's
-// APR / APY / utilization tiles populated from live numbers rather
-// than hardcoded strings. Formula: Aave-style two-slope rate applied
-// to a real utilization proxy (fraction of on-chain borrows still
-// open in the current retention window). Base + slope are constants;
-// the utilization input is what the contract actually reports.
-const BASE_APR = 0.02
-const SLOPE_APR = 0.15
-const RESERVE_FACTOR = 0.15
-
-// Rough US dollar value assumed per open position for the "available
-// funds" tile. Contract doesn't publish TVL (amounts are private
-// witness), so this is a display multiplier — clearly labelled as
-// "avg per position" instead of pretending to be exact TVL.
-const AVG_POSITION_USD = 1_000
 
 export function MarketCard({
   active,
@@ -45,29 +34,22 @@ export function MarketCard({
 
   const { isLoading, stats } = useMarketStats()
   const marketStat = stats[marketPair]
+  const metrics = deriveMarketMetrics(marketStat)
 
-  const openPositions = marketStat?.openPositions ?? 0
-  const totalBorrows = marketStat?.totalBorrows ?? 0
-  const utilization =
-    totalBorrows > 0 ? Math.min(1, openPositions / totalBorrows) : 0
-  const borrowApr = BASE_APR + SLOPE_APR * utilization
-  const supplyApy = borrowApr * utilization * (1 - RESERVE_FACTOR)
-  const availableFundsUsd = Math.max(1, totalBorrows - openPositions) *
-    AVG_POSITION_USD
-  const risk = pickRisk(utilization)
-  const chartPoints = normalizeChart(marketStat?.chart)
-  const chartValue = formatPercent(borrowApr * 100)
+  const risk = pickRisk(metrics.utilization)
+  const chartPoints = normalizeChart(metrics.chart)
+  const chartValue = formatPercent(metrics.borrowApr * 100)
 
   const marketMetrics = [
-    { label: "Supply APY", value: formatPercent(supplyApy * 100) },
+    { label: "Supply APY", value: formatPercent(metrics.supplyApy * 100) },
     {
       label: `${market.symbol} price`,
       value: `$${borrowPrice.toLocaleString("en-US", {
         maximumFractionDigits: borrowPrice >= 10 ? 2 : 4,
       })}`,
     },
-    { label: "Available funds", value: formatUsdCompact(availableFundsUsd) },
-    { label: "Utilization", value: formatPercent(utilization * 100) },
+    { label: "Available funds", value: formatUsdCompact(metrics.availableFundsUsd) },
+    { label: "Utilization", value: formatPercent(metrics.utilization * 100) },
   ]
 
   return (
@@ -157,38 +139,4 @@ export function MarketCard({
       </div>
     </Frame>
   )
-}
-
-const BUCKET_LABELS = ["7", "6", "5", "4", "3", "2", "1", "now"]
-
-function normalizeChart(
-  points?: { label: string; value: number }[]
-): { label: string; value: number }[] {
-  const source = points ?? []
-  if (source.length === 0) {
-    return BUCKET_LABELS.map((label) => ({ label, value: 0.2 }))
-  }
-  return source.map((point, index) => ({
-    label: BUCKET_LABELS[index] ?? point.label,
-    value: point.value,
-  }))
-}
-
-function formatPercent(value: number): string {
-  return `${value.toLocaleString("en-US", {
-    maximumFractionDigits: 1,
-    minimumFractionDigits: 1,
-  })}%`
-}
-
-function formatUsdCompact(value: number): string {
-  if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`
-  if (value >= 1_000) return `$${(value / 1_000).toFixed(0)}K`
-  return `$${value.toFixed(0)}`
-}
-
-function pickRisk(utilization: number): "Conservative" | "Standard" | "Active" {
-  if (utilization < 0.3) return "Conservative"
-  if (utilization < 0.7) return "Standard"
-  return "Active"
 }
