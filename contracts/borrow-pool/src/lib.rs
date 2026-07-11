@@ -6,6 +6,7 @@ use soroban_sdk::{
     symbol_short, Address, BytesN, Env, Symbol, Vec,
 };
 
+mod deposit_verifier;
 mod merkle;
 mod notes;
 mod poseidon;
@@ -116,10 +117,14 @@ pub enum Error {
     NotInitialized = 8,
     MarketExists = 9,
     PositionNotFound = 10,
+    DenominationMismatch = 11,
+    AssetUnknown = 12,
+    TreeCapacityExceeded = 13,
 }
 
 const BORROW_EVENT: Symbol = symbol_short!("borrow");
 const REPAY_EVENT: Symbol = symbol_short!("repay");
+const DEPOSIT_EVENT: Symbol = symbol_short!("deposit");
 
 #[contract]
 pub struct BorrowPool;
@@ -282,6 +287,134 @@ impl BorrowPool {
     pub fn liquidity_index(env: Env, asset: Symbol) -> state::IndexSnapshot {
         rate::accrue_liquidity_index(&env, &asset)
     }
+
+    // -----------------------------------------------------------------
+    // Shielded pool — user-facing operations
+    //
+    // `deposit_shielded` accepts a Groth16 proof that the caller knows
+    // sk + salt for the declared commitment. Contract additionally
+    // asserts the transferred amount matches the fixed denomination
+    // per asset — a bug here lets an attacker mint a commitment
+    // claiming more collateral than they parked in the pool.
+
+    pub fn deposit_shielded(
+        env: Env,
+        from: Address,
+        asset: Symbol,
+        proof: BorrowProof,
+        memo: soroban_sdk::Bytes,
+    ) -> Result<u64, Error> {
+        from.require_auth();
+
+        // Deposit circuit publishes [amount, asset_tag, commitment].
+        if proof.public_signals.len() != 3 {
+            return Err(Error::InvalidProof);
+        }
+        let amount_fr = proof.public_signals.get(0).unwrap();
+        let asset_tag_fr = proof.public_signals.get(1).unwrap();
+        let commitment_fr = proof.public_signals.get(2).unwrap();
+
+        // The circuit constrains `commitment == Poseidon(amount, asset_tag, sk, salt)`.
+        // Contract must additionally check the token movement matches
+        // the declared amount + asset before accepting.
+        let expected_tag = notes::asset_tag(&env, &asset).ok_or(Error::AssetUnknown)?;
+        let declared_tag = fr_to_u32(&asset_tag_fr);
+        if declared_tag != expected_tag {
+            return Err(Error::DenominationMismatch);
+        }
+        let denomination =
+            notes::denomination(&env, &asset).ok_or(Error::AssetUnknown)?;
+        let declared_amount = fr_to_i128(&amount_fr);
+        if declared_amount != denomination {
+            return Err(Error::DenominationMismatch);
+        }
+
+        if !deposit_verifier::verify_groth16(
+            &env,
+            proof.a.clone(),
+            proof.b.clone(),
+            proof.c.clone(),
+            proof.public_signals.clone(),
+        ) {
+            return Err(Error::InvalidProof);
+        }
+
+        // Pull collateral into the contract.
+        tokens::transfer_in(&env, &asset, &from, denomination);
+
+        // Append commitment to the deposit tree for `asset` and persist
+        // the new frontier + root.
+        let next_index = state::deposit_next_index(&env, &asset);
+        let capacity = 1u64 << (merkle::DEPTH as u64);
+        if next_index >= capacity {
+            return Err(Error::TreeCapacityExceeded);
+        }
+
+        let mut frontier_arr = load_frontier(&env, state::deposit_frontier(&env, &asset));
+        let leaf = commitment_fr.clone();
+        let new_root = merkle::append(&env, &leaf, &mut frontier_arr, next_index);
+
+        state::set_deposit_frontier(&env, &asset, &frontier_to_vec(&env, &frontier_arr));
+        state::set_deposit_root(&env, &asset, &new_root.to_bytes());
+        state::set_deposit_next_index(&env, &asset, next_index + 1);
+        state::set_total_deposit(
+            &env,
+            &asset,
+            state::total_deposit(&env, &asset).saturating_add(1),
+        );
+
+        env.events()
+            .publish((DEPOSIT_EVENT, asset.clone()), (next_index, memo));
+        Ok(next_index)
+    }
+}
+
+// -----------------------------------------------------------------
+// Helpers
+
+fn fr_to_i128(value: &Fr) -> i128 {
+    let bytes = value.to_bytes();
+    let raw: [u8; 32] = bytes.into();
+    let mut low: u128 = 0;
+    for byte in raw.iter().skip(16) {
+        low = (low << 8) | (*byte as u128);
+    }
+    low as i128
+}
+
+fn fr_to_u32(value: &Fr) -> u32 {
+    let bytes = value.to_bytes();
+    let raw: [u8; 32] = bytes.into();
+    ((raw[28] as u32) << 24)
+        | ((raw[29] as u32) << 16)
+        | ((raw[30] as u32) << 8)
+        | (raw[31] as u32)
+}
+
+fn load_frontier(
+    env: &Env,
+    stored: Vec<BytesN<32>>,
+) -> [Fr; merkle::DEPTH] {
+    let mut out: [Fr; merkle::DEPTH] =
+        core::array::from_fn(|_| Fr::from_bytes(BytesN::from_array(env, &[0u8; 32])));
+    for i in 0..merkle::DEPTH {
+        if let Some(bytes) = stored.get(i as u32) {
+            out[i] = Fr::from_bytes(bytes);
+        }
+    }
+    out
+}
+
+fn frontier_to_vec(env: &Env, frontier: &[Fr; merkle::DEPTH]) -> Vec<BytesN<32>> {
+    let mut out = Vec::new(env);
+    for entry in frontier.iter() {
+        out.push_back(entry.to_bytes());
+    }
+    out
+}
+
+#[contractimpl]
+impl BorrowPool {
 
     pub fn borrow(
         env: Env,
