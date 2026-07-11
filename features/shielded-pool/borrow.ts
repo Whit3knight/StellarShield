@@ -13,12 +13,15 @@ import {
   computeCommitment,
   deriveShieldedIdentity,
   encodeMemoBundle,
+  encodeMemoBundleMulti,
   encryptMemo,
+  encryptMemoMulti,
   randomFieldElement,
   type ShieldedAsset,
   type ShieldedNote,
 } from "@/features/notes"
 import { fetchReflectorPrice } from "@/features/markets/prices"
+import { getLiquidationServicePk } from "@/features/protocol/liquidation-service"
 
 import { proveBorrow, validateCollateralNotes } from "./borrow-prover"
 import { fetchDepositWitnesses } from "./withdraw-tree"
@@ -123,22 +126,31 @@ export async function prepareBorrow(
     tree: "loan",
   }
 
-  const memoBundle = encryptMemo({
-    plaintext: {
-      amount: proof.borrowAmount.toString(),
-      asset: params.borrowAsset,
-      index: 0,
-      salt: borrowSalt.toString(),
-      tree: "loan",
-    },
-    recipientPk: identity.publicKey,
-  })
+  const plaintext = {
+    amount: proof.borrowAmount.toString(),
+    asset: params.borrowAsset,
+    index: 0,
+    salt: borrowSalt.toString(),
+    tree: "loan" as const,
+  }
+
+  const servicePk = await getLiquidationServicePk()
+  const memo = servicePk
+    ? encodeMemoBundleMulti(
+        encryptMemoMulti({
+          plaintext,
+          recipientPks: [identity.publicKey, servicePk],
+        })
+      )
+    : encodeMemoBundle(
+        encryptMemo({ plaintext, recipientPk: identity.publicKey })
+      )
 
   // Silence unused import — DENOMINATION consumed via validateCollateralNotes.
   void DENOMINATION
 
   return {
-    memo: encodeMemoBundle(memoBundle),
+    memo,
     note,
     proof,
   }

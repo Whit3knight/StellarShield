@@ -11,9 +11,13 @@ export {
 } from "./note"
 export {
   decodeMemoBundle,
+  decodeMemoBundleMulti,
   deriveShieldedIdentity,
   encodeMemoBundle,
+  encodeMemoBundleMulti,
   encryptMemo,
+  encryptMemoMulti,
+  tryDecryptAnyMemo,
   tryDecryptMemo,
   type MemoBundle,
   type MemoPlaintext,
