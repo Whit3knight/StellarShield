@@ -154,6 +154,50 @@ LiquidationServicePk -> BytesN<32>          // set by admin, rotatable
 
 Realistic total: **5-8 sesi**. Matches the earlier Phase 2 plan estimate.
 
+## Post-implementation gap (2026-07-11)
+
+The v1 ship shipped everything on the borrower side: bond commitments
+in the borrow circuit, `LiquidationBond` in contract storage,
+`liquidate_shielded` fn, `useLiquidate` hook + drawer button.
+Borrowers can self-liquidate their own underwater positions end-to-end.
+
+**A permissionless off-chain service worker as originally sketched
+under Option D1 does not work yet.** The gap:
+
+- The liquidate circuit binds the nullifier as `Poseidon(sk, loan_index)`
+  where `sk` is the borrower's wallet-derived Poseidon secret.
+- To prove liquidation, a service holding the borrower's `sk` can also
+  compute nullifiers for *every other note the borrower owns* —
+  deposits, other loans — and spend them. Sharing `sk` with a
+  liquidation service therefore drains the borrower's wallet.
+- The dual-recipient memo currently carries the bond openings
+  (`saltAmount`, `saltValue`, `saltPrice`, `collateralValue`,
+  `oraclePrice`) but **not** `sk`. If we added `sk` we would ship the
+  drain vector; if we don't add it, the service can't prove.
+
+Two clean fixes, both explicit follow-up tracks:
+
+1. **Zcash sapling-style key split.** Borrower's shielded identity
+   splits into `ivk` (incoming viewing) + `nk` (nullifier deriving).
+   The liquidate circuit binds `nullifier = PRF(nk, loan_index)`
+   instead of `Poseidon(sk, loan_index)`. Per-loan `nk` shared to the
+   service only lets it burn *that* loan's nullifier — no other notes
+   at risk. Cost: circom circuit rewrite for deposit + borrow +
+   withdraw + repay + liquidate (all nullifier consumers), state
+   migration for existing notes, redesigned scanner. ~3–5 sesi.
+2. **Threshold decryption (D2 in the original doc).** Service key
+   shards across N parties via FROST or similar; K-of-N cooperate to
+   decrypt bond openings, then any single participant proves + submits
+   with a *fresh, per-liquidation* borrower-supplied opening blob that
+   avoids revealing `sk`. Requires an off-chain MPC layer plus circuit
+   changes similar to option 1. ~5–8 sesi.
+
+Track L status therefore: **v1 shipped (self-liquidate). Service
+worker deferred until one of the above lands.** The
+`LiquidationServicePk` slot + dual-recipient memo + prover machinery
+built during Track L are the prerequisites for either follow-up —
+none of it is wasted work.
+
 ## Open questions
 
 - **Service key rotation.** If the liquidation-service pubkey rotates,
