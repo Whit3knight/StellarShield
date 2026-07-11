@@ -21,6 +21,7 @@ import {
   createWalletConnectedActivity,
 } from "../activities"
 import { createUserPosition } from "../positions"
+import { emitBorrowConfirmed } from "../borrow-events"
 import { borrowSession } from "../session-store"
 import type {
   BorrowActivity,
@@ -209,6 +210,8 @@ export function useBorrowFlow({
     setActivity((currentActivity) =>
       appendBorrowActivity(currentActivity, confirmedActivity)
     )
+
+    emitBorrowConfirmed()
   }, [flow, market, metrics])
 
   const setFieldValue = React.useCallback(

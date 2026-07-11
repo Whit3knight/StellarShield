@@ -4,6 +4,7 @@ import * as React from "react"
 
 import type { ChainBorrowReceipt } from "@/features/protocol"
 
+import { onBorrowConfirmed } from "./borrow-events"
 import { fetchChainBorrowPositions } from "./chain-positions"
 
 /**
@@ -27,6 +28,10 @@ export function useChainPositions(
   const refresh = React.useCallback(() => {
     setRefreshToken((token) => token + 1)
   }, [])
+
+  React.useEffect(() => {
+    return onBorrowConfirmed(() => refresh())
+  }, [refresh])
 
   React.useEffect(() => {
     if (!account || !enabled) return
