@@ -1,76 +1,64 @@
 import {
-  CircleAlertIcon,
-  FileCheck2Icon,
+  CoinsIcon,
   ShieldCheckIcon,
-  TrendingUpIcon,
-  UserIcon,
-  WalletIcon,
+  type LucideIcon,
 } from "lucide-react"
-import type * as React from "react"
+
+export type NotificationKind = "borrow" | "repay"
 
 export type Notification = {
   action: string
-  icon: React.ComponentType<React.SVGProps<SVGSVGElement>>
-  id: number
+  createdAt: string
+  hash?: string
+  icon: LucideIcon
+  id: string
+  kind: NotificationKind
   target: string
-  timestamp: string
   unread: boolean
   user: string
 }
 
-export const initialNotifications: Notification[] = [
-  {
-    action: "verified",
-    icon: ShieldCheckIcon,
-    id: 1,
-    target: "Borrow proof #42",
-    timestamp: "15 minutes ago",
-    unread: true,
-    user: "Shield Oracle",
-  },
-  {
-    action: "updated risk on",
-    icon: CircleAlertIcon,
-    id: 2,
-    target: "XLM collateral pool",
-    timestamp: "45 minutes ago",
-    unread: true,
-    user: "Risk monitor",
-  },
-  {
+const KIND_DEFAULTS: Record<
+  NotificationKind,
+  { action: string; icon: LucideIcon; user: string }
+> = {
+  borrow: {
     action: "confirmed",
-    icon: WalletIcon,
-    id: 3,
-    target: "Wallet delegation",
-    timestamp: "4 hours ago",
-    unread: false,
-    user: "Stellar network",
+    icon: ShieldCheckIcon,
+    user: "Stellar Shield",
   },
-  {
-    action: "published",
-    icon: FileCheck2Icon,
-    id: 4,
-    target: "New privacy attestation",
-    timestamp: "12 hours ago",
-    unread: false,
-    user: "Proof center",
+  repay: {
+    action: "closed",
+    icon: CoinsIcon,
+    user: "Stellar Shield",
   },
-  {
-    action: "improved health for",
-    icon: TrendingUpIcon,
-    id: 5,
-    target: "Borrow position",
-    timestamp: "2 days ago",
-    unread: false,
-    user: "Position manager",
-  },
-  {
-    action: "mentioned you in",
-    icon: UserIcon,
-    id: 6,
-    target: "Support ticket #18",
-    timestamp: "2 weeks ago",
-    unread: false,
-    user: "Support desk",
-  },
-]
+}
+
+export function createChainNotification({
+  createdAt,
+  hash,
+  id,
+  kind,
+}: {
+  createdAt?: string
+  hash?: string
+  id?: string
+  kind: NotificationKind
+}): Notification {
+  const defaults = KIND_DEFAULTS[kind]
+  const stamp = createdAt ?? new Date().toISOString()
+  const label = hash ? `${hash.slice(0, 10)}…` : kind === "borrow" ? "position" : "position"
+  return {
+    action: defaults.action,
+    createdAt: stamp,
+    hash,
+    icon: defaults.icon,
+    id: id ?? `${kind}-${stamp}-${Math.random().toString(36).slice(2, 8)}`,
+    kind,
+    target: kind === "borrow" ? `Borrow ${label}` : `Repay ${label}`,
+    unread: true,
+    user: defaults.user,
+  }
+}
+
+export const initialNotifications: Notification[] = []

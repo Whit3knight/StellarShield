@@ -5,6 +5,7 @@ import * as React from "react"
 import { toastManager } from "@/components/ui/toast"
 import { getStellarExpertTxUrl } from "@/features/wallet/network"
 
+import { emitRepayConfirmed } from "./borrow-events"
 import { repayPosition, type RepayResult } from "./repay-position"
 
 type Status = "idle" | "pending" | "success" | "failed"
@@ -92,6 +93,7 @@ export function useRepayPosition(account: string | null): {
             message: null,
             status: "success",
           })
+          emitRepayConfirmed(result.hash)
           toastManager.add({
             title: "Position closed",
             description: `Repay confirmed. Hash ${result.hash.slice(0, 10)}…`,

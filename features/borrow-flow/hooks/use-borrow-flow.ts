@@ -211,7 +211,11 @@ export function useBorrowFlow({
       appendBorrowActivity(currentActivity, confirmedActivity)
     )
 
-    emitBorrowConfirmed()
+    emitBorrowConfirmed(
+      flow.transaction.status === "Confirmed"
+        ? flow.transaction.receipt.hash
+        : undefined
+    )
   }, [flow, market, metrics])
 
   const setFieldValue = React.useCallback(

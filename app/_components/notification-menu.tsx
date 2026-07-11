@@ -1,9 +1,10 @@
 "use client"
 
-import { BellIcon } from "lucide-react"
+import { BellIcon, InboxIcon } from "lucide-react"
 import * as React from "react"
 
 import {
+  createChainNotification,
   initialNotifications,
   type Notification,
 } from "../_constants/notifications"
@@ -16,6 +17,13 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
+import {
+  onBorrowConfirmed,
+  onRepayConfirmed,
+} from "@/features/borrow-flow/borrow-events"
+import { getStellarExpertTxUrl } from "@/features/wallet/network"
+
+const NOTIFICATION_CAP = 20
 
 function Dot({ className }: { className?: string }): React.ReactElement {
   return (
@@ -39,7 +47,6 @@ function NotificationIcon({
   notification: Notification
 }): React.ReactElement {
   const Icon = notification.icon
-
   return (
     <span className="flex size-9 shrink-0 items-center justify-center rounded-md border bg-muted text-muted-foreground">
       <Icon aria-hidden="true" className="size-4" />
@@ -48,32 +55,54 @@ function NotificationIcon({
 }
 
 export function NotificationMenu(): React.ReactElement {
-  const [notifications, setNotifications] = React.useState(initialNotifications)
+  const [notifications, setNotifications] = React.useState<Notification[]>(
+    initialNotifications
+  )
   const { notifications: notificationsMenu } = useNavMenus()
-  const unreadCount = notifications.filter((notification) => {
-    return notification.unread
-  }).length
+
+  const unreadCount = notifications.reduce(
+    (acc, item) => acc + (item.unread ? 1 : 0),
+    0
+  )
+
+  React.useEffect(() => {
+    const push = (kind: Notification["kind"], hash?: string) => {
+      setNotifications((current) =>
+        [
+          createChainNotification({ hash, kind }),
+          ...current,
+        ].slice(0, NOTIFICATION_CAP)
+      )
+    }
+
+    const offBorrow = onBorrowConfirmed((hash) => push("borrow", hash))
+    const offRepay = onRepayConfirmed((hash) => push("repay", hash))
+
+    return () => {
+      offBorrow()
+      offRepay()
+    }
+  }, [])
 
   const handleMarkAllAsRead = React.useCallback(() => {
-    setNotifications((currentNotifications) => {
-      return currentNotifications.map((notification) => ({
-        ...notification,
-        unread: false,
-      }))
-    })
+    setNotifications((current) =>
+      current.map((notification) => ({ ...notification, unread: false }))
+    )
   }, [])
 
-  const handleNotificationClick = React.useCallback((id: number) => {
-    setNotifications((currentNotifications) => {
-      return currentNotifications.map((notification) => {
-        if (notification.id === id) {
-          return { ...notification, unread: false }
-        }
-
-        return notification
-      })
-    })
-  }, [])
+  const handleNotificationClick = React.useCallback(
+    (notification: Notification) => {
+      setNotifications((current) =>
+        current.map((item) =>
+          item.id === notification.id ? { ...item, unread: false } : item
+        )
+      )
+      if (notification.hash) {
+        window.open(getStellarExpertTxUrl(notification.hash), "_blank")
+      }
+    },
+    []
+  )
 
   return (
     <Popover
@@ -117,6 +146,7 @@ export function NotificationMenu(): React.ReactElement {
           role="separator"
           tabIndex={-1}
         />
+        {notifications.length === 0 ? <EmptyState /> : null}
         {notifications.map((notification) => (
           <div
             className="rounded-md px-3 py-2 text-sm transition-colors hover:bg-accent"
@@ -127,9 +157,7 @@ export function NotificationMenu(): React.ReactElement {
               <div className="flex-1 space-y-1">
                 <button
                   className="text-left text-foreground/80 after:absolute after:inset-0"
-                  onClick={() => {
-                    handleNotificationClick(notification.id)
-                  }}
+                  onClick={() => handleNotificationClick(notification)}
                   type="button"
                 >
                   <span className="font-medium text-foreground hover:underline">
@@ -142,7 +170,7 @@ export function NotificationMenu(): React.ReactElement {
                   .
                 </button>
                 <div className="text-xs text-muted-foreground">
-                  {notification.timestamp}
+                  {formatRelative(notification.createdAt)}
                 </div>
               </div>
               {notification.unread ? (
@@ -156,4 +184,28 @@ export function NotificationMenu(): React.ReactElement {
       </PopoverContent>
     </Popover>
   )
+}
+
+function EmptyState(): React.ReactElement {
+  return (
+    <div className="flex flex-col items-center gap-2 px-4 py-8 text-center text-sm text-muted-foreground">
+      <InboxIcon aria-hidden="true" className="size-6 opacity-60" />
+      <span>Nothing new yet.</span>
+      <span className="text-xs">
+        Confirmed borrows and repays land here.
+      </span>
+    </div>
+  )
+}
+
+function formatRelative(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime()
+  const seconds = Math.max(0, Math.floor(diff / 1000))
+  if (seconds < 45) return "Just now"
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"} ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`
+  const days = Math.floor(hours / 24)
+  return `${days} day${days === 1 ? "" : "s"} ago`
 }
