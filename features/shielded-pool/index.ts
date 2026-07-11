@@ -26,3 +26,9 @@ export {
   type BorrowProofInputs,
   type BorrowProofResult,
 } from "./borrow-prover"
+export {
+  prepareBorrow,
+  type PrepareBorrowParams,
+  type PrepareBorrowResult,
+} from "./borrow"
+export { useBorrow } from "./use-borrow"

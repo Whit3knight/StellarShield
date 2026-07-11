@@ -29,6 +29,7 @@ import {
   type ShieldedNote,
 } from "@/features/notes"
 import {
+  useBorrow,
   useDeposit,
   useShieldedPool,
   useWithdraw,
@@ -56,6 +57,7 @@ export function ShieldedDrawer({
     status: withdrawStatus,
     withdraw,
   } = useWithdraw(account)
+  const { borrow, status: borrowStatus } = useBorrow(account, walletSeed)
 
   const balances = React.useMemo(() => summariseByAsset(notes), [notes])
 
@@ -89,6 +91,13 @@ export function ShieldedDrawer({
                 }}
                 depositStatus={status}
               />
+              <BorrowPanel
+                availableCollateral={balances}
+                borrowStatus={borrowStatus}
+                onBorrow={async ({ borrowAsset, collateralAsset }) => {
+                  await borrow({ borrowAsset, collateralAsset })
+                }}
+              />
               <NoteList
                 notes={notes}
                 isScanning={isScanning}
@@ -104,6 +113,67 @@ export function ShieldedDrawer({
         </DrawerPanel>
       </DrawerPopup>
     </Drawer>
+  )
+}
+
+function BorrowPanel({
+  availableCollateral,
+  borrowStatus,
+  onBorrow,
+}: {
+  availableCollateral: Record<ShieldedAsset, number>
+  borrowStatus: "idle" | "reconstructing" | "proving" | "signing" | "success" | "failed"
+  onBorrow: (params: {
+    borrowAsset: ShieldedAsset
+    collateralAsset: ShieldedAsset
+  }) => Promise<void>
+}): React.ReactElement | null {
+  const busy =
+    borrowStatus === "reconstructing" ||
+    borrowStatus === "proving" ||
+    borrowStatus === "signing"
+  const eligible = SUPPORTED_ASSETS.filter(
+    (asset) => availableCollateral[asset] >= 4
+  )
+  if (eligible.length === 0) return null
+
+  return (
+    <div className="rounded-md border bg-background/72 px-3 py-3 text-sm">
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <div className="font-medium">Borrow shielded</div>
+          <p className="text-xs text-muted-foreground">
+            4 collateral notes → 1 loan note, amounts + wallet hidden.
+          </p>
+        </div>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {eligible.map((collateral) =>
+          SUPPORTED_ASSETS.filter((borrow) => borrow !== collateral).map(
+            (borrowAsset) => (
+              <Button
+                disabled={busy}
+                key={`${collateral}-${borrowAsset}`}
+                onClick={() =>
+                  void onBorrow({
+                    borrowAsset,
+                    collateralAsset: collateral,
+                  })
+                }
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                {busy ? (
+                  <Loader2Icon aria-hidden="true" className="animate-spin" />
+                ) : null}
+                {collateral} → {borrowAsset}
+              </Button>
+            )
+          )
+        )}
+      </div>
+    </div>
   )
 }
 

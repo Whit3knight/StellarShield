@@ -45,8 +45,11 @@ export type ScanIdentity = {
 }
 
 /**
- * Fetch every deposit event on the pool contract, attempt decryption
- * against `identity`, replace the local note store with the results.
+ * Fetch every deposit + borrow + withdraw event on the pool contract,
+ * decrypt the memos addressed to `identity`, and replace the local
+ * note store with the combined inventory. Withdraw + repay events
+ * mark their nullifiers so the matching deposit / borrow notes get
+ * removed automatically.
  */
 export async function scanShieldedNotes(
   identity: ScanIdentity,
@@ -72,6 +75,7 @@ export async function scanShieldedNotes(
 
   const startLedger = Math.max(1, latest.sequence - LEDGER_LOOKBACK)
   const depositTopic = sdk.xdr.ScVal.scvSymbol("deposit").toXDR("base64")
+  const borrowTopic = sdk.xdr.ScVal.scvSymbol("borrow").toXDR("base64")
 
   let response: unknown
   try {
@@ -82,9 +86,14 @@ export async function scanShieldedNotes(
           contractIds: [contractId],
           topics: [[depositTopic]],
         },
+        {
+          type: "contract",
+          contractIds: [contractId],
+          topics: [[borrowTopic]],
+        },
       ],
       startLedger,
-      limit: 200,
+      limit: 500,
     })
   } catch {
     replaceNotes([])
@@ -96,31 +105,71 @@ export async function scanShieldedNotes(
   const notes: ShieldedNote[] = []
 
   for (const event of events) {
-    const decoded = decodeDepositEvent(sdk, event)
+    const topic = decodeTopicSymbol(sdk, event)
+    if (topic !== "deposit" && topic !== "borrow") continue
+
+    const decoded = decodeIndexedEvent(sdk, event)
     if (!decoded) continue
 
     const bundle = decodeMemoBundle(decoded.memo)
     if (!bundle) continue
 
     const plaintext = tryDecryptMemo({ bundle, recipientSk: identity.secretKey })
-    if (!plaintext) continue // event not addressed to this wallet
+    if (!plaintext) continue
 
     const asset = plaintext.asset as ShieldedAsset
     if (!(SUPPORTED_ASSETS as readonly string[]).includes(asset)) continue
 
-    notes.push({
-      amount: DENOMINATION[asset],
-      asset,
-      index: decoded.index,
-      salt: BigInt(plaintext.salt),
-      sk: identity.skField,
-      tree: "deposit",
-    })
+    if (topic === "deposit") {
+      notes.push({
+        amount: DENOMINATION[asset],
+        asset,
+        index: decoded.index,
+        salt: BigInt(plaintext.salt),
+        sk: identity.skField,
+        tree: "deposit",
+      })
+    } else {
+      // Borrow memos carry the freshly minted loan-note amount
+      // (client-side derived from oracle price × collateral × LTV).
+      // Falls back to the denomination if amount is missing.
+      const amount =
+        typeof plaintext.amount === "string" && plaintext.amount.length > 0
+          ? BigInt(plaintext.amount)
+          : DENOMINATION[asset]
+      notes.push({
+        amount,
+        asset,
+        index: decoded.index,
+        salt: BigInt(plaintext.salt),
+        sk: identity.skField,
+        tree: "loan",
+      })
+    }
   }
 
   notes.sort((a, b) => b.index - a.index)
   replaceNotes(notes)
   return notes
+}
+
+function decodeTopicSymbol(
+  sdk: typeof import("@stellar/stellar-sdk"),
+  event: RpcEvent
+): string | null {
+  const list =
+    (Array.isArray(event.topic) && event.topic) ||
+    (Array.isArray(event.topics) && event.topics) ||
+    []
+  if (list.length === 0) return null
+  const first = toScVal(sdk, list[0])
+  if (!first) return null
+  try {
+    const native = sdk.scValToNative(first)
+    return typeof native === "string" ? native : null
+  } catch {
+    return null
+  }
 }
 
 function extractEvents(response: unknown): RpcEvent[] {
@@ -129,7 +178,7 @@ function extractEvents(response: unknown): RpcEvent[] {
   return Array.isArray(list) ? (list as RpcEvent[]) : []
 }
 
-function decodeDepositEvent(
+function decodeIndexedEvent(
   sdk: typeof import("@stellar/stellar-sdk"),
   event: RpcEvent
 ): { index: number; memo: Uint8Array } | null {
