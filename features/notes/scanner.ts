@@ -11,10 +11,7 @@
 // Later ops will add ("borrow", …) and ("repay", …) with the same
 // memo-attached shape so a single scanner covers every tree.
 
-import {
-  decodeMemoBundle,
-  tryDecryptMemo,
-} from "./memo"
+import { tryDecryptAnyMemo } from "./memo"
 import {
   DENOMINATION,
   SUPPORTED_ASSETS,
@@ -156,10 +153,10 @@ export async function scanShieldedNotes(
     const decoded = decodeIndexedEvent(sdk, event)
     if (!decoded) continue
 
-    const bundle = decodeMemoBundle(decoded.memo)
-    if (!bundle) continue
-
-    const plaintext = tryDecryptMemo({ bundle, recipientSk: identity.secretKey })
+    const plaintext = tryDecryptAnyMemo({
+      raw: decoded.memo,
+      recipientSk: identity.secretKey,
+    })
     if (!plaintext) continue
 
     const asset = plaintext.asset as ShieldedAsset

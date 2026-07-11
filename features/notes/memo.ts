@@ -96,6 +96,110 @@ export function decodeMemoBundle(raw: Uint8Array): MemoBundle | null {
   }
 }
 
+// Multi-recipient memo (Track L). Same plaintext encrypted independently
+// to each recipient — smallest ship for dual-recipient (borrower +
+// liquidation-service). Legacy single-recipient bundles decode
+// unchanged; the multi format prepends a magic prefix so the two are
+// unambiguous.
+
+const MULTI_MAGIC_0 = 0xc0
+const MULTI_MAGIC_1 = 0xde
+
+/**
+ * Encrypt `plaintext` to every recipient. Anyone holding one of the
+ * matching secret keys can decrypt.
+ */
+export function encryptMemoMulti({
+  plaintext,
+  recipientPks,
+}: {
+  plaintext: MemoPlaintext
+  recipientPks: Uint8Array[]
+}): MemoBundle[] {
+  if (recipientPks.length === 0) {
+    throw new Error("encryptMemoMulti: at least one recipient required")
+  }
+  return recipientPks.map((pk) => encryptMemo({ plaintext, recipientPk: pk }))
+}
+
+/**
+ * Serialise a multi-recipient bundle. Format:
+ *   [0xC0][0xDE][count: u8]
+ *   for each sub-bundle:
+ *     [pk: 32 bytes][ct_len: u16 big-endian][ct]
+ */
+export function encodeMemoBundleMulti(bundles: MemoBundle[]): Uint8Array {
+  if (bundles.length === 0 || bundles.length > 255) {
+    throw new Error("encodeMemoBundleMulti: 1..255 sub-bundles required")
+  }
+  let size = 3
+  for (const b of bundles) size += 32 + 2 + b.ciphertext.length
+  const out = new Uint8Array(size)
+  out[0] = MULTI_MAGIC_0
+  out[1] = MULTI_MAGIC_1
+  out[2] = bundles.length
+  let offset = 3
+  for (const b of bundles) {
+    out.set(b.ephemeralPk, offset)
+    offset += 32
+    const ctLen = b.ciphertext.length
+    out[offset] = (ctLen >> 8) & 0xff
+    out[offset + 1] = ctLen & 0xff
+    offset += 2
+    out.set(b.ciphertext, offset)
+    offset += ctLen
+  }
+  return out
+}
+
+export function decodeMemoBundleMulti(raw: Uint8Array): MemoBundle[] | null {
+  if (raw.length < 3) return null
+  if (raw[0] !== MULTI_MAGIC_0 || raw[1] !== MULTI_MAGIC_1) return null
+  const count = raw[2]
+  if (count === 0) return null
+  const bundles: MemoBundle[] = []
+  let offset = 3
+  for (let i = 0; i < count; i++) {
+    if (offset + 32 + 2 > raw.length) return null
+    const pk = raw.slice(offset, offset + 32)
+    offset += 32
+    const ctLen = (raw[offset] << 8) | raw[offset + 1]
+    offset += 2
+    if (offset + ctLen > raw.length) return null
+    bundles.push({
+      ciphertext: raw.slice(offset, offset + ctLen),
+      ephemeralPk: pk,
+    })
+    offset += ctLen
+  }
+  if (offset !== raw.length) return null
+  return bundles
+}
+
+/**
+ * Try to decrypt a raw memo (either legacy single-recipient or multi).
+ * Returns the first successful open, or null.
+ */
+export function tryDecryptAnyMemo({
+  raw,
+  recipientSk,
+}: {
+  raw: Uint8Array
+  recipientSk: Uint8Array
+}): MemoPlaintext | null {
+  const multi = decodeMemoBundleMulti(raw)
+  if (multi) {
+    for (const bundle of multi) {
+      const opened = tryDecryptMemo({ bundle, recipientSk })
+      if (opened) return opened
+    }
+    return null
+  }
+  const legacy = decodeMemoBundle(raw)
+  if (!legacy) return null
+  return tryDecryptMemo({ bundle: legacy, recipientSk })
+}
+
 /**
  * Derive an X25519 keypair from a wallet-scoped seed. The wallet
  * signs a canonical message; the signature is fed through SHA-256 to

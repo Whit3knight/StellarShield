@@ -11,9 +11,13 @@ import {
 import { FR_ORDER, poseidon } from "./poseidon"
 import {
   decodeMemoBundle,
+  decodeMemoBundleMulti,
   deriveShieldedIdentity,
   encodeMemoBundle,
+  encodeMemoBundleMulti,
   encryptMemo,
+  encryptMemoMulti,
+  tryDecryptAnyMemo,
   tryDecryptMemo,
 } from "./memo"
 
@@ -171,5 +175,82 @@ describe("encrypted memo round-trip", () => {
     const identityB = deriveShieldedIdentity(seed)
     expect(identityA.publicKey).toEqual(identityB.publicKey)
     expect(identityA.secretKey).toEqual(identityB.secretKey)
+  })
+})
+
+describe("dual-recipient memo (Track L)", () => {
+  const plaintext = {
+    amount: "100",
+    asset: "XLM",
+    index: 12,
+    salt: "999",
+    tree: "loan" as const,
+  }
+
+  it("either recipient can decrypt a multi bundle", () => {
+    const borrower = deriveShieldedIdentity(new Uint8Array(32).fill(0x55))
+    const service = deriveShieldedIdentity(new Uint8Array(32).fill(0x66))
+    const bundles = encryptMemoMulti({
+      plaintext,
+      recipientPks: [borrower.publicKey, service.publicKey],
+    })
+    const encoded = encodeMemoBundleMulti(bundles)
+
+    expect(
+      tryDecryptAnyMemo({ raw: encoded, recipientSk: borrower.secretKey })
+    ).toEqual(plaintext)
+    expect(
+      tryDecryptAnyMemo({ raw: encoded, recipientSk: service.secretKey })
+    ).toEqual(plaintext)
+  })
+
+  it("an unrelated recipient still gets null", () => {
+    const borrower = deriveShieldedIdentity(new Uint8Array(32).fill(0x55))
+    const service = deriveShieldedIdentity(new Uint8Array(32).fill(0x66))
+    const outsider = deriveShieldedIdentity(new Uint8Array(32).fill(0x77))
+    const encoded = encodeMemoBundleMulti(
+      encryptMemoMulti({
+        plaintext,
+        recipientPks: [borrower.publicKey, service.publicKey],
+      })
+    )
+    expect(
+      tryDecryptAnyMemo({ raw: encoded, recipientSk: outsider.secretKey })
+    ).toBeNull()
+  })
+
+  it("tryDecryptAnyMemo falls back to the legacy bundle format", () => {
+    const borrower = deriveShieldedIdentity(new Uint8Array(32).fill(0x88))
+    const legacy = encryptMemo({ plaintext, recipientPk: borrower.publicKey })
+    const encoded = encodeMemoBundle(legacy)
+    expect(
+      tryDecryptAnyMemo({ raw: encoded, recipientSk: borrower.secretKey })
+    ).toEqual(plaintext)
+  })
+
+  it("decodeMemoBundleMulti round-trips the wire format", () => {
+    const borrower = deriveShieldedIdentity(new Uint8Array(32).fill(0x99))
+    const service = deriveShieldedIdentity(new Uint8Array(32).fill(0xaa))
+    const bundles = encryptMemoMulti({
+      plaintext,
+      recipientPks: [borrower.publicKey, service.publicKey],
+    })
+    const roundTrip = decodeMemoBundleMulti(encodeMemoBundleMulti(bundles))
+    expect(roundTrip).not.toBeNull()
+    expect(roundTrip?.length).toBe(2)
+  })
+
+  it("decodeMemoBundleMulti rejects legacy bytes", () => {
+    const borrower = deriveShieldedIdentity(new Uint8Array(32).fill(0xbb))
+    const legacy = encodeMemoBundle(
+      encryptMemo({ plaintext, recipientPk: borrower.publicKey })
+    )
+    expect(decodeMemoBundleMulti(legacy)).toBeNull()
+  })
+
+  it("encryptMemoMulti rejects an empty recipient list", () => {
+    expect(() =>
+      encryptMemoMulti({ plaintext, recipientPks: [] })
+    ).toThrow()
   })
 })
