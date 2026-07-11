@@ -831,7 +831,10 @@ impl BorrowPool {
         env: Env,
         liquidator: Address,
         borrow_asset: Symbol,
+        collateral_asset: Symbol,
         proof: BorrowProof,
+        bounty_commit: BytesN<32>,
+        bounty_memo: soroban_sdk::Bytes,
     ) -> Result<(), Error> {
         liquidator.require_auth();
 
@@ -859,6 +862,11 @@ impl BorrowPool {
         let expected_borrow_tag =
             notes::asset_tag(&env, &borrow_asset).ok_or(Error::AssetUnknown)?;
         if bond.borrow_asset_tag != expected_borrow_tag {
+            return Err(Error::DenominationMismatch);
+        }
+        let expected_collateral_tag =
+            notes::asset_tag(&env, &collateral_asset).ok_or(Error::AssetUnknown)?;
+        if bond.collateral_asset_tag != expected_collateral_tag {
             return Err(Error::DenominationMismatch);
         }
 
@@ -897,9 +905,47 @@ impl BorrowPool {
             state::total_borrow(&env, &borrow_asset).saturating_sub(1),
         );
 
+        // C-simple bounty: append the liquidator-supplied commitment
+        // to the collateral asset's deposit tree. Contract does not
+        // verify the commitment's opening — the liquidator's later
+        // withdraw is gated by the standard withdraw circuit, which
+        // enforces amount == denomination(asset). If the liquidator
+        // supplies a garbage commit, they simply can't spend it later;
+        // no other user is harmed. Anonymity set stays intact because
+        // the leaf is indistinguishable from any deposit commitment.
+        let next_index = state::deposit_next_index(&env, &collateral_asset);
+        let capacity = 1u64 << (merkle::DEPTH as u64);
+        if next_index >= capacity {
+            return Err(Error::TreeCapacityExceeded);
+        }
+        let mut frontier_arr =
+            load_frontier(&env, state::deposit_frontier(&env, &collateral_asset));
+        let bounty_fr = Fr::from_bytes(bounty_commit.clone());
+        let new_root =
+            merkle::append(&env, &bounty_fr, &mut frontier_arr, next_index);
+        state::set_deposit_frontier(
+            &env,
+            &collateral_asset,
+            &frontier_to_vec(&env, &frontier_arr),
+        );
+        state::set_deposit_root(&env, &collateral_asset, &new_root.to_bytes());
+        state::set_deposit_next_index(&env, &collateral_asset, next_index + 1);
+        state::set_total_deposit(
+            &env,
+            &collateral_asset,
+            state::total_deposit(&env, &collateral_asset).saturating_add(1),
+        );
+
         env.events().publish(
             (LIQUIDATE_EVENT, borrow_asset.clone()),
             (loan_commit_bytes, nullifier_bytes, liquidator.clone()),
+        );
+        // Also emit a DEPOSIT_EVENT so the scanner picks the bounty
+        // leaf up on the next scan and materialises it as a
+        // liquidator-owned deposit note.
+        env.events().publish(
+            (DEPOSIT_EVENT, collateral_asset.clone()),
+            (next_index, new_root.to_bytes(), bounty_commit, bounty_memo),
         );
         Ok(())
     }

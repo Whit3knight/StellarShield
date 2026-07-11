@@ -71,7 +71,7 @@ export function ShieldedDrawer({
     activeLoanIndex: liquidatingIndex,
     status: liquidateStatus,
     liquidate,
-  } = useLiquidate(account)
+  } = useLiquidate(account, walletSeed)
 
   const balances = React.useMemo(() => summariseByAsset(notes), [notes])
   const prices = useAssetPrices()

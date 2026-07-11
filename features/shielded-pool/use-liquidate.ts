@@ -3,7 +3,17 @@
 import * as React from "react"
 
 import { toastManager } from "@/components/ui/toast"
-import { type ShieldedNote } from "@/features/notes"
+import {
+  computeCommitment,
+  DENOMINATION,
+  deriveShieldedIdentity,
+  encodeMemoBundle,
+  encryptMemo,
+  randomFieldElement,
+  SUPPORTED_ASSETS,
+  type ShieldedAsset,
+  type ShieldedNote,
+} from "@/features/notes"
 import { fetchReflectorPrice } from "@/features/markets/prices"
 import { getRiskParams } from "@/features/protocol/risk-params"
 import {
@@ -40,7 +50,10 @@ type UseLiquidateResult = {
  * successful liquidation just burns the loan nullifier so the borrower
  * can't claim the loan amount downstream.
  */
-export function useLiquidate(account: string | null): UseLiquidateResult {
+export function useLiquidate(
+  account: string | null,
+  walletSeed: Uint8Array | null
+): UseLiquidateResult {
   const [status, setStatus] = React.useState<Status>("idle")
   const [message, setMessage] = React.useState<string | null>(null)
   const [activeLoanIndex, setActiveLoanIndex] = React.useState<number | null>(
@@ -55,7 +68,7 @@ export function useLiquidate(account: string | null): UseLiquidateResult {
 
   const liquidate = React.useCallback(
     async (loanNote: ShieldedNote) => {
-      if (!account) {
+      if (!account || !walletSeed) {
         setStatus("failed")
         setMessage("Connect a wallet first.")
         return null
@@ -149,10 +162,60 @@ export function useLiquidate(account: string | null): UseLiquidateResult {
           ),
         }
 
+        // Look up the bond so we know which collateral asset this
+        // loan was opened against — the bounty leaf lands on that
+        // asset's deposit tree.
+        const bondFetch = await client.liquidation_bond({
+          loan_commitment: Buffer.from(bigintTo32Bytes(proof.loanCommitment)),
+        })
+        const bondOnChain = bondFetch.result
+        if (!bondOnChain) {
+          throw new Error("No liquidation bond found for this loan.")
+        }
+        const collateralAsset = SUPPORTED_ASSETS[
+          Number(bondOnChain.collateral_asset_tag)
+        ] as ShieldedAsset | undefined
+        if (!collateralAsset) {
+          throw new Error(
+            `Unknown collateral asset tag ${bondOnChain.collateral_asset_tag.toString()}`
+          )
+        }
+
+        // Generate a fresh liquidator note (Poseidon(denom, asset_tag,
+        // sk, salt)). Fresh salt every time so bounties are
+        // unlinkable across liquidations. Amount fixed at the
+        // asset's denomination so the standard withdraw circuit
+        // accepts the resulting deposit note.
+        const liquidatorIdentity = deriveShieldedIdentity(walletSeed)
+        const liquidatorSk = bytesToBigInt(liquidatorIdentity.secretKey)
+        const bountySalt = randomFieldElement()
+        const bountyAmount = DENOMINATION[collateralAsset]
+        const bountyCommitment = computeCommitment({
+          amount: bountyAmount,
+          asset: collateralAsset,
+          salt: bountySalt,
+          sk: liquidatorSk,
+        })
+        const bountyMemo = encodeMemoBundle(
+          encryptMemo({
+            plaintext: {
+              amount: bountyAmount.toString(),
+              asset: collateralAsset,
+              index: 0,
+              salt: bountySalt.toString(),
+              tree: "deposit",
+            },
+            recipientPk: liquidatorIdentity.publicKey,
+          })
+        )
+
         const assembled = await client.liquidate_shielded({
           liquidator: account,
           borrow_asset: loanNote.asset,
+          collateral_asset: collateralAsset,
           proof: proofBuffers,
+          bounty_commit: Buffer.from(bigintTo32Bytes(bountyCommitment)),
+          bounty_memo: Buffer.from(bountyMemo),
         })
 
         const { signTransaction: freighter } = await import(
@@ -218,13 +281,31 @@ export function useLiquidate(account: string | null): UseLiquidateResult {
         return null
       }
     },
-    [account]
+    [account, walletSeed]
   )
 
   return { activeLoanIndex, message, reset, status, liquidate }
 }
 
 function bigintFromBytes(bytes: Uint8Array): bigint {
+  let value = 0n
+  for (const byte of bytes) {
+    value = (value << 8n) | BigInt(byte)
+  }
+  return value
+}
+
+function bigintTo32Bytes(value: bigint): Uint8Array {
+  const out = new Uint8Array(32)
+  let residue = value
+  for (let index = 31; index >= 0; index--) {
+    out[index] = Number(residue & 0xffn)
+    residue >>= 8n
+  }
+  return out
+}
+
+function bytesToBigInt(bytes: Uint8Array): bigint {
   let value = 0n
   for (const byte of bytes) {
     value = (value << 8n) | BigInt(byte)
