@@ -269,7 +269,7 @@ describe("borrow flow utilities", () => {
     const metrics = getBorrowFlowMetrics(flow, market, account)
 
     expect(
-      createTransactionPreview({ account, flow, market, metrics })
+      createTransactionPreview({ account, flow, metrics })
     ).toMatchObject({
       account: "GDU3...Y9KQ",
       collateral: "1,000 XLM",

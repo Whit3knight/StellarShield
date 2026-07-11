@@ -34,9 +34,13 @@ import {
   CommandSeparator,
 } from "@/components/ui/command"
 import {
+  deriveMarketMetrics,
+  formatPercent,
   getMarketPair,
   getMarketSearchValue,
   marketCards,
+  pickRisk,
+  useMarketStats,
   type MarketCardData,
 } from "@/features/markets"
 import { useWalletConnection } from "@/features/wallet/use-wallet-connection"
@@ -319,11 +323,14 @@ function MarketBadges({
 }: {
   market: MarketCardData
 }): React.ReactElement {
+  const { stats } = useMarketStats()
+  const metrics = deriveMarketMetrics(stats[getMarketPair(market)])
+  const risk = pickRisk(metrics.utilization)
   return (
     <span className="ms-auto flex items-center gap-1.5 text-xs text-muted-foreground">
-      <span className="rounded-md border px-1.5 py-0.5">{market.risk}</span>
+      <span className="rounded-md border px-1.5 py-0.5">{risk}</span>
       <span className="rounded-md border px-1.5 py-0.5">
-        APR {market.borrowApr}
+        APR {formatPercent(metrics.borrowApr * 100)}
       </span>
     </span>
   )

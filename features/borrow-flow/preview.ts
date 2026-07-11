@@ -1,5 +1,4 @@
 import type { ConnectedAccount } from "@/app/_constants/account"
-import type { MarketCardData } from "@/features/markets"
 import { formatAdapterError } from "@/features/protocol"
 
 import { formatAssetAmount, formatUsd } from "./format"
@@ -20,12 +19,10 @@ import type {
 export function createTransactionPreview({
   account,
   flow,
-  market,
   metrics,
 }: {
   account: ConnectedAccount | null
   flow: BorrowFlowState
-  market: MarketCardData
   metrics: BorrowFlowMetrics
 }): TransactionPreview {
   const quote = metrics.quote
@@ -41,7 +38,6 @@ export function createTransactionPreview({
 
   return {
     account: account?.wallet.shortAddress ?? "Connect wallet",
-    borrowApr: market.borrowApr,
     collateral: formatAssetAmount(
       quote.collateral.amount,
       quote.collateral.symbol

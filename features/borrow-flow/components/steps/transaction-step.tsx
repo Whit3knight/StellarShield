@@ -46,8 +46,8 @@ export function TransactionStep({
   position,
 }: TransactionStepProps): React.ReactElement {
   const preview = React.useMemo(
-    () => createTransactionPreview({ account, flow, market, metrics }),
-    [account, flow, market, metrics]
+    () => createTransactionPreview({ account, flow, metrics }),
+    [account, flow, metrics]
   )
   const rows = getTimelineRows(flow.transaction.status)
   const signingCopy = getSigningCopy(rows.signing)

@@ -37,7 +37,6 @@ export function createUserPosition({
             },
           ]
         : [],
-    borrowApr: market.borrowApr,
     borrowingPowerUsed: metrics.utilization,
     healthFactor: metrics.healthFactor,
     id: createStableId(

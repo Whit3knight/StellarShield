@@ -72,7 +72,6 @@ export type BorrowField = "collateralAmount" | "loanAmount"
 
 export type UserPosition = {
   borrowed: AssetAmount[]
-  borrowApr: string
   borrowingPowerUsed: number
   id: string
   healthFactor: number | null
@@ -121,7 +120,6 @@ export type BorrowQuote = {
 
 export type TransactionPreview = {
   account: string
-  borrowApr: string
   collateral: string
   collateralValue: string
   error: string | null
