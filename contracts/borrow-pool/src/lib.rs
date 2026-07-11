@@ -6,6 +6,8 @@ use soroban_sdk::{
     symbol_short, Address, BytesN, Env, Symbol, Vec,
 };
 
+mod poseidon;
+mod poseidon_constants;
 mod verifier;
 
 // ponytail: skeleton contract. Real pool needs liquidity accounting, interest
