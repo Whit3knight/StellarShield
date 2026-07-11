@@ -113,7 +113,7 @@ async function runCircomCircuit(
   urls: { wasmUrl: string; zkeyUrl: string },
   signal?: AbortSignal
 ): Promise<BorrowContractPayload> {
-  void signal
+  if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
 
   // Kick artefact fetch + module import in parallel. preloadProver()
   // at wallet-connect usually beats us here — this second call reuses
@@ -123,6 +123,7 @@ async function runCircomCircuit(
     import("snarkjs"),
     ensureSnarkjsArtefacts({ wasmUrl: urls.wasmUrl, zkeyUrl: urls.zkeyUrl }),
   ])
+  if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
   const snarkjs =
     (snarkjsModule as { default?: unknown }).default ?? snarkjsModule
 
@@ -133,6 +134,7 @@ async function runCircomCircuit(
     undefined,
     signal
   )
+  if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
 
   const groth16 = (snarkjs as {
     groth16: {
@@ -144,11 +146,15 @@ async function runCircomCircuit(
     }
   }).groth16
 
-  const { proof, publicSignals } = await groth16.fullProve(
-    inputs,
-    artefacts.wasm,
-    artefacts.zkey
+  // snarkjs.fullProve is not itself abortable — the WASM keeps churning
+  // until it finishes. Racing against the signal at least lets the
+  // caller return early on unmount / field edit instead of waiting for
+  // WASM to wind down.
+  const { proof, publicSignals } = await raceAbort(
+    groth16.fullProve(inputs, artefacts.wasm, artefacts.zkey),
+    signal
   )
+  if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
 
   // snarkjs returns public output at the end of publicSignals (circom
   // pragma places outputs after inputs).
@@ -250,6 +256,27 @@ async function safeFetch<T>(
   } catch {
     return null
   }
+}
+
+function raceAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return promise
+  if (signal.aborted) {
+    return Promise.reject(new DOMException("Aborted", "AbortError"))
+  }
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(new DOMException("Aborted", "AbortError"))
+    signal.addEventListener("abort", onAbort, { once: true })
+    promise.then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort)
+        resolve(value)
+      },
+      (reason) => {
+        signal.removeEventListener("abort", onAbort)
+        reject(reason)
+      }
+    )
+  })
 }
 
 async function defaultFetchPrice(
