@@ -146,7 +146,7 @@ export interface RiskParams {
   max_ltv_bps: u32;
 }
 
-export type InstanceKey = {tag: "Admin", values: void} | {tag: "Markets", values: void} | {tag: "RateParams", values: void} | {tag: "RiskParams", values: void} | {tag: "ReflectorContract", values: void};
+export type InstanceKey = {tag: "Admin", values: void} | {tag: "Markets", values: void} | {tag: "RateParams", values: void} | {tag: "RiskParams", values: void} | {tag: "ReflectorContract", values: void} | {tag: "LiquidationServicePk", values: void};
 
 
 /**
@@ -371,6 +371,11 @@ export interface Client {
   positions_by_account: ({account}: {account: string}, options?: MethodOptions) => Promise<AssembledTransaction<Array<BorrowReceipt>>>
 
   /**
+   * Construct and simulate a liquidation_service_pk transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   */
+  liquidation_service_pk: (options?: MethodOptions) => Promise<AssembledTransaction<Option<Buffer>>>
+
+  /**
    * Construct and simulate a withdraw_loan_shielded transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    * Loan-tree variant of withdraw. Same Groth16 circuit as the
    * deposit-side withdraw, but the contract checks the caller's
@@ -388,6 +393,15 @@ export interface Client {
    * [3] nullifier
    */
   withdraw_loan_shielded: ({to, asset, proof}: {to: string, asset: string, proof: BorrowProof}, options?: MethodOptions) => Promise<AssembledTransaction<Result<i128>>>
+
+  /**
+   * Construct and simulate a set_liquidation_service_pk transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   * Register (or rotate) the X25519 pubkey the liquidation service
+   * uses to decrypt borrow memos. Empty until an admin sets it; new
+   * borrows encrypt to borrower only in the meantime and stay
+   * non-liquidatable. See docs/liquidation-design.md.
+   */
+  set_liquidation_service_pk: ({pk}: {pk: Buffer}, options?: MethodOptions) => Promise<AssembledTransaction<Result<void>>>
 
 }
 export class Client extends ContractClient {
@@ -442,10 +456,12 @@ export class Client extends ContractClient {
         "AAAAAAAAAAAAAAAScmVmbGVjdG9yX2NvbnRyYWN0AAAAAAAAAAAAAQAAA+gAAAAT",
         "AAAAAAAAAAAAAAATaW5pdGlhbGl6ZV9zaGllbGRlZAAAAAADAAAAAAAAAAlyZWZsZWN0b3IAAAAAAAATAAAAAAAAAARyYXRlAAAH0AAAAApSYXRlUGFyYW1zAAAAAAAAAAAABHJpc2sAAAfQAAAAClJpc2tQYXJhbXMAAAAAAAEAAAPpAAAD7QAAAAAAAAAD",
         "AAAAAAAAAAAAAAAUcG9zaXRpb25zX2J5X2FjY291bnQAAAABAAAAAAAAAAdhY2NvdW50AAAAABMAAAABAAAD6gAAB9AAAAANQm9ycm93UmVjZWlwdAAAAA==",
+        "AAAAAAAAAAAAAAAWbGlxdWlkYXRpb25fc2VydmljZV9wawAAAAAAAAAAAAEAAAPoAAAD7gAAACA=",
         "AAAAAAAAAmtMb2FuLXRyZWUgdmFyaWFudCBvZiB3aXRoZHJhdy4gU2FtZSBHcm90aDE2IGNpcmN1aXQgYXMgdGhlCmRlcG9zaXQtc2lkZSB3aXRoZHJhdywgYnV0IHRoZSBjb250cmFjdCBjaGVja3MgdGhlIGNhbGxlcidzCmRlY2xhcmVkIGBhbW91bnRgIGFnYWluc3QgdGhlIGxvYW4gdHJlZSdzIHJvb3QgaW5zdGVhZCBvZiB0aGUKZml4ZWQgZGVwb3NpdCBkZW5vbWluYXRpb24uIFBheW91dCBzaXplIGlzIHZhcmlhYmxlICh3aGF0ZXZlcgp0aGUgYm9ycm93IHByb29mIGNvbW1pdHRlZCB0byksIHNvIHRoaXMgRE9FUyBsZWFrIHRoZSBsb2FuCmFtb3VudCBwdWJsaWNseSBvbiBIb3Jpem9uIOKAlCBhY2NlcHRlZCB0cmFkZS1vZmYgZm9yIE1WUDogY2hhaW4Kb2JzZXJ2ZXIgc2VlcyBhbiB1bmxpbmthYmxlIHdpdGhkcmF3YWwgb2YgYW1vdW50IFgsIG5vIHdhbGxldApsaW5rYWdlIHRvIGFueSBzcGVjaWZpYyBib3Jyb3cgdHguCgpQdWJsaWMgc2lnbmFscyBvcmRlciAoc2FtZSBhcyB3aXRoZHJhd19zaGllbGRlZCk6ClswXSBhc3NldF90YWcKWzFdIGFtb3VudCAgICAgICAgICAgKGJvcnJvdyBhbW91bnQgbWludGVkIGJ5IGJvcnJvd19zaGllbGRlZCkKWzJdIGxvYW5fcm9vdApbM10gbnVsbGlmaWVyAAAAABZ3aXRoZHJhd19sb2FuX3NoaWVsZGVkAAAAAAADAAAAAAAAAAJ0bwAAAAAAEwAAAAAAAAAFYXNzZXQAAAAAAAARAAAAAAAAAAVwcm9vZgAAAAAAB9AAAAALQm9ycm93UHJvb2YAAAAAAQAAA+kAAAALAAAAAw==",
+        "AAAAAAAAAOpSZWdpc3RlciAob3Igcm90YXRlKSB0aGUgWDI1NTE5IHB1YmtleSB0aGUgbGlxdWlkYXRpb24gc2VydmljZQp1c2VzIHRvIGRlY3J5cHQgYm9ycm93IG1lbW9zLiBFbXB0eSB1bnRpbCBhbiBhZG1pbiBzZXRzIGl0OyBuZXcKYm9ycm93cyBlbmNyeXB0IHRvIGJvcnJvd2VyIG9ubHkgaW4gdGhlIG1lYW50aW1lIGFuZCBzdGF5Cm5vbi1saXF1aWRhdGFibGUuIFNlZSBkb2NzL2xpcXVpZGF0aW9uLWRlc2lnbi5tZC4AAAAAABpzZXRfbGlxdWlkYXRpb25fc2VydmljZV9wawAAAAAAAQAAAAAAAAACcGsAAAAAA+4AAAAgAAAAAQAAA+kAAAPtAAAAAAAAAAM=",
         "AAAAAQAAAK1SYXRlIGN1cnZlIHBhcmFtZXRlcnMg4oCUIHJlYWQvd3JpdHRlbiBieSB0aGUgY29udHJhY3QsIGV4cG9zZWQgYXMgYQpwdWJsaWMgdmlldyBmb3IgdGhlIGZyb250ZW5kIHNvIGNsaWVudC1zaWRlIGBkZXJpdmVNYXJrZXRNZXRyaWNzYApzdG9wcyB1c2luZyBoYXJkY29kZWQgY3VydmUgY29uc3RhbnRzLgAAAAAAAAAAAAAKUmF0ZVBhcmFtcwAAAAAABAAAAAAAAAAMYmFzZV9hcHJfYnBzAAAABAAAAAAAAAAScmVzZXJ2ZV9mYWN0b3JfYnBzAAAAAAAEAAAAAAAAABBzZWNvbmRzX3Blcl95ZWFyAAAABAAAAAAAAAANc2xvcGVfYXByX2JwcwAAAAAAAAQ=",
         "AAAAAQAAAFxSaXNrIHBhcmFtZXRlcnMuIFZhbHVlcyBhcmUgYmFzaXMgcG9pbnRzIHdoZXJlIHNlbnNpYmxlOwpgaGZfbWluX2Jwcz0xMjUwMGAgcmVhZHMgYXMgMS4yNcOXLgAAAAAAAAAKUmlza1BhcmFtcwAAAAAABAAAAAAAAAAKaGZfbWluX2JwcwAAAAAABAAAAAAAAAAVbGlxdWlkYXRpb25fYm9udXNfYnBzAAAAAAAABAAAAAAAAAAZbGlxdWlkYXRpb25fdGhyZXNob2xkX2JwcwAAAAAAAAQAAAAAAAAAC21heF9sdHZfYnBzAAAAAAQ=",
-        "AAAAAgAAAAAAAAAAAAAAC0luc3RhbmNlS2V5AAAAAAUAAAAAAAAAAAAAAAVBZG1pbgAAAAAAAAAAAAAAAAAAB01hcmtldHMAAAAAAAAAAAAAAAAKUmF0ZVBhcmFtcwAAAAAAAAAAAAAAAAAKUmlza1BhcmFtcwAAAAAAAAAAAAAAAAARUmVmbGVjdG9yQ29udHJhY3QAAAA=",
+        "AAAAAgAAAAAAAAAAAAAAC0luc3RhbmNlS2V5AAAAAAYAAAAAAAAAAAAAAAVBZG1pbgAAAAAAAAAAAAAAAAAAB01hcmtldHMAAAAAAAAAAAAAAAAKUmF0ZVBhcmFtcwAAAAAAAAAAAAAAAAAKUmlza1BhcmFtcwAAAAAAAAAAAAAAAAARUmVmbGVjdG9yQ29udHJhY3QAAAAAAAAAAAAAAAAAABRMaXF1aWRhdGlvblNlcnZpY2VQaw==",
         "AAAAAQAAAHJQYWlyIG9mIHJ1bm5pbmcgaW5kZXggKyB0aGUgbGVkZ2VyIHRpbWVzdGFtcCBvZiBpdHMgbGFzdCBhY2NydWFsLgpgbGluZWFyX2FjY3J1ZSgpYCBpbiBgcmF0ZS5yc2Agd2Fsa3MgaXQgZm9yd2FyZC4AAAAAAAAAAAANSW5kZXhTbmFwc2hvdAAAAAAAAAIAAAAAAAAADGxhc3RfdXBkYXRlZAAAAAYAAAAAAAAABXZhbHVlAAAAAAAACg==",
         "AAAAAgAAAAAAAAAAAAAADVBlcnNpc3RlbnRLZXkAAAAAAAALAAAAAQAAAAAAAAALRGVwb3NpdFJvb3QAAAAAAQAAABEAAAABAAAAAAAAAA9EZXBvc2l0RnJvbnRpZXIAAAAAAQAAABEAAAABAAAAAAAAABBEZXBvc2l0TmV4dEluZGV4AAAAAQAAABEAAAABAAAAAAAAAAhMb2FuUm9vdAAAAAEAAAARAAAAAQAAAAAAAAAMTG9hbkZyb250aWVyAAAAAQAAABEAAAABAAAAAAAAAA1Mb2FuTmV4dEluZGV4AAAAAAAAAQAAABEAAAABAAAAAAAAAAlOdWxsaWZpZXIAAAAAAAABAAAD7gAAACAAAAABAAAAAAAAAAtCb3Jyb3dJbmRleAAAAAABAAAAEQAAAAEAAAAAAAAADkxpcXVpZGl0eUluZGV4AAAAAAABAAAAEQAAAAEAAAAAAAAADFRvdGFsRGVwb3NpdAAAAAEAAAARAAAAAQAAAAAAAAALVG90YWxCb3Jyb3cAAAAAAQAAABE=",
         "AAAAAgAAAJFJbnN0YW5jZS1zdG9yYWdlIGtleSBtYXBwaW5nIGFzc2V0IHN5bWJvbHMgdG8gdGhlaXIgU0FDIC8gU29yb2Jhbgp0b2tlbiBjb250cmFjdCBhZGRyZXNzZXMuIFNldCBhdCBgaW5pdGlhbGl6ZWAgYWxvbmdzaWRlIHRoZQpSZWZsZWN0b3IgY29udHJhY3QuAAAAAAAAAAAAAApSZXNlcnZlS2V5AAAAAAABAAAAAQAAAAAAAAAHUmVzZXJ2ZQAAAAABAAAAEQ==" ]),
@@ -483,6 +499,8 @@ export class Client extends ContractClient {
         reflector_contract: this.txFromJSON<Option<string>>,
         initialize_shielded: this.txFromJSON<Result<void>>,
         positions_by_account: this.txFromJSON<Array<BorrowReceipt>>,
-        withdraw_loan_shielded: this.txFromJSON<Result<i128>>
+        liquidation_service_pk: this.txFromJSON<Option<Buffer>>,
+        withdraw_loan_shielded: this.txFromJSON<Result<i128>>,
+        set_liquidation_service_pk: this.txFromJSON<Result<void>>
   }
 }

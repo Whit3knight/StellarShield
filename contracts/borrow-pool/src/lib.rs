@@ -241,6 +241,20 @@ impl BorrowPool {
         Ok(())
     }
 
+    /// Register (or rotate) the X25519 pubkey the liquidation service
+    /// uses to decrypt borrow memos. Empty until an admin sets it; new
+    /// borrows encrypt to borrower only in the meantime and stay
+    /// non-liquidatable. See docs/liquidation-design.md.
+    pub fn set_liquidation_service_pk(
+        env: Env,
+        pk: BytesN<32>,
+    ) -> Result<(), Error> {
+        let admin = Self::require_admin(&env)?;
+        admin.require_auth();
+        state::set_liquidation_service_pk(&env, &pk);
+        Ok(())
+    }
+
     // -----------------------------------------------------------------
     // Shielded pool — view fns
 
@@ -254,6 +268,10 @@ impl BorrowPool {
 
     pub fn reflector_contract(env: Env) -> Option<Address> {
         state::reflector(&env)
+    }
+
+    pub fn liquidation_service_pk(env: Env) -> Option<BytesN<32>> {
+        state::liquidation_service_pk(&env)
     }
 
     pub fn reserve_of(env: Env, asset: Symbol) -> Option<Address> {

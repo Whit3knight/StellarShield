@@ -20,6 +20,7 @@ pub enum InstanceKey {
     RateParams,
     RiskParams,
     ReflectorContract,
+    LiquidationServicePk,
 }
 
 // Persistent storage keys. Compound keys embed the discriminant so
@@ -91,6 +92,24 @@ pub fn set_reflector(env: &Env, reflector: &Address) {
 
 pub fn reflector(env: &Env) -> Option<Address> {
     env.storage().instance().get(&InstanceKey::ReflectorContract)
+}
+
+// --- Liquidation service pubkey (Track L) ------------------------------
+//
+// X25519 pubkey the borrower dual-encrypts memos to at borrow-time so a
+// designated liquidation service can decrypt the openings needed to
+// trigger `liquidate_shielded` on underwater positions. Empty = no
+// service configured; new borrows encrypt to borrower only and stay
+// non-liquidatable until the admin sets a key.
+
+pub fn set_liquidation_service_pk(env: &Env, pk: &BytesN<32>) {
+    env.storage()
+        .instance()
+        .set(&InstanceKey::LiquidationServicePk, pk);
+}
+
+pub fn liquidation_service_pk(env: &Env) -> Option<BytesN<32>> {
+    env.storage().instance().get(&InstanceKey::LiquidationServicePk)
 }
 
 // --- Rate / risk params -------------------------------------------------
