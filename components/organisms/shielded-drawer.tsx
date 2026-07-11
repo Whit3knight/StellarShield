@@ -28,6 +28,8 @@ import {
   type ShieldedAsset,
   type ShieldedNote,
 } from "@/features/notes"
+import { useAssetPrices } from "@/features/markets"
+import { useRiskParams } from "@/features/protocol/risk-params"
 import {
   useBorrow,
   useDeposit,
@@ -66,6 +68,8 @@ export function ShieldedDrawer({
   } = useRepay(account)
 
   const balances = React.useMemo(() => summariseByAsset(notes), [notes])
+  const prices = useAssetPrices()
+  const risk = useRiskParams()
 
   return (
     <Drawer
@@ -105,10 +109,12 @@ export function ShieldedDrawer({
                 }}
               />
               <NoteList
+                liquidationThresholdBps={risk.liquidationThresholdBps}
                 notes={notes}
                 isScanning={isScanning}
                 onWithdraw={(note) => void withdraw(note)}
                 onRepay={(loan, deposit) => void repay(loan, deposit)}
+                prices={prices}
                 repayingIndex={
                   repayStatus === "idle" || repayStatus === "success"
                     ? null
@@ -239,17 +245,21 @@ function BalanceGrid({
 }
 
 function NoteList({
+  liquidationThresholdBps,
   notes,
   isScanning,
   onRepay,
   onWithdraw,
+  prices,
   repayingIndex,
   withdrawingIndex,
 }: {
+  liquidationThresholdBps: number
   notes: ShieldedNote[]
   isScanning: boolean
   onRepay: (loan: ShieldedNote, deposit: ShieldedNote) => void
   onWithdraw: (note: ShieldedNote) => void
+  prices: Record<ShieldedAsset, number>
   repayingIndex: number | null
   withdrawingIndex: number | null
 }): React.ReactElement {
@@ -294,6 +304,15 @@ function NoteList({
               {note.tree === "loan" && note.openedAt ? (
                 <LoanAgeBadge openedAt={note.openedAt} />
               ) : null}
+              {note.tree === "loan" && note.bond ? (
+                <LoanHealthBadge
+                  bond={note.bond}
+                  loanAmount={note.amount}
+                  loanAsset={note.asset}
+                  prices={prices}
+                  thresholdBps={liquidationThresholdBps}
+                />
+              ) : null}
             </div>
             <div className="flex items-center gap-1.5">
               {repaySource ? (
@@ -334,6 +353,55 @@ function NoteList({
 }
 
 const STALE_LOAN_SECS = 30 * 24 * 60 * 60
+
+/**
+ * Compute the loan's current health factor from its pinned bond
+ * openings + the latest Reflector price. Same math as the liquidate
+ * circuit's underwater check, run client-side for a warning badge.
+ *
+ *   collateral_value_now = collateralValue * priceNow / borrowPrice
+ *   hf_ratio             = collateral_value_now / loan_amount
+ *   underwater           = hf_ratio * threshold_bps < 10_000
+ */
+function LoanHealthBadge({
+  bond,
+  loanAmount,
+  loanAsset,
+  prices,
+  thresholdBps,
+}: {
+  bond: NonNullable<ShieldedNote["bond"]>
+  loanAmount: bigint
+  loanAsset: ShieldedAsset
+  prices: Record<ShieldedAsset, number>
+  thresholdBps: number
+}): React.ReactElement | null {
+  const priceNow = prices[loanAsset]
+  if (!priceNow || priceNow <= 0) return null
+  // Bond stored the collateral asset's Reflector price at borrow; use
+  // the same source now. Since both are the same asset feed, ratio is
+  // dimensionless.
+  const currentScaled = BigInt(Math.floor(priceNow * 1_000_000))
+  const borrowScaled = bond.borrowPrice
+  if (borrowScaled <= 0n || loanAmount <= 0n) return null
+
+  // hf_percent = collateralValue * currentScaled * 100 / (borrowScaled * loanAmount)
+  const numerator = bond.collateralValue * currentScaled * 100n
+  const denominator = borrowScaled * loanAmount
+  if (denominator <= 0n) return null
+  const hfPercent = Number(numerator / denominator)
+  const liquidatable = hfPercent * thresholdBps < 10_000 * 100
+
+  let variant: "outline" | "warning" | "destructive" = "outline"
+  if (liquidatable) variant = "destructive"
+  else if (hfPercent < 150) variant = "warning"
+
+  return (
+    <Badge variant={variant}>
+      HF {hfPercent}%
+    </Badge>
+  )
+}
 
 function LoanAgeBadge({ openedAt }: { openedAt: number }): React.ReactElement {
   const nowSecs = useNowSecs()

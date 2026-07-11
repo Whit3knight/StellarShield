@@ -181,9 +181,19 @@ export async function scanShieldedNotes(
         typeof plaintext.amount === "string" && plaintext.amount.length > 0
           ? BigInt(plaintext.amount)
           : DENOMINATION[asset]
+      const bond = plaintext.bond
+        ? {
+            saltAmount: BigInt(plaintext.bond.saltAmount),
+            saltValue: BigInt(plaintext.bond.saltValue),
+            saltPrice: BigInt(plaintext.bond.saltPrice),
+            collateralValue: BigInt(plaintext.bond.collateralValue),
+            borrowPrice: BigInt(plaintext.bond.oraclePrice),
+          }
+        : undefined
       notes.push({
         amount,
         asset,
+        bond,
         index: decoded.index,
         openedAt,
         salt: BigInt(plaintext.salt),

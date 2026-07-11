@@ -34,6 +34,19 @@ export type ShieldedNote = {
   tree: NoteTree
   /** Unix seconds. Sourced from the mint event's ledgerCloseTime. */
   openedAt?: number
+  /**
+   * Liquidation-bond openings decrypted from the borrow memo. Only
+   * present on loan notes minted by a Track-L-aware borrow. A
+   * liquidator (or the borrower themselves for self-check) uses these
+   * to feed the liquidate circuit.
+   */
+  bond?: {
+    saltAmount: bigint
+    saltValue: bigint
+    saltPrice: bigint
+    collateralValue: bigint
+    borrowPrice: bigint
+  }
 }
 
 /**
