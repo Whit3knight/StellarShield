@@ -1,14 +1,17 @@
 //! Groth16 verifier for the shielded-borrow circuit.
 //!
 //! Public signals (matches BorrowPool::borrow_shielded):
-//!   [0]     borrow_amount
-//!   [1]     borrow_asset_tag
-//!   [2]     collateral_asset_tag
-//!   [3]     hf_min_bps
-//!   [4]     max_ltv_bps
-//!   [5]     deposit_root
-//!   [6]     borrow_commitment
-//!   [7..11] nullifiers[0..4]
+//!   [0]      borrow_amount
+//!   [1]      borrow_asset_tag
+//!   [2]      collateral_asset_tag
+//!   [3]      hf_min_bps
+//!   [4]      max_ltv_bps
+//!   [5]      deposit_root
+//!   [6]      borrow_commitment
+//!   [7..11]  nullifiers[0..4]
+//!   [11]     borrow_amount_commit         (Track L bond)
+//!   [12]     collateral_value_commit      (Track L bond)
+//!   [13]     borrow_price_commit          (Track L bond)
 
 use soroban_sdk::{
     crypto::bls12_381::{Fr, G1Affine, G2Affine},
@@ -32,6 +35,9 @@ const VK_IC_8: &[u8; 96] = include_bytes!("vk/borrow/vk_ic_8.bin");
 const VK_IC_9: &[u8; 96] = include_bytes!("vk/borrow/vk_ic_9.bin");
 const VK_IC_10: &[u8; 96] = include_bytes!("vk/borrow/vk_ic_10.bin");
 const VK_IC_11: &[u8; 96] = include_bytes!("vk/borrow/vk_ic_11.bin");
+const VK_IC_12: &[u8; 96] = include_bytes!("vk/borrow/vk_ic_12.bin");
+const VK_IC_13: &[u8; 96] = include_bytes!("vk/borrow/vk_ic_13.bin");
+const VK_IC_14: &[u8; 96] = include_bytes!("vk/borrow/vk_ic_14.bin");
 
 pub fn verify_groth16(
     env: &Env,
@@ -40,7 +46,7 @@ pub fn verify_groth16(
     proof_c: G1Affine,
     pub_signals: Vec<Fr>,
 ) -> bool {
-    let ic_len = 12u32;
+    let ic_len = 15u32;
     if pub_signals.len() + 1 != ic_len {
         return false;
     }
@@ -82,5 +88,8 @@ fn ic_points(env: &Env) -> Vec<G1Affine> {
         G1Affine::from_array(env, VK_IC_9),
         G1Affine::from_array(env, VK_IC_10),
         G1Affine::from_array(env, VK_IC_11),
+        G1Affine::from_array(env, VK_IC_12),
+        G1Affine::from_array(env, VK_IC_13),
+        G1Affine::from_array(env, VK_IC_14),
     ]
 }

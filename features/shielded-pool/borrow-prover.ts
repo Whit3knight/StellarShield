@@ -9,6 +9,9 @@
 //   [5]     deposit_root
 //   [6]     borrow_commitment
 //   [7..11] nullifiers[0..4]
+//   [11]    borrow_amount_commit         (Track L bond)
+//   [12]    collateral_value_commit      (Track L bond)
+//   [13]    borrow_price_commit          (Track L bond)
 
 import {
   assetTag,
@@ -18,6 +21,7 @@ import {
   type ShieldedAsset,
   type ShieldedNote,
 } from "@/features/notes"
+import { poseidon } from "@/features/notes/poseidon"
 
 const DEFAULT_WASM_URL = "/circuits-circom/shielded/borrow/borrow.wasm"
 const DEFAULT_ZKEY_URL = "/circuits-circom/shielded/borrow/borrow.zkey"
@@ -34,6 +38,9 @@ export type BorrowProofInputs = {
   maxLtvBps: number
   oraclePrice: bigint // whole-unit price of collateral in borrow-asset units
   sk: bigint
+  bondSaltAmount: bigint
+  bondSaltValue: bigint
+  bondSaltPrice: bigint
 }
 
 export type BorrowProofResult = {
@@ -44,6 +51,9 @@ export type BorrowProofResult = {
   borrowCommitment: bigint
   nullifiers: bigint[]
   publicSignals: Uint8Array[]
+  borrowAmountCommit: bigint
+  collateralValueCommit: bigint
+  borrowPriceCommit: bigint
 }
 
 async function fetchArtefact(url: string): Promise<Uint8Array> {
@@ -82,6 +92,10 @@ export async function proveBorrow(
     sk: inputs.sk,
   })
 
+  const borrowAmountCommit = poseidon([borrowAmount, inputs.bondSaltAmount])
+  const collateralValueCommit = poseidon([collateralValue, inputs.bondSaltValue])
+  const borrowPriceCommit = poseidon([inputs.oraclePrice, inputs.bondSaltPrice])
+
   const wasmUrl = options.wasmUrl ?? DEFAULT_WASM_URL
   const zkeyUrl = options.zkeyUrl ?? DEFAULT_ZKEY_URL
 
@@ -103,6 +117,9 @@ export async function proveBorrow(
     deposit_root: inputs.depositRoot.toString(),
     borrow_commitment: borrowCommitment.toString(),
     nullifiers: nullifiers.map((value) => value.toString()),
+    borrow_amount_commit: borrowAmountCommit.toString(),
+    collateral_value_commit: collateralValueCommit.toString(),
+    borrow_price_commit: borrowPriceCommit.toString(),
 
     sk: inputs.sk.toString(),
     borrow_salt: inputs.borrowSalt.toString(),
@@ -120,6 +137,9 @@ export async function proveBorrow(
       bits.map((bit) => bit.toString())
     ),
     oracle_price: inputs.oraclePrice.toString(),
+    bond_salt_amount: inputs.bondSaltAmount.toString(),
+    bond_salt_value: inputs.bondSaltValue.toString(),
+    bond_salt_price: inputs.bondSaltPrice.toString(),
   }
 
   const groth16 = (snarkjs as {
@@ -151,6 +171,9 @@ export async function proveBorrow(
     borrowCommitment,
     nullifiers,
     publicSignals: signals,
+    borrowAmountCommit,
+    collateralValueCommit,
+    borrowPriceCommit,
   }
 }
 

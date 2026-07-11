@@ -158,7 +158,23 @@ export interface IndexSnapshot {
   value: u128;
 }
 
-export type PersistentKey = {tag: "DepositRoot", values: readonly [string]} | {tag: "DepositFrontier", values: readonly [string]} | {tag: "DepositNextIndex", values: readonly [string]} | {tag: "LoanRoot", values: readonly [string]} | {tag: "LoanFrontier", values: readonly [string]} | {tag: "LoanNextIndex", values: readonly [string]} | {tag: "Nullifier", values: readonly [Buffer]} | {tag: "BorrowIndex", values: readonly [string]} | {tag: "LiquidityIndex", values: readonly [string]} | {tag: "TotalDeposit", values: readonly [string]} | {tag: "TotalBorrow", values: readonly [string]};
+export type PersistentKey = {tag: "DepositRoot", values: readonly [string]} | {tag: "DepositFrontier", values: readonly [string]} | {tag: "DepositNextIndex", values: readonly [string]} | {tag: "LoanRoot", values: readonly [string]} | {tag: "LoanFrontier", values: readonly [string]} | {tag: "LoanNextIndex", values: readonly [string]} | {tag: "Nullifier", values: readonly [Buffer]} | {tag: "BorrowIndex", values: readonly [string]} | {tag: "LiquidityIndex", values: readonly [string]} | {tag: "TotalDeposit", values: readonly [string]} | {tag: "TotalBorrow", values: readonly [string]} | {tag: "LiquidationBond", values: readonly [Buffer]};
+
+
+/**
+ * Public commitment tuple pinned at borrow-time so a liquidator can
+ * later prove `debt × threshold > collateral × current_price` without
+ * knowing the borrower's identity. See docs/liquidation-design.md.
+ */
+export interface LiquidationBond {
+  borrow_amount_commit: Buffer;
+  borrow_asset_tag: u32;
+  borrow_price_commit: Buffer;
+  collateral_asset_tag: u32;
+  collateral_value_commit: Buffer;
+  opened_at: u64;
+  oracle_epoch: u64;
+}
 
 /**
  * Instance-storage key mapping asset symbols to their SAC / Soroban
@@ -339,6 +355,11 @@ export interface Client {
   deposit_shielded: ({from, asset, proof, memo}: {from: string, asset: string, proof: BorrowProof, memo: Buffer}, options?: MethodOptions) => Promise<AssembledTransaction<Result<u64>>>
 
   /**
+   * Construct and simulate a liquidation_bond transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   */
+  liquidation_bond: ({loan_commitment}: {loan_commitment: Buffer}, options?: MethodOptions) => Promise<AssembledTransaction<Option<LiquidationBond>>>
+
+  /**
    * Construct and simulate a withdraw_shielded transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    * Burn one deposit note via zk proof, release the fixed
    * denomination to `to`. Prover shows Merkle inclusion at the
@@ -451,6 +472,7 @@ export class Client extends ContractClient {
         "AAAAAAAAAAAAAAAPc2V0X3Jpc2tfcGFyYW1zAAAAAAEAAAAAAAAABnBhcmFtcwAAAAAH0AAAAApSaXNrUGFyYW1zAAAAAAABAAAD6QAAA+0AAAAAAAAAAw==",
         "AAAAAQAAAK9Bbm9ueW1pemVkIHJlY2VpcHQ6IG5vIGJvcnJvdyAvIGNvbGxhdGVyYWwgYW1vdW50cy4gVXNlcnMgc3RvcmUKdGhlaXIgb3duIG51bWJlcnMgY2xpZW50LXNpZGUgKHNlc3Npb24gc3RvcmUpLiBDaGFpbiByZWNvcmRzIG9ubHkKdGhlIGZhY3QgdGhhdCBhIHByb29mLWJhY2tlZCBwb3NpdGlvbiBleGlzdHMuAAAAAAAAAAANQm9ycm93UmVjZWlwdAAAAAAAAAYAAAAAAAAAB2FjY291bnQAAAAAEwAAAAAAAAANYm9ycm93X3N5bWJvbAAAAAAAABEAAAAAAAAAEWNvbGxhdGVyYWxfc3ltYm9sAAAAAAAAEQAAAAAAAAAMY29uZmlybWVkX2F0AAAABgAAAAAAAAAGbWFya2V0AAAAAAARAAAAAAAAAAhwcm9vZl9pZAAAA+4AAAAg",
         "AAAAAAAAAAAAAAAQZGVwb3NpdF9zaGllbGRlZAAAAAQAAAAAAAAABGZyb20AAAATAAAAAAAAAAVhc3NldAAAAAAAABEAAAAAAAAABXByb29mAAAAAAAH0AAAAAtCb3Jyb3dQcm9vZgAAAAAAAAAABG1lbW8AAAAOAAAAAQAAA+kAAAAGAAAAAw==",
+        "AAAAAAAAAAAAAAAQbGlxdWlkYXRpb25fYm9uZAAAAAEAAAAAAAAAD2xvYW5fY29tbWl0bWVudAAAAAPuAAAAIAAAAAEAAAPoAAAH0AAAAA9MaXF1aWRhdGlvbkJvbmQA",
         "AAAAAAAAAQhCdXJuIG9uZSBkZXBvc2l0IG5vdGUgdmlhIHprIHByb29mLCByZWxlYXNlIHRoZSBmaXhlZApkZW5vbWluYXRpb24gdG8gYHRvYC4gUHJvdmVyIHNob3dzIE1lcmtsZSBpbmNsdXNpb24gYXQgdGhlCmN1cnJlbnQgZGVwb3NpdF9yb290IHBsdXMgYSB2YWxpZCBudWxsaWZpZXIgc28gdGhlIGNvbnRyYWN0CmNhbiBibG9jayByZXVzZS4KClB1YmxpYyBzaWduYWxzIG9yZGVyOiBbYXNzZXRfdGFnLCBkZW5vbWluYXRpb24sIGRlcG9zaXRfcm9vdCwKbnVsbGlmaWVyXS4AAAARd2l0aGRyYXdfc2hpZWxkZWQAAAAAAAADAAAAAAAAAAJ0bwAAAAAAEwAAAAAAAAAFYXNzZXQAAAAAAAARAAAAAAAAAAVwcm9vZgAAAAAAB9AAAAALQm9ycm93UHJvb2YAAAAAAQAAA+kAAAPtAAAAAAAAAAM=",
         "AAAAAAAAAAAAAAASZGVwb3NpdF9uZXh0X2luZGV4AAAAAAABAAAAAAAAAAVhc3NldAAAAAAAABEAAAABAAAABg==",
         "AAAAAAAAAAAAAAAScmVmbGVjdG9yX2NvbnRyYWN0AAAAAAAAAAAAAQAAA+gAAAAT",
@@ -463,7 +485,8 @@ export class Client extends ContractClient {
         "AAAAAQAAAFxSaXNrIHBhcmFtZXRlcnMuIFZhbHVlcyBhcmUgYmFzaXMgcG9pbnRzIHdoZXJlIHNlbnNpYmxlOwpgaGZfbWluX2Jwcz0xMjUwMGAgcmVhZHMgYXMgMS4yNcOXLgAAAAAAAAAKUmlza1BhcmFtcwAAAAAABAAAAAAAAAAKaGZfbWluX2JwcwAAAAAABAAAAAAAAAAVbGlxdWlkYXRpb25fYm9udXNfYnBzAAAAAAAABAAAAAAAAAAZbGlxdWlkYXRpb25fdGhyZXNob2xkX2JwcwAAAAAAAAQAAAAAAAAAC21heF9sdHZfYnBzAAAAAAQ=",
         "AAAAAgAAAAAAAAAAAAAAC0luc3RhbmNlS2V5AAAAAAYAAAAAAAAAAAAAAAVBZG1pbgAAAAAAAAAAAAAAAAAAB01hcmtldHMAAAAAAAAAAAAAAAAKUmF0ZVBhcmFtcwAAAAAAAAAAAAAAAAAKUmlza1BhcmFtcwAAAAAAAAAAAAAAAAARUmVmbGVjdG9yQ29udHJhY3QAAAAAAAAAAAAAAAAAABRMaXF1aWRhdGlvblNlcnZpY2VQaw==",
         "AAAAAQAAAHJQYWlyIG9mIHJ1bm5pbmcgaW5kZXggKyB0aGUgbGVkZ2VyIHRpbWVzdGFtcCBvZiBpdHMgbGFzdCBhY2NydWFsLgpgbGluZWFyX2FjY3J1ZSgpYCBpbiBgcmF0ZS5yc2Agd2Fsa3MgaXQgZm9yd2FyZC4AAAAAAAAAAAANSW5kZXhTbmFwc2hvdAAAAAAAAAIAAAAAAAAADGxhc3RfdXBkYXRlZAAAAAYAAAAAAAAABXZhbHVlAAAAAAAACg==",
-        "AAAAAgAAAAAAAAAAAAAADVBlcnNpc3RlbnRLZXkAAAAAAAALAAAAAQAAAAAAAAALRGVwb3NpdFJvb3QAAAAAAQAAABEAAAABAAAAAAAAAA9EZXBvc2l0RnJvbnRpZXIAAAAAAQAAABEAAAABAAAAAAAAABBEZXBvc2l0TmV4dEluZGV4AAAAAQAAABEAAAABAAAAAAAAAAhMb2FuUm9vdAAAAAEAAAARAAAAAQAAAAAAAAAMTG9hbkZyb250aWVyAAAAAQAAABEAAAABAAAAAAAAAA1Mb2FuTmV4dEluZGV4AAAAAAAAAQAAABEAAAABAAAAAAAAAAlOdWxsaWZpZXIAAAAAAAABAAAD7gAAACAAAAABAAAAAAAAAAtCb3Jyb3dJbmRleAAAAAABAAAAEQAAAAEAAAAAAAAADkxpcXVpZGl0eUluZGV4AAAAAAABAAAAEQAAAAEAAAAAAAAADFRvdGFsRGVwb3NpdAAAAAEAAAARAAAAAQAAAAAAAAALVG90YWxCb3Jyb3cAAAAAAQAAABE=",
+        "AAAAAgAAAAAAAAAAAAAADVBlcnNpc3RlbnRLZXkAAAAAAAAMAAAAAQAAAAAAAAALRGVwb3NpdFJvb3QAAAAAAQAAABEAAAABAAAAAAAAAA9EZXBvc2l0RnJvbnRpZXIAAAAAAQAAABEAAAABAAAAAAAAABBEZXBvc2l0TmV4dEluZGV4AAAAAQAAABEAAAABAAAAAAAAAAhMb2FuUm9vdAAAAAEAAAARAAAAAQAAAAAAAAAMTG9hbkZyb250aWVyAAAAAQAAABEAAAABAAAAAAAAAA1Mb2FuTmV4dEluZGV4AAAAAAAAAQAAABEAAAABAAAAAAAAAAlOdWxsaWZpZXIAAAAAAAABAAAD7gAAACAAAAABAAAAAAAAAAtCb3Jyb3dJbmRleAAAAAABAAAAEQAAAAEAAAAAAAAADkxpcXVpZGl0eUluZGV4AAAAAAABAAAAEQAAAAEAAAAAAAAADFRvdGFsRGVwb3NpdAAAAAEAAAARAAAAAQAAAAAAAAALVG90YWxCb3Jyb3cAAAAAAQAAABEAAAABAAAAAAAAAA9MaXF1aWRhdGlvbkJvbmQAAAAAAQAAA+4AAAAg",
+        "AAAAAQAAAMhQdWJsaWMgY29tbWl0bWVudCB0dXBsZSBwaW5uZWQgYXQgYm9ycm93LXRpbWUgc28gYSBsaXF1aWRhdG9yIGNhbgpsYXRlciBwcm92ZSBgZGVidCDDlyB0aHJlc2hvbGQgPiBjb2xsYXRlcmFsIMOXIGN1cnJlbnRfcHJpY2VgIHdpdGhvdXQKa25vd2luZyB0aGUgYm9ycm93ZXIncyBpZGVudGl0eS4gU2VlIGRvY3MvbGlxdWlkYXRpb24tZGVzaWduLm1kLgAAAAAAAAAPTGlxdWlkYXRpb25Cb25kAAAAAAcAAAAAAAAAFGJvcnJvd19hbW91bnRfY29tbWl0AAAD7gAAACAAAAAAAAAAEGJvcnJvd19hc3NldF90YWcAAAAEAAAAAAAAABNib3Jyb3dfcHJpY2VfY29tbWl0AAAAA+4AAAAgAAAAAAAAABRjb2xsYXRlcmFsX2Fzc2V0X3RhZwAAAAQAAAAAAAAAF2NvbGxhdGVyYWxfdmFsdWVfY29tbWl0AAAAA+4AAAAgAAAAAAAAAAlvcGVuZWRfYXQAAAAAAAAGAAAAAAAAAAxvcmFjbGVfZXBvY2gAAAAG",
         "AAAAAgAAAJFJbnN0YW5jZS1zdG9yYWdlIGtleSBtYXBwaW5nIGFzc2V0IHN5bWJvbHMgdG8gdGhlaXIgU0FDIC8gU29yb2Jhbgp0b2tlbiBjb250cmFjdCBhZGRyZXNzZXMuIFNldCBhdCBgaW5pdGlhbGl6ZWAgYWxvbmdzaWRlIHRoZQpSZWZsZWN0b3IgY29udHJhY3QuAAAAAAAAAAAAAApSZXNlcnZlS2V5AAAAAAABAAAAAQAAAAAAAAAHUmVzZXJ2ZQAAAAABAAAAEQ==" ]),
       options
     )
@@ -494,6 +517,7 @@ export class Client extends ContractClient {
         set_rate_params: this.txFromJSON<Result<void>>,
         set_risk_params: this.txFromJSON<Result<void>>,
         deposit_shielded: this.txFromJSON<Result<u64>>,
+        liquidation_bond: this.txFromJSON<Option<LiquidationBond>>,
         withdraw_shielded: this.txFromJSON<Result<void>>,
         deposit_next_index: this.txFromJSON<u64>,
         reflector_contract: this.txFromJSON<Option<string>>,

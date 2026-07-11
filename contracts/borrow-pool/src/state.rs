@@ -38,6 +38,22 @@ pub enum PersistentKey {
     LiquidityIndex(Symbol),
     TotalDeposit(Symbol),
     TotalBorrow(Symbol),
+    LiquidationBond(BytesN<32>),
+}
+
+/// Public commitment tuple pinned at borrow-time so a liquidator can
+/// later prove `debt × threshold > collateral × current_price` without
+/// knowing the borrower's identity. See docs/liquidation-design.md.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LiquidationBond {
+    pub borrow_amount_commit: BytesN<32>,
+    pub collateral_value_commit: BytesN<32>,
+    pub borrow_price_commit: BytesN<32>,
+    pub borrow_asset_tag: u32,
+    pub collateral_asset_tag: u32,
+    pub oracle_epoch: u64,
+    pub opened_at: u64,
 }
 
 /// Rate curve parameters — read/written by the contract, exposed as a
@@ -155,6 +171,25 @@ pub fn mark_nullifier_used(env: &Env, nullifier: &BytesN<32>) {
     env.storage()
         .persistent()
         .set(&PersistentKey::Nullifier(nullifier.clone()), &true);
+}
+
+// --- Liquidation bond registry (Track L) -------------------------------
+
+pub fn liquidation_bond(env: &Env, loan_commitment: &BytesN<32>) -> Option<LiquidationBond> {
+    env.storage()
+        .persistent()
+        .get(&PersistentKey::LiquidationBond(loan_commitment.clone()))
+}
+
+pub fn set_liquidation_bond(
+    env: &Env,
+    loan_commitment: &BytesN<32>,
+    bond: &LiquidationBond,
+) {
+    env.storage().persistent().set(
+        &PersistentKey::LiquidationBond(loan_commitment.clone()),
+        bond,
+    );
 }
 
 // --- Per-asset tree state ----------------------------------------------

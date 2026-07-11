@@ -274,6 +274,13 @@ impl BorrowPool {
         state::liquidation_service_pk(&env)
     }
 
+    pub fn liquidation_bond(
+        env: Env,
+        loan_commitment: BytesN<32>,
+    ) -> Option<state::LiquidationBond> {
+        state::liquidation_bond(&env, &loan_commitment)
+    }
+
     pub fn reserve_of(env: Env, asset: Symbol) -> Option<Address> {
         tokens::reserve(&env, &asset)
     }
@@ -497,7 +504,7 @@ impl BorrowPool {
     ) -> Result<u64, Error> {
         from.require_auth();
 
-        if proof.public_signals.len() != 11 {
+        if proof.public_signals.len() != 14 {
             return Err(Error::InvalidProof);
         }
         let borrow_amount_fr = proof.public_signals.get(0).unwrap();
@@ -507,6 +514,9 @@ impl BorrowPool {
         let max_ltv_fr = proof.public_signals.get(4).unwrap();
         let deposit_root_fr = proof.public_signals.get(5).unwrap();
         let borrow_commit_fr = proof.public_signals.get(6).unwrap();
+        let borrow_amount_commit_fr = proof.public_signals.get(11).unwrap();
+        let collateral_value_commit_fr = proof.public_signals.get(12).unwrap();
+        let borrow_price_commit_fr = proof.public_signals.get(13).unwrap();
 
         // Asset + risk parameter cross-check. Contract's stored risk
         // params dictate what the proof MUST have used; the circuit
@@ -610,6 +620,21 @@ impl BorrowPool {
         // downstream — right now it's redundant with what the memo
         // encrypts, and public amount would defeat the whole point.
         let _ = borrow_amount_native;
+
+        // Track L: pin the bond keyed by the loan commitment. Absent
+        // bond → non-liquidatable (grandfathered). Present bond → a
+        // liquidator with memo openings can prove the position is
+        // underwater without ever learning the borrower's identity.
+        let bond = state::LiquidationBond {
+            borrow_amount_commit: borrow_amount_commit_fr.to_bytes(),
+            collateral_value_commit: collateral_value_commit_fr.to_bytes(),
+            borrow_price_commit: borrow_price_commit_fr.to_bytes(),
+            borrow_asset_tag: expected_borrow_tag,
+            collateral_asset_tag: expected_collateral_tag,
+            oracle_epoch: proof.oracle_epoch,
+            opened_at: env.ledger().timestamp(),
+        };
+        state::set_liquidation_bond(&env, &leaf.to_bytes(), &bond);
 
         env.events().publish(
             (BORROW_EVENT, collateral_asset.clone(), borrow_asset.clone()),

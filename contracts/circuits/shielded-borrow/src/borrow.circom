@@ -9,14 +9,17 @@ pragma circom 2.1.9;
 // the loan tree.
 //
 // Public signals order (matches BorrowPool::borrow_shielded):
-//   [0]    borrow_amount            (borrower's requested loan in whole units)
-//   [1]    borrow_asset_tag         (0/1/2 = XLM/USDC/EURC)
-//   [2]    collateral_asset_tag     (must match each collateral note)
-//   [3]    hf_min_bps               (health-factor floor, bps)
-//   [4]    max_ltv_bps              (max LTV, bps)
-//   [5]    deposit_root             (root at witness generation time)
-//   [6]    borrow_commitment        (new leaf appended to loan tree)
-//   [7-10] nullifiers[0..4]         (one per spent collateral note)
+//   [0]     borrow_amount            (borrower's requested loan in whole units)
+//   [1]     borrow_asset_tag         (0/1/2 = XLM/USDC/EURC)
+//   [2]     collateral_asset_tag     (must match each collateral note)
+//   [3]     hf_min_bps               (health-factor floor, bps)
+//   [4]     max_ltv_bps              (max LTV, bps)
+//   [5]     deposit_root             (root at witness generation time)
+//   [6]     borrow_commitment        (new leaf appended to loan tree)
+//   [7-10]  nullifiers[0..4]         (one per spent collateral note)
+//   [11]    borrow_amount_commit     Poseidon(borrow_amount, bond_salt_amount)      (Track L)
+//   [12]    collateral_value_commit  Poseidon(total_collateral_value, bond_salt_value)  (Track L)
+//   [13]    borrow_price_commit      Poseidon(oracle_price, bond_salt_price)        (Track L)
 //
 // Private witness:
 //   sk                          shielded identity secret
@@ -29,6 +32,9 @@ pragma circom 2.1.9;
 //   oracle_price                unsigned price of collateral asset in
 //                               units of the borrow asset (fixed
 //                               point; contract cross-checks freshness)
+//   bond_salt_amount            salt for borrow_amount_commit          (Track L)
+//   bond_salt_value             salt for collateral_value_commit       (Track L)
+//   bond_salt_price             salt for borrow_price_commit           (Track L)
 //
 // LTV check: Σ (amount × price) × 10000 >= borrow_amount × hf_min_bps.
 
@@ -79,6 +85,12 @@ template Borrow(depth, notes) {
     signal input deposit_root;
     signal input borrow_commitment;
     signal input nullifiers[notes];
+    // Track L liquidation bond — public commitments that pin the
+    // borrow's amount / collateral value / oracle price at open. Only
+    // openings can produce a valid liquidate proof against them.
+    signal input borrow_amount_commit;
+    signal input collateral_value_commit;
+    signal input borrow_price_commit;
 
     // Private witness.
     signal input sk;
@@ -89,6 +101,9 @@ template Borrow(depth, notes) {
     signal input collateral_paths[notes][depth];
     signal input collateral_bits[notes][depth];
     signal input oracle_price;
+    signal input bond_salt_amount;
+    signal input bond_salt_value;
+    signal input bond_salt_price;
 
     // Recompute each collateral commitment + prove Merkle inclusion +
     // derive the matching nullifier. All four must succeed.
@@ -155,6 +170,22 @@ template Borrow(depth, notes) {
     ltvCheck.in[0] <== ltv_lhs;
     ltvCheck.in[1] <== ltv_rhs;
     ltvCheck.out === 1;
+
+    // Track L bond commitments.
+    component bondAmount = Poseidon(2);
+    bondAmount.inputs[0] <== borrow_amount;
+    bondAmount.inputs[1] <== bond_salt_amount;
+    bondAmount.out === borrow_amount_commit;
+
+    component bondValue = Poseidon(2);
+    bondValue.inputs[0] <== total_collateral_value;
+    bondValue.inputs[1] <== bond_salt_value;
+    bondValue.out === collateral_value_commit;
+
+    component bondPrice = Poseidon(2);
+    bondPrice.inputs[0] <== oracle_price;
+    bondPrice.inputs[1] <== bond_salt_price;
+    bondPrice.out === borrow_price_commit;
 }
 
 component main {public [
@@ -165,5 +196,8 @@ component main {public [
     max_ltv_bps,
     deposit_root,
     borrow_commitment,
-    nullifiers
+    nullifiers,
+    borrow_amount_commit,
+    collateral_value_commit,
+    borrow_price_commit
 ]} = Borrow(20, 4);

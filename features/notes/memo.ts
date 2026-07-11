@@ -25,6 +25,18 @@ export type MemoPlaintext = {
   index: number
   salt: string
   tree: "deposit" | "loan"
+  /**
+   * Track L bond openings — only present on loan memos issued after the
+   * borrow circuit gained bond commitments. Absent = grandfathered
+   * non-liquidatable loan.
+   */
+  bond?: {
+    saltAmount: string
+    saltValue: string
+    saltPrice: string
+    collateralValue: string
+    oraclePrice: string
+  }
 }
 
 export type MemoBundle = {

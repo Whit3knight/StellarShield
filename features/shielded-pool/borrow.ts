@@ -99,6 +99,9 @@ export async function prepareBorrow(
     priceRecord && priceRecord.price > 0n ? priceRecord.price : 1n
 
   const borrowSalt = randomFieldElement()
+  const bondSaltAmount = randomFieldElement()
+  const bondSaltValue = randomFieldElement()
+  const bondSaltPrice = randomFieldElement()
 
   const proof = await proveBorrow(
     {
@@ -113,6 +116,9 @@ export async function prepareBorrow(
       maxLtvBps: params.maxLtvBps,
       oraclePrice,
       sk,
+      bondSaltAmount,
+      bondSaltValue,
+      bondSaltPrice,
     },
     { wasmUrl: params.wasmUrl, zkeyUrl: params.zkeyUrl }
   )
@@ -126,12 +132,23 @@ export async function prepareBorrow(
     tree: "loan",
   }
 
+  const totalCollateral = params.collateralNotes.reduce(
+    (acc, n) => acc + n.amount,
+    0n
+  )
   const plaintext = {
     amount: proof.borrowAmount.toString(),
     asset: params.borrowAsset,
     index: 0,
     salt: borrowSalt.toString(),
     tree: "loan" as const,
+    bond: {
+      saltAmount: bondSaltAmount.toString(),
+      saltValue: bondSaltValue.toString(),
+      saltPrice: bondSaltPrice.toString(),
+      collateralValue: (totalCollateral * oraclePrice).toString(),
+      oraclePrice: oraclePrice.toString(),
+    },
   }
 
   const servicePk = await getLiquidationServicePk()
