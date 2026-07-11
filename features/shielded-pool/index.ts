@@ -8,3 +8,4 @@ export {
   type DepositParams,
   type DepositResult,
 } from "./deposit"
+export { useDeposit } from "./use-deposit"

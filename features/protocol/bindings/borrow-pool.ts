@@ -54,7 +54,10 @@ export const Errors = {
   7: {message:"AlreadyInitialized"},
   8: {message:"NotInitialized"},
   9: {message:"MarketExists"},
-  10: {message:"PositionNotFound"}
+  10: {message:"PositionNotFound"},
+  11: {message:"DenominationMismatch"},
+  12: {message:"AssetUnknown"},
+  13: {message:"TreeCapacityExceeded"}
 }
 
 
@@ -122,6 +125,52 @@ export interface BorrowReceipt {
   proof_id: Buffer;
 }
 
+
+/**
+ * Rate curve parameters — read/written by the contract, exposed as a
+ * public view for the frontend so client-side `deriveMarketMetrics`
+ * stops using hardcoded curve constants.
+ */
+export interface RateParams {
+  base_apr_bps: u32;
+  reserve_factor_bps: u32;
+  seconds_per_year: u32;
+  slope_apr_bps: u32;
+}
+
+
+/**
+ * Risk parameters. Values are basis points where sensible;
+ * `hf_min_bps=12500` reads as 1.25×.
+ */
+export interface RiskParams {
+  hf_min_bps: u32;
+  liquidation_bonus_bps: u32;
+  liquidation_threshold_bps: u32;
+  max_ltv_bps: u32;
+}
+
+export type InstanceKey = {tag: "Admin", values: void} | {tag: "Markets", values: void} | {tag: "RateParams", values: void} | {tag: "RiskParams", values: void} | {tag: "ReflectorContract", values: void};
+
+
+/**
+ * Pair of running index + the ledger timestamp of its last accrual.
+ * `linear_accrue()` in `rate.rs` walks it forward.
+ */
+export interface IndexSnapshot {
+  last_updated: u64;
+  value: u128;
+}
+
+export type PersistentKey = {tag: "DepositRoot", values: readonly [string]} | {tag: "DepositFrontier", values: readonly [string]} | {tag: "DepositNextIndex", values: readonly [string]} | {tag: "LoanRoot", values: readonly [string]} | {tag: "LoanFrontier", values: readonly [string]} | {tag: "LoanNextIndex", values: readonly [string]} | {tag: "Nullifier", values: readonly [Buffer]} | {tag: "BorrowIndex", values: readonly [string]} | {tag: "LiquidityIndex", values: readonly [string]} | {tag: "TotalDeposit", values: readonly [string]} | {tag: "TotalBorrow", values: readonly [string]};
+
+/**
+ * Instance-storage key mapping asset symbols to their SAC / Soroban
+ * token contract addresses. Set at `initialize` alongside the
+ * Reflector contract.
+ */
+export type ReserveKey = {tag: "Reserve", values: readonly [string]};
+
 export interface Client {
   /**
    * Construct and simulate a admin transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
@@ -163,6 +212,11 @@ export interface Client {
   position: ({account}: {account: string}, options?: MethodOptions) => Promise<AssembledTransaction<Option<BorrowReceipt>>>
 
   /**
+   * Construct and simulate a loan_root transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   */
+  loan_root: ({asset}: {asset: string}, options?: MethodOptions) => Promise<AssembledTransaction<Option<Buffer>>>
+
+  /**
    * Construct and simulate a initialize transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    * One-shot init. Admin is the only principal allowed to register
    * markets. Deploy scripts call this immediately after upload.
@@ -170,9 +224,49 @@ export interface Client {
   initialize: ({admin}: {admin: string}, options?: MethodOptions) => Promise<AssembledTransaction<Result<void>>>
 
   /**
+   * Construct and simulate a reserve_of transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   */
+  reserve_of: ({asset}: {asset: string}, options?: MethodOptions) => Promise<AssembledTransaction<Option<string>>>
+
+  /**
+   * Construct and simulate a rate_params transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   */
+  rate_params: (options?: MethodOptions) => Promise<AssembledTransaction<Option<RateParams>>>
+
+  /**
+   * Construct and simulate a risk_params transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   */
+  risk_params: (options?: MethodOptions) => Promise<AssembledTransaction<Option<RiskParams>>>
+
+  /**
+   * Construct and simulate a set_reserve transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   */
+  set_reserve: ({asset, token_contract}: {asset: string, token_contract: string}, options?: MethodOptions) => Promise<AssembledTransaction<Result<void>>>
+
+  /**
+   * Construct and simulate a borrow_index transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   */
+  borrow_index: ({asset}: {asset: string}, options?: MethodOptions) => Promise<AssembledTransaction<IndexSnapshot>>
+
+  /**
+   * Construct and simulate a deposit_root transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   */
+  deposit_root: ({asset}: {asset: string}, options?: MethodOptions) => Promise<AssembledTransaction<Option<Buffer>>>
+
+  /**
    * Construct and simulate a list_markets transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    */
   list_markets: (options?: MethodOptions) => Promise<AssembledTransaction<Array<MarketMeta>>>
+
+  /**
+   * Construct and simulate a total_borrow transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   */
+  total_borrow: ({asset}: {asset: string}, options?: MethodOptions) => Promise<AssembledTransaction<u128>>
+
+  /**
+   * Construct and simulate a total_deposit transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   */
+  total_deposit: ({asset}: {asset: string}, options?: MethodOptions) => Promise<AssembledTransaction<u128>>
 
   /**
    * Construct and simulate a admin_transfer transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
@@ -182,11 +276,51 @@ export interface Client {
   admin_transfer: ({new_admin}: {new_admin: string}, options?: MethodOptions) => Promise<AssembledTransaction<Result<void>>>
 
   /**
+   * Construct and simulate a liquidity_index transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   */
+  liquidity_index: ({asset}: {asset: string}, options?: MethodOptions) => Promise<AssembledTransaction<IndexSnapshot>>
+
+  /**
+   * Construct and simulate a loan_next_index transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   */
+  loan_next_index: ({asset}: {asset: string}, options?: MethodOptions) => Promise<AssembledTransaction<u64>>
+
+  /**
    * Construct and simulate a register_market transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    * Admin-gated. Appends `market` to the registry — no-op if a
    * market with the same `key` already exists.
    */
   register_market: ({market}: {market: MarketMeta}, options?: MethodOptions) => Promise<AssembledTransaction<Result<void>>>
+
+  /**
+   * Construct and simulate a set_rate_params transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   */
+  set_rate_params: ({params}: {params: RateParams}, options?: MethodOptions) => Promise<AssembledTransaction<Result<void>>>
+
+  /**
+   * Construct and simulate a set_risk_params transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   */
+  set_risk_params: ({params}: {params: RiskParams}, options?: MethodOptions) => Promise<AssembledTransaction<Result<void>>>
+
+  /**
+   * Construct and simulate a deposit_shielded transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   */
+  deposit_shielded: ({from, asset, proof, memo}: {from: string, asset: string, proof: BorrowProof, memo: Buffer}, options?: MethodOptions) => Promise<AssembledTransaction<Result<u64>>>
+
+  /**
+   * Construct and simulate a deposit_next_index transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   */
+  deposit_next_index: ({asset}: {asset: string}, options?: MethodOptions) => Promise<AssembledTransaction<u64>>
+
+  /**
+   * Construct and simulate a reflector_contract transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   */
+  reflector_contract: (options?: MethodOptions) => Promise<AssembledTransaction<Option<string>>>
+
+  /**
+   * Construct and simulate a initialize_shielded transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   */
+  initialize_shielded: ({reflector, rate, risk}: {reflector: string, rate: RateParams, risk: RiskParams}, options?: MethodOptions) => Promise<AssembledTransaction<Result<void>>>
 
   /**
    * Construct and simulate a positions_by_account transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
@@ -215,17 +349,40 @@ export class Client extends ContractClient {
         "AAAAAAAAAR1DbG9zZSBhIGJvcnJvdyBwb3NpdGlvbi4gT3duZXItYXV0aGVkOyBkZWxldGVzIHRoZSByZWNlaXB0IGFuZApkcm9wcyB0aGUgcHJvb2ZfaWQgZnJvbSB0aGUgcGVyLWFjY291bnQgaW5kZXguIFJlYWwgcHJvZHVjdGlvbgp3b3VsZCBzZXR0bGUgdGhlIGFjdHVhbCBkZWJ0ICsgY29sbGF0ZXJhbCBtb3ZlbWVudCBoZXJlOyB0aGlzCnNrZWxldG9uIGp1c3QgcmV0aXJlcyB0aGUgb24tY2hhaW4gcmVjb3JkLgoKUmV0dXJucyB0aGUgY2xvc2VkIHJlY2VpcHQgc28gY2FsbGVycyBnZXQgYXVkaXQgaW5mby4AAAAAAAAFcmVwYXkAAAAAAAACAAAAAAAAAAdhY2NvdW50AAAAABMAAAAAAAAACHByb29mX2lkAAAD7gAAACAAAAABAAAD6QAAB9AAAAANQm9ycm93UmVjZWlwdAAAAAAAAAM=",
         "AAAAAAAAAAAAAAAGYm9ycm93AAAAAAACAAAAAAAAAAZpbnRlbnQAAAAAB9AAAAAMQm9ycm93SW50ZW50AAAAAAAAAAVwcm9vZgAAAAAAB9AAAAALQm9ycm93UHJvb2YAAAAAAQAAA+kAAAfQAAAADUJvcnJvd1JlY2VpcHQAAAAAAAAD",
         "AAAAAAAAAP9BZG1pbi1nYXRlZCBpbi1wbGFjZSB1cGdyYWRlLiBSZXBsYWNlcyB0aGUgY29udHJhY3QncyBXQVNNIHdpdGgKYHdhc21faGFzaGAgKGFscmVhZHkgdXBsb2FkZWQgdmlhIGBzdGVsbGFyIGNvbnRyYWN0IGluc3RhbGxgKS4KS2VlcHMgY29udHJhY3QgYWRkcmVzcyArIHBlcnNpc3RlbnQgc3RhdGUgaW50YWN0IHNvIHRoZSBmcm9udGVuZApjb250cmFjdCBpZCBhbmQgYWxsIGxpdmUgcG9zaXRpb25zIHN1cnZpdmUgYWNyb3NzIGNvZGUgY2hhbmdlcy4AAAAAB3VwZ3JhZGUAAAAAAQAAAAAAAAAJd2FzbV9oYXNoAAAAAAAD7gAAACAAAAABAAAD6QAAA+0AAAAAAAAAAw==",
-        "AAAABAAAAAAAAAAAAAAABUVycm9yAAAAAAAACgAAAAAAAAANSW50ZW50RXhwaXJlZAAAAAAAAAEAAAAAAAAADVByb29mUmVwbGF5ZWQAAAAAAAACAAAAAAAAAAlSZXNlcnZlZDMAAAAAAAADAAAAAAAAAAtTdGFsZU9yYWNsZQAAAAAEAAAAAAAAAAxJbnZhbGlkUHJvb2YAAAAFAAAAAAAAAAxVbmF1dGhvcml6ZWQAAAAGAAAAAAAAABJBbHJlYWR5SW5pdGlhbGl6ZWQAAAAAAAcAAAAAAAAADk5vdEluaXRpYWxpemVkAAAAAAAIAAAAAAAAAAxNYXJrZXRFeGlzdHMAAAAJAAAAAAAAABBQb3NpdGlvbk5vdEZvdW5kAAAACg==",
+        "AAAABAAAAAAAAAAAAAAABUVycm9yAAAAAAAADQAAAAAAAAANSW50ZW50RXhwaXJlZAAAAAAAAAEAAAAAAAAADVByb29mUmVwbGF5ZWQAAAAAAAACAAAAAAAAAAlSZXNlcnZlZDMAAAAAAAADAAAAAAAAAAtTdGFsZU9yYWNsZQAAAAAEAAAAAAAAAAxJbnZhbGlkUHJvb2YAAAAFAAAAAAAAAAxVbmF1dGhvcml6ZWQAAAAGAAAAAAAAABJBbHJlYWR5SW5pdGlhbGl6ZWQAAAAAAAcAAAAAAAAADk5vdEluaXRpYWxpemVkAAAAAAAIAAAAAAAAAAxNYXJrZXRFeGlzdHMAAAAJAAAAAAAAABBQb3NpdGlvbk5vdEZvdW5kAAAACgAAAAAAAAAURGVub21pbmF0aW9uTWlzbWF0Y2gAAAALAAAAAAAAAAxBc3NldFVua25vd24AAAAMAAAAAAAAABRUcmVlQ2FwYWNpdHlFeGNlZWRlZAAAAA0=",
         "AAAAAAAAAO9MYXRlc3QgcmVjZWlwdCBmb3IgYGFjY291bnRgLiBSZXR1cm5zIHRoZSBtb3N0IHJlY2VudCBlbnRyeQpmcm9tIHRoZSBwZXItYWNjb3VudCBpbmRleDsgYE5vbmVgIGlmIHRoZSBhY2NvdW50IGhhcyBuZXZlcgpib3Jyb3dlZC4gS2VwdCBmb3IgYmFjay1jb21wYXQgd2l0aCB0aGUgZHJhd2VyJ3Mgc2luZ2xlLXNsb3QKcGF0aCDigJQgbmV3IGNvbnN1bWVycyBzaG91bGQgY2FsbCBgcG9zaXRpb25zX2J5X2FjY291bnRgLgAAAAAIcG9zaXRpb24AAAABAAAAAAAAAAdhY2NvdW50AAAAABMAAAABAAAD6AAAB9AAAAANQm9ycm93UmVjZWlwdAAAAA==",
+        "AAAAAAAAAAAAAAAJbG9hbl9yb290AAAAAAAAAQAAAAAAAAAFYXNzZXQAAAAAAAARAAAAAQAAA+gAAAPuAAAAIA==",
         "AAAAAAAAAHpPbmUtc2hvdCBpbml0LiBBZG1pbiBpcyB0aGUgb25seSBwcmluY2lwYWwgYWxsb3dlZCB0byByZWdpc3RlcgptYXJrZXRzLiBEZXBsb3kgc2NyaXB0cyBjYWxsIHRoaXMgaW1tZWRpYXRlbHkgYWZ0ZXIgdXBsb2FkLgAAAAAACmluaXRpYWxpemUAAAAAAAEAAAAAAAAABWFkbWluAAAAAAAAEwAAAAEAAAPpAAAD7QAAAAAAAAAD",
+        "AAAAAAAAAAAAAAAKcmVzZXJ2ZV9vZgAAAAAAAQAAAAAAAAAFYXNzZXQAAAAAAAARAAAAAQAAA+gAAAAT",
+        "AAAAAAAAAAAAAAALcmF0ZV9wYXJhbXMAAAAAAAAAAAEAAAPoAAAH0AAAAApSYXRlUGFyYW1zAAA=",
+        "AAAAAAAAAAAAAAALcmlza19wYXJhbXMAAAAAAAAAAAEAAAPoAAAH0AAAAApSaXNrUGFyYW1zAAA=",
+        "AAAAAAAAAAAAAAALc2V0X3Jlc2VydmUAAAAAAgAAAAAAAAAFYXNzZXQAAAAAAAARAAAAAAAAAA50b2tlbl9jb250cmFjdAAAAAAAEwAAAAEAAAPpAAAD7QAAAAAAAAAD",
+        "AAAAAAAAAAAAAAAMYm9ycm93X2luZGV4AAAAAQAAAAAAAAAFYXNzZXQAAAAAAAARAAAAAQAAB9AAAAANSW5kZXhTbmFwc2hvdAAAAA==",
+        "AAAAAAAAAAAAAAAMZGVwb3NpdF9yb290AAAAAQAAAAAAAAAFYXNzZXQAAAAAAAARAAAAAQAAA+gAAAPuAAAAIA==",
         "AAAAAAAAAAAAAAAMbGlzdF9tYXJrZXRzAAAAAAAAAAEAAAPqAAAH0AAAAApNYXJrZXRNZXRhAAA=",
+        "AAAAAAAAAAAAAAAMdG90YWxfYm9ycm93AAAAAQAAAAAAAAAFYXNzZXQAAAAAAAARAAAAAQAAAAo=",
         "AAAAAQAAALJTdGF0aWMgbWV0YWRhdGEgZm9yIGEgbWFya2V0IHBhaXIuIFJlZ2lzdGVyZWQgYnkgdGhlIGFkbWluIGF0CmRlcGxveSB0aW1lIG9yIHZpYSBgcmVnaXN0ZXJfbWFya2V0YC4gQW1vdW50IHRocmVzaG9sZHMgYW5kIHJhdGUKY3VydmVzIHN0YXkgb2ZmLWNoYWluIHVudGlsIGludGVyZXN0IGFjY3J1YWwgbGFuZHMuAAAAAAAAAAAACk1hcmtldE1ldGEAAAAAAAMAAAAAAAAADWJvcnJvd19zeW1ib2wAAAAAAAARAAAAAAAAABFjb2xsYXRlcmFsX3N5bWJvbAAAAAAAABEAAAAAAAAAA2tleQAAAAAR",
+        "AAAAAAAAAAAAAAANdG90YWxfZGVwb3NpdAAAAAAAAAEAAAAAAAAABWFzc2V0AAAAAAAAEQAAAAEAAAAK",
         "AAAAAQAAAAAAAAAAAAAAC0JvcnJvd1Byb29mAAAAAAUAAAA3R3JvdGgxNiBwcm9vZiBvdmVyIEJMUzEyLTM4MTogQSAoRzEpICsgQiAoRzIpICsgQyAoRzEpLgAAAAABYQAAAAAAA+4AAABgAAAAAAAAAAFiAAAAAAAD7gAAAMAAAAAAAAAAAWMAAAAAAAPuAAAAYAAAAG1PcmFjbGUgZXBvY2ggdGhlIHByb29mIHdhcyBnZW5lcmF0ZWQgYWdhaW5zdC4gQ3Jvc3MtY2hlY2sgYWdhaW5zdAp0aGUgY3VycmVudCBsZWRnZXIgdGltZXN0YW1wIGZvciBmcmVzaG5lc3MuAAAAAAAADG9yYWNsZV9lcG9jaAAAAAYAAAB7UHVibGljIHNpZ25hbHMgaW4gY2lyY3VpdC1kZWNsYXJhdGlvbiBvcmRlciBmb2xsb3dlZCBieSB0aGUKcHVibGljIG91dHB1dCAoYG9yYWNsZV9wcmljZV9jb21taXRtZW50YCkg4oCUIHRvdGFsIDExIGVudHJpZXMuAAAAAA5wdWJsaWNfc2lnbmFscwAAAAAD6gAAAAw=",
         "AAAAAAAAAFpBZG1pbi1nYXRlZCBvd25lcnNoaXAgdHJhbnNmZXIuIE5ldyBhZG1pbiB0YWtlcyBvdmVyCmByZWdpc3Rlcl9tYXJrZXRgICsgYHVwZ3JhZGVgIHJpZ2h0cy4AAAAAAA5hZG1pbl90cmFuc2ZlcgAAAAAAAQAAAAAAAAAJbmV3X2FkbWluAAAAAAAAEwAAAAEAAAPpAAAD7QAAAAAAAAAD",
         "AAAAAQAAAQZQaGFzZS0xIHByaXZhY3k6IGFtb3VudCBmaWVsZHMgbW92ZWQgdG8gY2lyY3VpdC1wcml2YXRlIHdpdG5lc3MuCkNoYWluIG5vIGxvbmdlciBzZWVzIHRoZSByYXcgYm9ycm93IC8gY29sbGF0ZXJhbCBhbW91bnRzIOKAlCBvbmx5IHRoZQpwb2xpY3kgdGhyZXNob2xkcywgbWFya2V0IGNvbnRleHQsIGFuZCBhY2NvdW50IChzdGlsbCB2aXNpYmxlIHZpYQp0eCBzb3VyY2UgYXV0aCkuIFBoYXNlIDIgd2lsbCBzd2FwIGBhY2NvdW50YCBmb3IgYSBudWxsaWZpZXIuAAAAAAAAAAAADEJvcnJvd0ludGVudAAAAAgAAAAAAAAAB2FjY291bnQAAAAAEwAAAAAAAAANYm9ycm93X3N5bWJvbAAAAAAAABEAAAAAAAAAEWNvbGxhdGVyYWxfc3ltYm9sAAAAAAAAEQAAAAAAAAAKZXhwaXJlc19hdAAAAAAABgAAAAAAAAARaGVhbHRoX2ZhY3Rvcl9icHMAAAAAAAAEAAAAAAAAAAZtYXJrZXQAAAAAABEAAAAAAAAAC21heF9sdHZfYnBzAAAAAAQAAAAAAAAACHByb29mX2lkAAAD7gAAACA=",
+        "AAAAAAAAAAAAAAAPbGlxdWlkaXR5X2luZGV4AAAAAAEAAAAAAAAABWFzc2V0AAAAAAAAEQAAAAEAAAfQAAAADUluZGV4U25hcHNob3QAAAA=",
+        "AAAAAAAAAAAAAAAPbG9hbl9uZXh0X2luZGV4AAAAAAEAAAAAAAAABWFzc2V0AAAAAAAAEQAAAAEAAAAG",
         "AAAAAAAAAGdBZG1pbi1nYXRlZC4gQXBwZW5kcyBgbWFya2V0YCB0byB0aGUgcmVnaXN0cnkg4oCUIG5vLW9wIGlmIGEKbWFya2V0IHdpdGggdGhlIHNhbWUgYGtleWAgYWxyZWFkeSBleGlzdHMuAAAAAA9yZWdpc3Rlcl9tYXJrZXQAAAAAAQAAAAAAAAAGbWFya2V0AAAAAAfQAAAACk1hcmtldE1ldGEAAAAAAAEAAAPpAAAD7QAAAAAAAAAD",
+        "AAAAAAAAAAAAAAAPc2V0X3JhdGVfcGFyYW1zAAAAAAEAAAAAAAAABnBhcmFtcwAAAAAH0AAAAApSYXRlUGFyYW1zAAAAAAABAAAD6QAAA+0AAAAAAAAAAw==",
+        "AAAAAAAAAAAAAAAPc2V0X3Jpc2tfcGFyYW1zAAAAAAEAAAAAAAAABnBhcmFtcwAAAAAH0AAAAApSaXNrUGFyYW1zAAAAAAABAAAD6QAAA+0AAAAAAAAAAw==",
         "AAAAAQAAAK9Bbm9ueW1pemVkIHJlY2VpcHQ6IG5vIGJvcnJvdyAvIGNvbGxhdGVyYWwgYW1vdW50cy4gVXNlcnMgc3RvcmUKdGhlaXIgb3duIG51bWJlcnMgY2xpZW50LXNpZGUgKHNlc3Npb24gc3RvcmUpLiBDaGFpbiByZWNvcmRzIG9ubHkKdGhlIGZhY3QgdGhhdCBhIHByb29mLWJhY2tlZCBwb3NpdGlvbiBleGlzdHMuAAAAAAAAAAANQm9ycm93UmVjZWlwdAAAAAAAAAYAAAAAAAAAB2FjY291bnQAAAAAEwAAAAAAAAANYm9ycm93X3N5bWJvbAAAAAAAABEAAAAAAAAAEWNvbGxhdGVyYWxfc3ltYm9sAAAAAAAAEQAAAAAAAAAMY29uZmlybWVkX2F0AAAABgAAAAAAAAAGbWFya2V0AAAAAAARAAAAAAAAAAhwcm9vZl9pZAAAA+4AAAAg",
-        "AAAAAAAAAAAAAAAUcG9zaXRpb25zX2J5X2FjY291bnQAAAABAAAAAAAAAAdhY2NvdW50AAAAABMAAAABAAAD6gAAB9AAAAANQm9ycm93UmVjZWlwdAAAAA==" ]),
+        "AAAAAAAAAAAAAAAQZGVwb3NpdF9zaGllbGRlZAAAAAQAAAAAAAAABGZyb20AAAATAAAAAAAAAAVhc3NldAAAAAAAABEAAAAAAAAABXByb29mAAAAAAAH0AAAAAtCb3Jyb3dQcm9vZgAAAAAAAAAABG1lbW8AAAAOAAAAAQAAA+kAAAAGAAAAAw==",
+        "AAAAAAAAAAAAAAASZGVwb3NpdF9uZXh0X2luZGV4AAAAAAABAAAAAAAAAAVhc3NldAAAAAAAABEAAAABAAAABg==",
+        "AAAAAAAAAAAAAAAScmVmbGVjdG9yX2NvbnRyYWN0AAAAAAAAAAAAAQAAA+gAAAAT",
+        "AAAAAAAAAAAAAAATaW5pdGlhbGl6ZV9zaGllbGRlZAAAAAADAAAAAAAAAAlyZWZsZWN0b3IAAAAAAAATAAAAAAAAAARyYXRlAAAH0AAAAApSYXRlUGFyYW1zAAAAAAAAAAAABHJpc2sAAAfQAAAAClJpc2tQYXJhbXMAAAAAAAEAAAPpAAAD7QAAAAAAAAAD",
+        "AAAAAAAAAAAAAAAUcG9zaXRpb25zX2J5X2FjY291bnQAAAABAAAAAAAAAAdhY2NvdW50AAAAABMAAAABAAAD6gAAB9AAAAANQm9ycm93UmVjZWlwdAAAAA==",
+        "AAAAAQAAAK1SYXRlIGN1cnZlIHBhcmFtZXRlcnMg4oCUIHJlYWQvd3JpdHRlbiBieSB0aGUgY29udHJhY3QsIGV4cG9zZWQgYXMgYQpwdWJsaWMgdmlldyBmb3IgdGhlIGZyb250ZW5kIHNvIGNsaWVudC1zaWRlIGBkZXJpdmVNYXJrZXRNZXRyaWNzYApzdG9wcyB1c2luZyBoYXJkY29kZWQgY3VydmUgY29uc3RhbnRzLgAAAAAAAAAAAAAKUmF0ZVBhcmFtcwAAAAAABAAAAAAAAAAMYmFzZV9hcHJfYnBzAAAABAAAAAAAAAAScmVzZXJ2ZV9mYWN0b3JfYnBzAAAAAAAEAAAAAAAAABBzZWNvbmRzX3Blcl95ZWFyAAAABAAAAAAAAAANc2xvcGVfYXByX2JwcwAAAAAAAAQ=",
+        "AAAAAQAAAFxSaXNrIHBhcmFtZXRlcnMuIFZhbHVlcyBhcmUgYmFzaXMgcG9pbnRzIHdoZXJlIHNlbnNpYmxlOwpgaGZfbWluX2Jwcz0xMjUwMGAgcmVhZHMgYXMgMS4yNcOXLgAAAAAAAAAKUmlza1BhcmFtcwAAAAAABAAAAAAAAAAKaGZfbWluX2JwcwAAAAAABAAAAAAAAAAVbGlxdWlkYXRpb25fYm9udXNfYnBzAAAAAAAABAAAAAAAAAAZbGlxdWlkYXRpb25fdGhyZXNob2xkX2JwcwAAAAAAAAQAAAAAAAAAC21heF9sdHZfYnBzAAAAAAQ=",
+        "AAAAAgAAAAAAAAAAAAAAC0luc3RhbmNlS2V5AAAAAAUAAAAAAAAAAAAAAAVBZG1pbgAAAAAAAAAAAAAAAAAAB01hcmtldHMAAAAAAAAAAAAAAAAKUmF0ZVBhcmFtcwAAAAAAAAAAAAAAAAAKUmlza1BhcmFtcwAAAAAAAAAAAAAAAAARUmVmbGVjdG9yQ29udHJhY3QAAAA=",
+        "AAAAAQAAAHJQYWlyIG9mIHJ1bm5pbmcgaW5kZXggKyB0aGUgbGVkZ2VyIHRpbWVzdGFtcCBvZiBpdHMgbGFzdCBhY2NydWFsLgpgbGluZWFyX2FjY3J1ZSgpYCBpbiBgcmF0ZS5yc2Agd2Fsa3MgaXQgZm9yd2FyZC4AAAAAAAAAAAANSW5kZXhTbmFwc2hvdAAAAAAAAAIAAAAAAAAADGxhc3RfdXBkYXRlZAAAAAYAAAAAAAAABXZhbHVlAAAAAAAACg==",
+        "AAAAAgAAAAAAAAAAAAAADVBlcnNpc3RlbnRLZXkAAAAAAAALAAAAAQAAAAAAAAALRGVwb3NpdFJvb3QAAAAAAQAAABEAAAABAAAAAAAAAA9EZXBvc2l0RnJvbnRpZXIAAAAAAQAAABEAAAABAAAAAAAAABBEZXBvc2l0TmV4dEluZGV4AAAAAQAAABEAAAABAAAAAAAAAAhMb2FuUm9vdAAAAAEAAAARAAAAAQAAAAAAAAAMTG9hbkZyb250aWVyAAAAAQAAABEAAAABAAAAAAAAAA1Mb2FuTmV4dEluZGV4AAAAAAAAAQAAABEAAAABAAAAAAAAAAlOdWxsaWZpZXIAAAAAAAABAAAD7gAAACAAAAABAAAAAAAAAAtCb3Jyb3dJbmRleAAAAAABAAAAEQAAAAEAAAAAAAAADkxpcXVpZGl0eUluZGV4AAAAAAABAAAAEQAAAAEAAAAAAAAADFRvdGFsRGVwb3NpdAAAAAEAAAARAAAAAQAAAAAAAAALVG90YWxCb3Jyb3cAAAAAAQAAABE=",
+        "AAAAAgAAAJFJbnN0YW5jZS1zdG9yYWdlIGtleSBtYXBwaW5nIGFzc2V0IHN5bWJvbHMgdG8gdGhlaXIgU0FDIC8gU29yb2Jhbgp0b2tlbiBjb250cmFjdCBhZGRyZXNzZXMuIFNldCBhdCBgaW5pdGlhbGl6ZWAgYWxvbmdzaWRlIHRoZQpSZWZsZWN0b3IgY29udHJhY3QuAAAAAAAAAAAAAApSZXNlcnZlS2V5AAAAAAABAAAAAQAAAAAAAAAHUmVzZXJ2ZQAAAAABAAAAEQ==" ]),
       options
     )
   }
@@ -235,10 +392,27 @@ export class Client extends ContractClient {
         borrow: this.txFromJSON<Result<BorrowReceipt>>,
         upgrade: this.txFromJSON<Result<void>>,
         position: this.txFromJSON<Option<BorrowReceipt>>,
+        loan_root: this.txFromJSON<Option<Buffer>>,
         initialize: this.txFromJSON<Result<void>>,
+        reserve_of: this.txFromJSON<Option<string>>,
+        rate_params: this.txFromJSON<Option<RateParams>>,
+        risk_params: this.txFromJSON<Option<RiskParams>>,
+        set_reserve: this.txFromJSON<Result<void>>,
+        borrow_index: this.txFromJSON<IndexSnapshot>,
+        deposit_root: this.txFromJSON<Option<Buffer>>,
         list_markets: this.txFromJSON<Array<MarketMeta>>,
+        total_borrow: this.txFromJSON<u128>,
+        total_deposit: this.txFromJSON<u128>,
         admin_transfer: this.txFromJSON<Result<void>>,
+        liquidity_index: this.txFromJSON<IndexSnapshot>,
+        loan_next_index: this.txFromJSON<u64>,
         register_market: this.txFromJSON<Result<void>>,
+        set_rate_params: this.txFromJSON<Result<void>>,
+        set_risk_params: this.txFromJSON<Result<void>>,
+        deposit_shielded: this.txFromJSON<Result<u64>>,
+        deposit_next_index: this.txFromJSON<u64>,
+        reflector_contract: this.txFromJSON<Option<string>>,
+        initialize_shielded: this.txFromJSON<Result<void>>,
         positions_by_account: this.txFromJSON<Array<BorrowReceipt>>
   }
 }
