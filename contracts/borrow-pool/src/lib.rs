@@ -7,9 +7,15 @@ use soroban_sdk::{
 };
 
 mod merkle;
+mod notes;
 mod poseidon;
 mod poseidon_constants;
+mod rate;
+mod state;
+mod tokens;
 mod verifier;
+
+use state::{RateParams, RiskParams};
 
 // ponytail: skeleton contract. Real pool needs liquidity accounting, interest
 // accrual, and repay/liquidate paths. Reflector price commitment cross-check
@@ -181,6 +187,100 @@ impl BorrowPool {
         admin.require_auth();
         env.storage().instance().set(&DataKey::Admin, &new_admin);
         Ok(())
+    }
+
+    // -----------------------------------------------------------------
+    // Shielded pool (Phase 2) — admin config
+    //
+    // The following endpoints set up the state required for shielded
+    // deposit / borrow / repay / withdraw / liquidate. Each is
+    // admin-gated. `initialize_shielded` is idempotent per-field so a
+    // partial upgrade can top up missing pieces without redeploying.
+
+    pub fn initialize_shielded(
+        env: Env,
+        reflector: Address,
+        rate: RateParams,
+        risk: RiskParams,
+    ) -> Result<(), Error> {
+        let admin = Self::require_admin(&env)?;
+        admin.require_auth();
+        state::set_reflector(&env, &reflector);
+        state::set_rate_params(&env, &rate);
+        state::set_risk_params(&env, &risk);
+        Ok(())
+    }
+
+    pub fn set_reserve(env: Env, asset: Symbol, token_contract: Address) -> Result<(), Error> {
+        let admin = Self::require_admin(&env)?;
+        admin.require_auth();
+        tokens::set_reserve(&env, &asset, &token_contract);
+        Ok(())
+    }
+
+    pub fn set_rate_params(env: Env, params: RateParams) -> Result<(), Error> {
+        let admin = Self::require_admin(&env)?;
+        admin.require_auth();
+        state::set_rate_params(&env, &params);
+        Ok(())
+    }
+
+    pub fn set_risk_params(env: Env, params: RiskParams) -> Result<(), Error> {
+        let admin = Self::require_admin(&env)?;
+        admin.require_auth();
+        state::set_risk_params(&env, &params);
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------
+    // Shielded pool — view fns
+
+    pub fn rate_params(env: Env) -> Option<RateParams> {
+        state::rate_params(&env)
+    }
+
+    pub fn risk_params(env: Env) -> Option<RiskParams> {
+        state::risk_params(&env)
+    }
+
+    pub fn reflector_contract(env: Env) -> Option<Address> {
+        state::reflector(&env)
+    }
+
+    pub fn reserve_of(env: Env, asset: Symbol) -> Option<Address> {
+        tokens::reserve(&env, &asset)
+    }
+
+    pub fn deposit_root(env: Env, asset: Symbol) -> Option<BytesN<32>> {
+        state::deposit_root(&env, &asset)
+    }
+
+    pub fn loan_root(env: Env, asset: Symbol) -> Option<BytesN<32>> {
+        state::loan_root(&env, &asset)
+    }
+
+    pub fn deposit_next_index(env: Env, asset: Symbol) -> u64 {
+        state::deposit_next_index(&env, &asset)
+    }
+
+    pub fn loan_next_index(env: Env, asset: Symbol) -> u64 {
+        state::loan_next_index(&env, &asset)
+    }
+
+    pub fn total_deposit(env: Env, asset: Symbol) -> u128 {
+        state::total_deposit(&env, &asset)
+    }
+
+    pub fn total_borrow(env: Env, asset: Symbol) -> u128 {
+        state::total_borrow(&env, &asset)
+    }
+
+    pub fn borrow_index(env: Env, asset: Symbol) -> state::IndexSnapshot {
+        rate::accrue_borrow_index(&env, &asset)
+    }
+
+    pub fn liquidity_index(env: Env, asset: Symbol) -> state::IndexSnapshot {
+        rate::accrue_liquidity_index(&env, &asset)
     }
 
     pub fn borrow(
