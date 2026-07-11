@@ -8,6 +8,10 @@ import type {
   WalletProvider,
   WalletProviderId,
 } from "@/app/_constants/account"
+import {
+  onBorrowConfirmed,
+  onRepayConfirmed,
+} from "@/features/borrow-flow/borrow-events"
 
 import {
   cancelWalletConnectConnection,
@@ -107,10 +111,15 @@ export function useWalletConnection(): WalletConnectionState {
 
     document.addEventListener("visibilitychange", visibilityHandler)
 
+    const offBorrow = onBorrowConfirmed(() => void refreshOnce())
+    const offRepay = onRepayConfirmed(() => void refreshOnce())
+
     return () => {
       active = false
       window.clearInterval(intervalId)
       document.removeEventListener("visibilitychange", visibilityHandler)
+      offBorrow()
+      offRepay()
     }
   }, [accountKey])
 
