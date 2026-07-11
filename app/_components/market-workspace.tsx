@@ -1,8 +1,12 @@
 "use client"
 
-import type * as React from "react"
+import * as React from "react"
 
-import { getMarketPair, marketCards } from "@/features/markets"
+import {
+  getMarketPair,
+  marketCards,
+  useRegisteredMarkets,
+} from "@/features/markets"
 import { useWalletConnection } from "@/features/wallet/use-wallet-connection"
 
 import { useMarketSelection } from "../_hooks/use-market-selection"
@@ -15,6 +19,18 @@ export function MarketWorkspace(): React.ReactElement {
   const selectedMarketPair = selectedMarket
     ? getMarketPair(selectedMarket)
     : null
+  const { pairs: registeredPairs } = useRegisteredMarkets()
+
+  const visibleMarkets = React.useMemo(() => {
+    // Chain view returned nothing (contract unreachable or empty) →
+    // fall back to the full hardcoded list rather than showing zero
+    // cards. Once the contract answers with the real set we intersect
+    // so a hardcoded pair the contract doesn't know about is hidden.
+    if (!registeredPairs || registeredPairs.size === 0) return marketCards
+    return marketCards.filter((market) =>
+      registeredPairs.has(getMarketPair(market))
+    )
+  }, [registeredPairs])
 
   return (
     <div
@@ -41,7 +57,7 @@ export function MarketWorkspace(): React.ReactElement {
               : "mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4"
           }
         >
-          {marketCards.map((market, index) => {
+          {visibleMarkets.map((market, index) => {
             const marketPair = getMarketPair(market)
             const card = (
               <MarketCard
