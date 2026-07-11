@@ -10,6 +10,13 @@ const cache: Record<SupportedAssetSymbol, number> = {
   XLM: assets.XLM.priceUsd,
 }
 
+// Frozen snapshot returned by snapshotAssetPrices. React's
+// useSyncExternalStore compares snapshots via Object.is; returning a
+// fresh { ...cache } literal on every call schedules a re-render each
+// commit and loops. Rebuild the snapshot only when a price actually
+// changes.
+let snapshot: Record<SupportedAssetSymbol, number> = { ...cache }
+
 const listeners = new Set<() => void>()
 
 export function readCachedAssetPrice(symbol: SupportedAssetSymbol): number {
@@ -22,6 +29,7 @@ export function writeCachedAssetPrice(
 ): void {
   if (cache[symbol] === price) return
   cache[symbol] = price
+  snapshot = { ...cache }
   for (const listener of listeners) listener()
 }
 
@@ -33,5 +41,5 @@ export function subscribeAssetPrices(listener: () => void): () => void {
 }
 
 export function snapshotAssetPrices(): Record<SupportedAssetSymbol, number> {
-  return { ...cache }
+  return snapshot
 }
