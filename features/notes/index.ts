@@ -27,3 +27,8 @@ export {
   upsertNote,
 } from "./note-store"
 export { useNotes } from "./use-notes"
+export { scanShieldedNotes, type ScanIdentity } from "./scanner"
+export {
+  shieldedIdentityFromAddress,
+  useShieldedIdentity,
+} from "./use-shielded-identity"

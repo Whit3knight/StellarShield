@@ -9,3 +9,4 @@ export {
   type DepositResult,
 } from "./deposit"
 export { useDeposit } from "./use-deposit"
+export { useShieldedPool } from "./use-shielded-pool"

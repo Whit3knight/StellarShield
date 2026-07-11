@@ -5,6 +5,7 @@ import {
   ArrowUpRightIcon,
   ExternalLinkIcon,
   LayersIcon,
+  LockIcon,
   LogOutIcon,
   ShieldCheckIcon,
   WalletCardsIcon,
@@ -44,8 +45,13 @@ export function UserMenu({
   account: ConnectedAccount
   onDisconnect: () => void
 }): React.ReactElement {
-  const { activityDrawer, positionsDrawer, proofsDrawer, walletMenu } =
-    useNavMenus()
+  const {
+    activityDrawer,
+    positionsDrawer,
+    proofsDrawer,
+    shieldedDrawer,
+    walletMenu,
+  } = useNavMenus()
   const explorerUrl = getStellarExpertAccountUrl(account.wallet.address)
 
   return (
@@ -96,6 +102,13 @@ export function UserMenu({
           >
             <LayersIcon aria-hidden="true" />
             Positions
+          </MenuItem>
+          <MenuItem
+            closeOnClick
+            onClick={() => shieldedDrawer.setOpen(true)}
+          >
+            <LockIcon aria-hidden="true" />
+            Shielded pool
           </MenuItem>
           <MenuItem
             closeOnClick

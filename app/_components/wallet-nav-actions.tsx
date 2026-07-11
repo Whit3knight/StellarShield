@@ -6,6 +6,7 @@ import { ActivityDrawer } from "@/components/organisms/activity-drawer"
 import { ConnectWalletDialog } from "@/components/organisms/connect-wallet-dialog"
 import { PositionsDrawer } from "@/components/organisms/positions-drawer"
 import { ProofsDrawer } from "@/components/organisms/proofs-drawer"
+import { ShieldedDrawer } from "@/components/organisms/shielded-drawer"
 import { useBorrowSession } from "@/features/borrow-flow/session-store"
 import { useMergedActivities } from "@/features/borrow-flow/use-chain-activities"
 import { useChainPositions } from "@/features/borrow-flow/use-chain-positions"
@@ -85,7 +86,8 @@ function SessionDrawers({
 }: {
   account: string | null
 }): React.ReactElement {
-  const { activityDrawer, positionsDrawer, proofsDrawer } = useNavMenus()
+  const { activityDrawer, positionsDrawer, proofsDrawer, shieldedDrawer } =
+    useNavMenus()
   const { proofs } = useBorrowSession()
   const chainReadEnabled = positionsDrawer.open || activityDrawer.open
   const {
@@ -117,6 +119,11 @@ function SessionDrawers({
         onOpenChange={proofsDrawer.setOpen}
         open={proofsDrawer.open}
         proofs={proofs}
+      />
+      <ShieldedDrawer
+        account={account}
+        onOpenChange={shieldedDrawer.setOpen}
+        open={shieldedDrawer.open}
       />
     </>
   )
