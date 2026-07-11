@@ -11,14 +11,12 @@ import type { BorrowActivity } from "./types"
 export function useMergedActivities({
   chainReceipts,
   proofs,
-  sessionActivities,
 }: {
   chainReceipts: ChainBorrowReceipt[]
   proofs: BorrowEligibilityProof[]
-  sessionActivities: BorrowActivity[]
 }): BorrowActivity[] {
   return React.useMemo(
-    () => deriveActivities({ chainReceipts, proofs, sessionActivities }),
-    [chainReceipts, proofs, sessionActivities]
+    () => deriveActivities({ chainReceipts, proofs }),
+    [chainReceipts, proofs]
   )
 }

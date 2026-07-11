@@ -2,36 +2,26 @@ import * as React from "react"
 
 import type { BorrowEligibilityProof } from "@/features/proofs"
 
-import { appendBorrowActivity } from "./activities"
-import type { BorrowActivity, UserPosition } from "./types"
-
-const ACTIVITY_HISTORY_CAP = 50
-const POSITION_HISTORY_CAP = 50
 const PROOF_HISTORY_CAP = 50
 const STORAGE_KEY = "stellar-shield:borrow-session"
 const CHANGE_EVENT = "stellar-shield:borrow-session-change"
 
+// Session store used to persist positions + activities + proofs when
+// the app ran on the mock adapter. Positions and activities now come
+// from the on-chain `positions_by_account` view and merged event
+// derivation, so only proofs remain: the chain stores `proof_id`
+// but not the proof bytes, and the drawer needs the local copy to
+// display metadata and (later) repay-flow inputs.
 type BorrowSessionState = {
-  activities: BorrowActivity[]
-  positions: UserPosition[]
   proofs: BorrowEligibilityProof[]
 }
 
-const EMPTY_STATE: BorrowSessionState = {
-  activities: [],
-  positions: [],
-  proofs: [],
-}
+const EMPTY_STATE: BorrowSessionState = { proofs: [] }
 
 function isBorrowSessionState(
   value: unknown
-): value is Partial<BorrowSessionState> {
-  if (!value || typeof value !== "object") return false
-  const candidate = value as Partial<BorrowSessionState>
-
-  return (
-    Array.isArray(candidate.activities) && Array.isArray(candidate.proofs)
-  )
+): value is { proofs?: unknown } {
+  return Boolean(value && typeof value === "object")
 }
 
 function readStored(): BorrowSessionState {
@@ -39,22 +29,17 @@ function readStored(): BorrowSessionState {
 
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY)
-
     if (!raw) return EMPTY_STATE
 
     const parsed = JSON.parse(raw)
-
     if (!isBorrowSessionState(parsed)) {
       window.localStorage.removeItem(STORAGE_KEY)
       return EMPTY_STATE
     }
 
+    const proofsRaw = Array.isArray(parsed.proofs) ? parsed.proofs : []
     return {
-      activities: (parsed.activities ?? []).slice(0, ACTIVITY_HISTORY_CAP),
-      positions: Array.isArray(parsed.positions)
-        ? parsed.positions.slice(0, POSITION_HISTORY_CAP)
-        : [],
-      proofs: (parsed.proofs ?? [])
+      proofs: (proofsRaw as BorrowEligibilityProof[])
         .slice(0, PROOF_HISTORY_CAP)
         .map((proof) => ({
           ...proof,
@@ -67,7 +52,6 @@ function readStored(): BorrowSessionState {
     } catch {
       // ignore write failure
     }
-
     return EMPTY_STATE
   }
 }
@@ -110,7 +94,6 @@ function ensureExternalListeners(): void {
 function subscribe(listener: () => void): () => void {
   ensureExternalListeners()
   listeners.add(listener)
-
   return () => {
     listeners.delete(listener)
   }
@@ -131,40 +114,14 @@ function commit(next: BorrowSessionState): void {
 }
 
 export const borrowSession = {
-  appendActivity(activity: BorrowActivity): void {
-    const merged = appendBorrowActivity(currentState.activities, activity)
-
-    if (merged === currentState.activities) return
-
-    const nextActivities = merged.slice(0, ACTIVITY_HISTORY_CAP)
-
-    commit({ ...currentState, activities: nextActivities })
-  },
-  appendPosition(position: UserPosition): void {
-    if (
-      currentState.positions.some((existing) => existing.id === position.id)
-    ) {
-      return
-    }
-
-    const nextPositions = [position, ...currentState.positions].slice(
-      0,
-      POSITION_HISTORY_CAP
-    )
-
-    commit({ ...currentState, positions: nextPositions })
-  },
   appendProof(proof: BorrowEligibilityProof): void {
-    if (currentState.proofs.some((existing) => existing.id === proof.id)) {
-      return
-    }
+    if (currentState.proofs.some((existing) => existing.id === proof.id)) return
 
     const nextProofs = [proof, ...currentState.proofs].slice(
       0,
       PROOF_HISTORY_CAP
     )
-
-    commit({ ...currentState, proofs: nextProofs })
+    commit({ proofs: nextProofs })
   },
   reset(): void {
     commit(EMPTY_STATE)
@@ -180,7 +137,5 @@ export function useBorrowSession(): BorrowSessionState {
 export const __TEST__ = {
   STORAGE_KEY,
   CHANGE_EVENT,
-  ACTIVITY_HISTORY_CAP,
-  POSITION_HISTORY_CAP,
   PROOF_HISTORY_CAP,
 }

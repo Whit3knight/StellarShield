@@ -181,7 +181,6 @@ export function useBorrowFlow({
     setActivity((currentActivity) =>
       appendBorrowActivity(currentActivity, walletConnectedActivity)
     )
-    borrowSession.appendActivity(walletConnectedActivity)
   }, [account])
 
   React.useEffect(() => {
@@ -199,10 +198,10 @@ export function useBorrowFlow({
     })
 
     confirmedPayloadRef.current = payloadId
-    // ponytail: local position mirror kept for transaction-step reader; drop
-    // when consumers switch to useBorrowSession().positions filtered by market.
+    // Local position mirror kept for transaction-step summary while the
+    // borrow flow is still open. Chain-derived positions_by_account
+    // takes over once the drawer refetches.
     setPosition(nextPosition)
-    borrowSession.appendPosition(nextPosition)
     const confirmedActivity = createConfirmedPositionActivity({
       position: nextPosition,
     })
@@ -210,7 +209,6 @@ export function useBorrowFlow({
     setActivity((currentActivity) =>
       appendBorrowActivity(currentActivity, confirmedActivity)
     )
-    borrowSession.appendActivity(confirmedActivity)
   }, [flow, market, metrics])
 
   const setFieldValue = React.useCallback(
@@ -277,7 +275,6 @@ export function useBorrowFlow({
       setActivity((currentActivity) =>
         appendBorrowActivity(currentActivity, proofActivity)
       )
-      borrowSession.appendActivity(proofActivity)
       borrowSession.appendProof(proof)
       return
     }
@@ -333,8 +330,6 @@ export function useBorrowFlow({
 
       return next
     })
-    borrowSession.appendActivity(proofActivity)
-    if (intentActivity) borrowSession.appendActivity(intentActivity)
     borrowSession.appendProof(proof)
   }, [account, market, metrics, protocolAdapter, prover])
 
@@ -462,7 +457,6 @@ export function useBorrowFlow({
     setActivity((currentActivity) =>
       appendBorrowActivity(currentActivity, submittedActivity)
     )
-    borrowSession.appendActivity(submittedActivity)
 
     const waitResult = await protocolAdapter.waitForConfirmation(
       { payload: submittedPayload },

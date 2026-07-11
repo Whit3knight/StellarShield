@@ -7,10 +7,13 @@ import { ConnectWalletDialog } from "@/components/organisms/connect-wallet-dialo
 import { PositionsDrawer } from "@/components/organisms/positions-drawer"
 import { ProofsDrawer } from "@/components/organisms/proofs-drawer"
 import { useBorrowSession } from "@/features/borrow-flow/session-store"
+import type { UserPosition } from "@/features/borrow-flow/types"
 import { useMergedActivities } from "@/features/borrow-flow/use-chain-activities"
 import { useChainPositions } from "@/features/borrow-flow/use-chain-positions"
 import { preloadProver } from "@/features/proofs"
 import { useWalletConnection } from "@/features/wallet/use-wallet-connection"
+
+const EMPTY_LOCAL_POSITIONS: UserPosition[] = []
 
 import { walletProviders, type WalletProvider } from "../_constants/account"
 import { useNavMenus } from "../_hooks/use-nav-menus"
@@ -86,14 +89,13 @@ function SessionDrawers({
   account: string | null
 }): React.ReactElement {
   const { activityDrawer, positionsDrawer, proofsDrawer } = useNavMenus()
-  const { activities: sessionActivities, positions, proofs } = useBorrowSession()
+  const { proofs } = useBorrowSession()
   const chainReadEnabled = positionsDrawer.open || activityDrawer.open
   const { isLoading: chainLoading, receipts: chainPositions } =
     useChainPositions(account, chainReadEnabled)
   const activities = useMergedActivities({
     chainReceipts: chainPositions,
     proofs,
-    sessionActivities,
   })
 
   return (
@@ -108,7 +110,7 @@ function SessionDrawers({
         chainPositions={chainPositions}
         onOpenChange={positionsDrawer.setOpen}
         open={positionsDrawer.open}
-        positions={positions}
+        positions={EMPTY_LOCAL_POSITIONS}
       />
       <ProofsDrawer
         onOpenChange={proofsDrawer.setOpen}
