@@ -2,6 +2,9 @@
 
 import * as React from "react"
 
+import { toastManager } from "@/components/ui/toast"
+import { getStellarExpertTxUrl } from "@/features/wallet/network"
+
 import { repayPosition, type RepayResult } from "./repay-position"
 
 type Status = "idle" | "pending" | "success" | "failed"
@@ -60,17 +63,45 @@ export function useRepayPosition(account: string | null): {
         message: null,
         status: "pending",
       })
+      const pendingToast = toastManager.add({
+        title: "Repaying position",
+        description: "Confirm the close in your wallet extension.",
+        type: "loading",
+      })
+
+      const closePendingToast = () => {
+        try {
+          toastManager.close(pendingToast)
+        } catch {
+          // toast already closed
+        }
+      }
 
       try {
         const result = await repayPosition(account, proofId, controller.signal)
-        if (controller.signal.aborted) return null
+        if (controller.signal.aborted) {
+          closePendingToast()
+          return null
+        }
 
+        closePendingToast()
         if (result.ok) {
           setState({
             activeProofId: proofId,
             hash: result.hash,
             message: null,
             status: "success",
+          })
+          toastManager.add({
+            title: "Position closed",
+            description: `Repay confirmed. Hash ${result.hash.slice(0, 10)}…`,
+            type: "success",
+            timeout: 6_000,
+            actionProps: {
+              children: "View Transaction",
+              onClick: () =>
+                window.open(getStellarExpertTxUrl(result.hash), "_blank"),
+            },
           })
         } else {
           setState({
@@ -79,10 +110,20 @@ export function useRepayPosition(account: string | null): {
             message: result.message,
             status: "failed",
           })
+          toastManager.add({
+            title: "Repay failed",
+            description: result.message,
+            type: "error",
+            timeout: 8_000,
+          })
         }
         return result
       } catch (cause) {
-        if (controller.signal.aborted) return null
+        if (controller.signal.aborted) {
+          closePendingToast()
+          return null
+        }
+        closePendingToast()
         const message =
           cause instanceof Error && cause.message
             ? cause.message
@@ -92,6 +133,12 @@ export function useRepayPosition(account: string | null): {
           hash: null,
           message,
           status: "failed",
+        })
+        toastManager.add({
+          title: "Repay failed",
+          description: message,
+          type: "error",
+          timeout: 8_000,
         })
         return { ok: false, message }
       }

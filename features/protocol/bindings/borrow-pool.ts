@@ -40,7 +40,7 @@ if (typeof window !== "undefined") {
 export const networks = {
   testnet: {
     networkPassphrase: "Test SDF Network ; September 2015",
-    contractId: "CBXQMX5MB3QVAYOYBGUUUMXYHLFO2BQW2HFIV5JAZHGGYTBVYZBQXKAL",
+    contractId: "CBJZP45HUUVXWDSEUIQPDJD4RZPTUJUG6IGVM7HQPHRK74SHKPXF4N7L",
   }
 } as const
 
@@ -145,6 +145,15 @@ export interface Client {
   borrow: ({intent, proof}: {intent: BorrowIntent, proof: BorrowProof}, options?: MethodOptions) => Promise<AssembledTransaction<Result<BorrowReceipt>>>
 
   /**
+   * Construct and simulate a upgrade transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   * Admin-gated in-place upgrade. Replaces the contract's WASM with
+   * `wasm_hash` (already uploaded via `stellar contract install`).
+   * Keeps contract address + persistent state intact so the frontend
+   * contract id and all live positions survive across code changes.
+   */
+  upgrade: ({wasm_hash}: {wasm_hash: Buffer}, options?: MethodOptions) => Promise<AssembledTransaction<Result<void>>>
+
+  /**
    * Construct and simulate a position transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    * Latest receipt for `account`. Returns the most recent entry
    * from the per-account index; `None` if the account has never
@@ -164,6 +173,13 @@ export interface Client {
    * Construct and simulate a list_markets transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    */
   list_markets: (options?: MethodOptions) => Promise<AssembledTransaction<Array<MarketMeta>>>
+
+  /**
+   * Construct and simulate a admin_transfer transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   * Admin-gated ownership transfer. New admin takes over
+   * `register_market` + `upgrade` rights.
+   */
+  admin_transfer: ({new_admin}: {new_admin: string}, options?: MethodOptions) => Promise<AssembledTransaction<Result<void>>>
 
   /**
    * Construct and simulate a register_market transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
@@ -198,12 +214,14 @@ export class Client extends ContractClient {
       new ContractSpec([ "AAAAAAAAAAAAAAAFYWRtaW4AAAAAAAAAAAAAAQAAA+gAAAAT",
         "AAAAAAAAAR1DbG9zZSBhIGJvcnJvdyBwb3NpdGlvbi4gT3duZXItYXV0aGVkOyBkZWxldGVzIHRoZSByZWNlaXB0IGFuZApkcm9wcyB0aGUgcHJvb2ZfaWQgZnJvbSB0aGUgcGVyLWFjY291bnQgaW5kZXguIFJlYWwgcHJvZHVjdGlvbgp3b3VsZCBzZXR0bGUgdGhlIGFjdHVhbCBkZWJ0ICsgY29sbGF0ZXJhbCBtb3ZlbWVudCBoZXJlOyB0aGlzCnNrZWxldG9uIGp1c3QgcmV0aXJlcyB0aGUgb24tY2hhaW4gcmVjb3JkLgoKUmV0dXJucyB0aGUgY2xvc2VkIHJlY2VpcHQgc28gY2FsbGVycyBnZXQgYXVkaXQgaW5mby4AAAAAAAAFcmVwYXkAAAAAAAACAAAAAAAAAAdhY2NvdW50AAAAABMAAAAAAAAACHByb29mX2lkAAAD7gAAACAAAAABAAAD6QAAB9AAAAANQm9ycm93UmVjZWlwdAAAAAAAAAM=",
         "AAAAAAAAAAAAAAAGYm9ycm93AAAAAAACAAAAAAAAAAZpbnRlbnQAAAAAB9AAAAAMQm9ycm93SW50ZW50AAAAAAAAAAVwcm9vZgAAAAAAB9AAAAALQm9ycm93UHJvb2YAAAAAAQAAA+kAAAfQAAAADUJvcnJvd1JlY2VpcHQAAAAAAAAD",
+        "AAAAAAAAAP9BZG1pbi1nYXRlZCBpbi1wbGFjZSB1cGdyYWRlLiBSZXBsYWNlcyB0aGUgY29udHJhY3QncyBXQVNNIHdpdGgKYHdhc21faGFzaGAgKGFscmVhZHkgdXBsb2FkZWQgdmlhIGBzdGVsbGFyIGNvbnRyYWN0IGluc3RhbGxgKS4KS2VlcHMgY29udHJhY3QgYWRkcmVzcyArIHBlcnNpc3RlbnQgc3RhdGUgaW50YWN0IHNvIHRoZSBmcm9udGVuZApjb250cmFjdCBpZCBhbmQgYWxsIGxpdmUgcG9zaXRpb25zIHN1cnZpdmUgYWNyb3NzIGNvZGUgY2hhbmdlcy4AAAAAB3VwZ3JhZGUAAAAAAQAAAAAAAAAJd2FzbV9oYXNoAAAAAAAD7gAAACAAAAABAAAD6QAAA+0AAAAAAAAAAw==",
         "AAAABAAAAAAAAAAAAAAABUVycm9yAAAAAAAACgAAAAAAAAANSW50ZW50RXhwaXJlZAAAAAAAAAEAAAAAAAAADVByb29mUmVwbGF5ZWQAAAAAAAACAAAAAAAAAAlSZXNlcnZlZDMAAAAAAAADAAAAAAAAAAtTdGFsZU9yYWNsZQAAAAAEAAAAAAAAAAxJbnZhbGlkUHJvb2YAAAAFAAAAAAAAAAxVbmF1dGhvcml6ZWQAAAAGAAAAAAAAABJBbHJlYWR5SW5pdGlhbGl6ZWQAAAAAAAcAAAAAAAAADk5vdEluaXRpYWxpemVkAAAAAAAIAAAAAAAAAAxNYXJrZXRFeGlzdHMAAAAJAAAAAAAAABBQb3NpdGlvbk5vdEZvdW5kAAAACg==",
         "AAAAAAAAAO9MYXRlc3QgcmVjZWlwdCBmb3IgYGFjY291bnRgLiBSZXR1cm5zIHRoZSBtb3N0IHJlY2VudCBlbnRyeQpmcm9tIHRoZSBwZXItYWNjb3VudCBpbmRleDsgYE5vbmVgIGlmIHRoZSBhY2NvdW50IGhhcyBuZXZlcgpib3Jyb3dlZC4gS2VwdCBmb3IgYmFjay1jb21wYXQgd2l0aCB0aGUgZHJhd2VyJ3Mgc2luZ2xlLXNsb3QKcGF0aCDigJQgbmV3IGNvbnN1bWVycyBzaG91bGQgY2FsbCBgcG9zaXRpb25zX2J5X2FjY291bnRgLgAAAAAIcG9zaXRpb24AAAABAAAAAAAAAAdhY2NvdW50AAAAABMAAAABAAAD6AAAB9AAAAANQm9ycm93UmVjZWlwdAAAAA==",
         "AAAAAAAAAHpPbmUtc2hvdCBpbml0LiBBZG1pbiBpcyB0aGUgb25seSBwcmluY2lwYWwgYWxsb3dlZCB0byByZWdpc3RlcgptYXJrZXRzLiBEZXBsb3kgc2NyaXB0cyBjYWxsIHRoaXMgaW1tZWRpYXRlbHkgYWZ0ZXIgdXBsb2FkLgAAAAAACmluaXRpYWxpemUAAAAAAAEAAAAAAAAABWFkbWluAAAAAAAAEwAAAAEAAAPpAAAD7QAAAAAAAAAD",
         "AAAAAAAAAAAAAAAMbGlzdF9tYXJrZXRzAAAAAAAAAAEAAAPqAAAH0AAAAApNYXJrZXRNZXRhAAA=",
         "AAAAAQAAALJTdGF0aWMgbWV0YWRhdGEgZm9yIGEgbWFya2V0IHBhaXIuIFJlZ2lzdGVyZWQgYnkgdGhlIGFkbWluIGF0CmRlcGxveSB0aW1lIG9yIHZpYSBgcmVnaXN0ZXJfbWFya2V0YC4gQW1vdW50IHRocmVzaG9sZHMgYW5kIHJhdGUKY3VydmVzIHN0YXkgb2ZmLWNoYWluIHVudGlsIGludGVyZXN0IGFjY3J1YWwgbGFuZHMuAAAAAAAAAAAACk1hcmtldE1ldGEAAAAAAAMAAAAAAAAADWJvcnJvd19zeW1ib2wAAAAAAAARAAAAAAAAABFjb2xsYXRlcmFsX3N5bWJvbAAAAAAAABEAAAAAAAAAA2tleQAAAAAR",
         "AAAAAQAAAAAAAAAAAAAAC0JvcnJvd1Byb29mAAAAAAUAAAA3R3JvdGgxNiBwcm9vZiBvdmVyIEJMUzEyLTM4MTogQSAoRzEpICsgQiAoRzIpICsgQyAoRzEpLgAAAAABYQAAAAAAA+4AAABgAAAAAAAAAAFiAAAAAAAD7gAAAMAAAAAAAAAAAWMAAAAAAAPuAAAAYAAAAG1PcmFjbGUgZXBvY2ggdGhlIHByb29mIHdhcyBnZW5lcmF0ZWQgYWdhaW5zdC4gQ3Jvc3MtY2hlY2sgYWdhaW5zdAp0aGUgY3VycmVudCBsZWRnZXIgdGltZXN0YW1wIGZvciBmcmVzaG5lc3MuAAAAAAAADG9yYWNsZV9lcG9jaAAAAAYAAAB7UHVibGljIHNpZ25hbHMgaW4gY2lyY3VpdC1kZWNsYXJhdGlvbiBvcmRlciBmb2xsb3dlZCBieSB0aGUKcHVibGljIG91dHB1dCAoYG9yYWNsZV9wcmljZV9jb21taXRtZW50YCkg4oCUIHRvdGFsIDExIGVudHJpZXMuAAAAAA5wdWJsaWNfc2lnbmFscwAAAAAD6gAAAAw=",
+        "AAAAAAAAAFpBZG1pbi1nYXRlZCBvd25lcnNoaXAgdHJhbnNmZXIuIE5ldyBhZG1pbiB0YWtlcyBvdmVyCmByZWdpc3Rlcl9tYXJrZXRgICsgYHVwZ3JhZGVgIHJpZ2h0cy4AAAAAAA5hZG1pbl90cmFuc2ZlcgAAAAAAAQAAAAAAAAAJbmV3X2FkbWluAAAAAAAAEwAAAAEAAAPpAAAD7QAAAAAAAAAD",
         "AAAAAQAAAQZQaGFzZS0xIHByaXZhY3k6IGFtb3VudCBmaWVsZHMgbW92ZWQgdG8gY2lyY3VpdC1wcml2YXRlIHdpdG5lc3MuCkNoYWluIG5vIGxvbmdlciBzZWVzIHRoZSByYXcgYm9ycm93IC8gY29sbGF0ZXJhbCBhbW91bnRzIOKAlCBvbmx5IHRoZQpwb2xpY3kgdGhyZXNob2xkcywgbWFya2V0IGNvbnRleHQsIGFuZCBhY2NvdW50IChzdGlsbCB2aXNpYmxlIHZpYQp0eCBzb3VyY2UgYXV0aCkuIFBoYXNlIDIgd2lsbCBzd2FwIGBhY2NvdW50YCBmb3IgYSBudWxsaWZpZXIuAAAAAAAAAAAADEJvcnJvd0ludGVudAAAAAgAAAAAAAAAB2FjY291bnQAAAAAEwAAAAAAAAANYm9ycm93X3N5bWJvbAAAAAAAABEAAAAAAAAAEWNvbGxhdGVyYWxfc3ltYm9sAAAAAAAAEQAAAAAAAAAKZXhwaXJlc19hdAAAAAAABgAAAAAAAAARaGVhbHRoX2ZhY3Rvcl9icHMAAAAAAAAEAAAAAAAAAAZtYXJrZXQAAAAAABEAAAAAAAAAC21heF9sdHZfYnBzAAAAAAQAAAAAAAAACHByb29mX2lkAAAD7gAAACA=",
         "AAAAAAAAAGdBZG1pbi1nYXRlZC4gQXBwZW5kcyBgbWFya2V0YCB0byB0aGUgcmVnaXN0cnkg4oCUIG5vLW9wIGlmIGEKbWFya2V0IHdpdGggdGhlIHNhbWUgYGtleWAgYWxyZWFkeSBleGlzdHMuAAAAAA9yZWdpc3Rlcl9tYXJrZXQAAAAAAQAAAAAAAAAGbWFya2V0AAAAAAfQAAAACk1hcmtldE1ldGEAAAAAAAEAAAPpAAAD7QAAAAAAAAAD",
         "AAAAAQAAAK9Bbm9ueW1pemVkIHJlY2VpcHQ6IG5vIGJvcnJvdyAvIGNvbGxhdGVyYWwgYW1vdW50cy4gVXNlcnMgc3RvcmUKdGhlaXIgb3duIG51bWJlcnMgY2xpZW50LXNpZGUgKHNlc3Npb24gc3RvcmUpLiBDaGFpbiByZWNvcmRzIG9ubHkKdGhlIGZhY3QgdGhhdCBhIHByb29mLWJhY2tlZCBwb3NpdGlvbiBleGlzdHMuAAAAAAAAAAANQm9ycm93UmVjZWlwdAAAAAAAAAYAAAAAAAAAB2FjY291bnQAAAAAEwAAAAAAAAANYm9ycm93X3N5bWJvbAAAAAAAABEAAAAAAAAAEWNvbGxhdGVyYWxfc3ltYm9sAAAAAAAAEQAAAAAAAAAMY29uZmlybWVkX2F0AAAABgAAAAAAAAAGbWFya2V0AAAAAAARAAAAAAAAAAhwcm9vZl9pZAAAA+4AAAAg",
@@ -215,9 +233,11 @@ export class Client extends ContractClient {
     admin: this.txFromJSON<Option<string>>,
         repay: this.txFromJSON<Result<BorrowReceipt>>,
         borrow: this.txFromJSON<Result<BorrowReceipt>>,
+        upgrade: this.txFromJSON<Result<void>>,
         position: this.txFromJSON<Option<BorrowReceipt>>,
         initialize: this.txFromJSON<Result<void>>,
         list_markets: this.txFromJSON<Array<MarketMeta>>,
+        admin_transfer: this.txFromJSON<Result<void>>,
         register_market: this.txFromJSON<Result<void>>,
         positions_by_account: this.txFromJSON<Array<BorrowReceipt>>
   }

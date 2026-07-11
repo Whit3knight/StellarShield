@@ -160,6 +160,26 @@ impl BorrowPool {
         env.storage().instance().get(&DataKey::Admin)
     }
 
+    /// Admin-gated in-place upgrade. Replaces the contract's WASM with
+    /// `wasm_hash` (already uploaded via `stellar contract install`).
+    /// Keeps contract address + persistent state intact so the frontend
+    /// contract id and all live positions survive across code changes.
+    pub fn upgrade(env: Env, wasm_hash: BytesN<32>) -> Result<(), Error> {
+        let admin = Self::require_admin(&env)?;
+        admin.require_auth();
+        env.deployer().update_current_contract_wasm(wasm_hash);
+        Ok(())
+    }
+
+    /// Admin-gated ownership transfer. New admin takes over
+    /// `register_market` + `upgrade` rights.
+    pub fn admin_transfer(env: Env, new_admin: Address) -> Result<(), Error> {
+        let admin = Self::require_admin(&env)?;
+        admin.require_auth();
+        env.storage().instance().set(&DataKey::Admin, &new_admin);
+        Ok(())
+    }
+
     pub fn borrow(
         env: Env,
         intent: BorrowIntent,
