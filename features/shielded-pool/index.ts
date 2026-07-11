@@ -43,3 +43,4 @@ export {
   type LiquidateProofInputs,
   type LiquidateProofResult,
 } from "./liquidate-prover"
+export { useLiquidate } from "./use-liquidate"

@@ -96,6 +96,7 @@ export async function scanShieldedNotes(
   const borrowTopic = sdk.xdr.ScVal.scvSymbol("borrow").toXDR("base64")
   const withdrawTopic = sdk.xdr.ScVal.scvSymbol("withdraw").toXDR("base64")
   const repayTopic = sdk.xdr.ScVal.scvSymbol("repay").toXDR("base64")
+  const liquidateTopic = sdk.xdr.ScVal.scvSymbol("liquidat").toXDR("base64")
 
   let response: unknown
   try {
@@ -120,6 +121,11 @@ export async function scanShieldedNotes(
           type: "contract",
           contractIds: [contractId],
           topics: [[repayTopic]],
+        },
+        {
+          type: "contract",
+          contractIds: [contractId],
+          topics: [[liquidateTopic]],
         },
       ],
       startLedger,
@@ -146,6 +152,11 @@ export async function scanShieldedNotes(
       for (const n of decodeRepayNullifiers(sdk, event)) {
         spentNullifiers.add(n)
       }
+      continue
+    }
+    if (topic === "liquidat") {
+      const nullifier = decodeLiquidateNullifier(sdk, event)
+      if (nullifier !== null) spentNullifiers.add(nullifier)
       continue
     }
     if (topic !== "deposit" && topic !== "borrow") continue
@@ -231,6 +242,24 @@ function decodeWithdrawNullifier(
     return uintToBigint(bytes)
   }
   return null
+}
+
+function decodeLiquidateNullifier(
+  sdk: typeof import("@stellar/stellar-sdk"),
+  event: RpcEvent
+): bigint | null {
+  const value = toScVal(sdk, event.value)
+  if (!value) return null
+  let native: unknown
+  try {
+    native = sdk.scValToNative(value)
+  } catch {
+    return null
+  }
+  // Contract emits (loan_commit, nullifier, liquidator). Nullifier is
+  // the second entry.
+  if (!Array.isArray(native) || native.length < 2) return null
+  return rawToBigInt(native[1])
 }
 
 function decodeRepayNullifiers(

@@ -33,6 +33,7 @@ import { useRiskParams } from "@/features/protocol/risk-params"
 import {
   useBorrow,
   useDeposit,
+  useLiquidate,
   useRepay,
   useShieldedPool,
   useWithdraw,
@@ -66,6 +67,11 @@ export function ShieldedDrawer({
     status: repayStatus,
     repay,
   } = useRepay(account)
+  const {
+    activeLoanIndex: liquidatingIndex,
+    status: liquidateStatus,
+    liquidate,
+  } = useLiquidate(account)
 
   const balances = React.useMemo(() => summariseByAsset(notes), [notes])
   const prices = useAssetPrices()
@@ -109,9 +115,16 @@ export function ShieldedDrawer({
                 }}
               />
               <NoteList
+                liquidatingIndex={
+                  liquidateStatus === "idle" ||
+                  liquidateStatus === "success"
+                    ? null
+                    : liquidatingIndex
+                }
                 liquidationThresholdBps={risk.liquidationThresholdBps}
                 notes={notes}
                 isScanning={isScanning}
+                onLiquidate={(loan) => void liquidate(loan)}
                 onWithdraw={(note) => void withdraw(note)}
                 onRepay={(loan, deposit) => void repay(loan, deposit)}
                 prices={prices}
@@ -245,18 +258,22 @@ function BalanceGrid({
 }
 
 function NoteList({
+  liquidatingIndex,
   liquidationThresholdBps,
   notes,
   isScanning,
+  onLiquidate,
   onRepay,
   onWithdraw,
   prices,
   repayingIndex,
   withdrawingIndex,
 }: {
+  liquidatingIndex: number | null
   liquidationThresholdBps: number
   notes: ShieldedNote[]
   isScanning: boolean
+  onLiquidate: (loan: ShieldedNote) => void
   onRepay: (loan: ShieldedNote, deposit: ShieldedNote) => void
   onWithdraw: (note: ShieldedNote) => void
   prices: Record<ShieldedAsset, number>
@@ -284,12 +301,25 @@ function NoteList({
       {notes.map((note) => {
         const isWithdrawBusy = withdrawingIndex === note.index
         const isRepayBusy = repayingIndex === note.index
+        const isLiquidateBusy = liquidatingIndex === note.index
         const anyBusy =
-          withdrawingIndex !== null || repayingIndex !== null
+          withdrawingIndex !== null ||
+          repayingIndex !== null ||
+          liquidatingIndex !== null
         const repaySource =
           note.tree === "loan"
             ? pickRepaySource(notes, note)
             : null
+        const liquidatable =
+          note.tree === "loan" &&
+          !!note.bond &&
+          isUnderwater({
+            bond: note.bond,
+            loanAmount: note.amount,
+            loanAsset: note.asset,
+            prices,
+            thresholdBps: liquidationThresholdBps,
+          })
         return (
           <div
             className="flex items-center justify-between gap-2 rounded-md border bg-background/64 px-2 py-1.5 text-xs"
@@ -315,6 +345,23 @@ function NoteList({
               ) : null}
             </div>
             <div className="flex items-center gap-1.5">
+              {liquidatable ? (
+                <Button
+                  disabled={isLiquidateBusy || anyBusy}
+                  onClick={() => onLiquidate(note)}
+                  size="sm"
+                  type="button"
+                  variant="destructive"
+                >
+                  {isLiquidateBusy ? (
+                    <Loader2Icon
+                      aria-hidden="true"
+                      className="animate-spin"
+                    />
+                  ) : null}
+                  Liquidate
+                </Button>
+              ) : null}
               {repaySource ? (
                 <Button
                   disabled={isRepayBusy || anyBusy}
@@ -353,6 +400,37 @@ function NoteList({
 }
 
 const STALE_LOAN_SECS = 30 * 24 * 60 * 60
+
+/**
+ * Shared underwater predicate used by both the health badge and the
+ * liquidate button. Matches the constraint the liquidate circuit
+ * enforces:
+ *   loan_amount * threshold_bps * borrow_price
+ *     > collateral_notional * current_price * 10_000
+ * scaled up on the client because current_price is a JS float.
+ */
+function isUnderwater({
+  bond,
+  loanAmount,
+  loanAsset,
+  prices,
+  thresholdBps,
+}: {
+  bond: NonNullable<ShieldedNote["bond"]>
+  loanAmount: bigint
+  loanAsset: ShieldedAsset
+  prices: Record<ShieldedAsset, number>
+  thresholdBps: number
+}): boolean {
+  const priceNow = prices[loanAsset]
+  if (!priceNow || priceNow <= 0) return false
+  const currentScaled = BigInt(Math.floor(priceNow * 1_000_000))
+  const borrowScaled = bond.borrowPrice
+  if (borrowScaled <= 0n || loanAmount <= 0n) return false
+  const lhs = loanAmount * BigInt(thresholdBps) * borrowScaled
+  const rhs = bond.collateralValue * currentScaled * 10_000n
+  return lhs > rhs
+}
 
 /**
  * Compute the loan's current health factor from its pinned bond
