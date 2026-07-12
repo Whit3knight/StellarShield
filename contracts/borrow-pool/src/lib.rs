@@ -437,6 +437,110 @@ impl BorrowPool {
         Ok(next_index)
     }
 
+    /// Batched `deposit_shielded`. `proofs[i]` mints the leaf described
+    /// by `memos[i]`; the pair length must match. Signed once at the
+    /// caller (single `from.require_auth()`), so the wallet UX only
+    /// prompts once for a full round of shielded collateral instead of
+    /// N separate deposits. Returns the assigned leaf indexes in the
+    /// same order the proofs came in.
+    pub fn deposit_shielded_batch(
+        env: Env,
+        from: Address,
+        asset: Symbol,
+        proofs: Vec<BorrowProof>,
+        memos: Vec<soroban_sdk::Bytes>,
+    ) -> Result<Vec<u64>, Error> {
+        from.require_auth();
+
+        if proofs.len() != memos.len() {
+            return Err(Error::InvalidProof);
+        }
+        if proofs.is_empty() {
+            return Err(Error::InvalidProof);
+        }
+
+        let expected_tag =
+            notes::asset_tag(&env, &asset).ok_or(Error::AssetUnknown)?;
+        let denomination =
+            notes::denomination(&env, &asset).ok_or(Error::AssetUnknown)?;
+        let capacity = 1u64 << (merkle::DEPTH as u64);
+
+        // Load the frontier ONCE, mutate in place across every leaf so
+        // storage-write cost stays proportional to N instead of N * DEPTH.
+        let mut frontier_arr =
+            load_frontier(&env, state::deposit_frontier(&env, &asset));
+        let mut next_index = state::deposit_next_index(&env, &asset);
+        let mut total = state::total_deposit(&env, &asset);
+        let mut last_root_bytes: Option<BytesN<32>> = None;
+        let mut indexes: Vec<u64> = Vec::new(&env);
+
+        for i in 0..proofs.len() {
+            let proof = proofs.get(i).unwrap();
+            let memo = memos.get(i).unwrap();
+
+            if proof.public_signals.len() != 3 {
+                return Err(Error::InvalidProof);
+            }
+            let commitment_fr = proof.public_signals.get(0).unwrap();
+            let amount_fr = proof.public_signals.get(1).unwrap();
+            let asset_tag_fr = proof.public_signals.get(2).unwrap();
+
+            if fr_to_u32(&asset_tag_fr) != expected_tag {
+                return Err(Error::DenominationMismatch);
+            }
+            if fr_to_i128(&amount_fr) != denomination {
+                return Err(Error::DenominationMismatch);
+            }
+
+            if !deposit_verifier::verify_groth16(
+                &env,
+                proof.a.clone(),
+                proof.b.clone(),
+                proof.c.clone(),
+                proof.public_signals.clone(),
+            ) {
+                return Err(Error::InvalidProof);
+            }
+
+            tokens::transfer_in(&env, &asset, &from, denomination);
+
+            if next_index >= capacity {
+                return Err(Error::TreeCapacityExceeded);
+            }
+            let leaf = commitment_fr.clone();
+            let new_root =
+                merkle::append(&env, &leaf, &mut frontier_arr, next_index);
+            let new_root_bytes = new_root.to_bytes();
+
+            env.events().publish(
+                (DEPOSIT_EVENT, asset.clone()),
+                (
+                    next_index,
+                    new_root_bytes.clone(),
+                    leaf.to_bytes(),
+                    memo.clone(),
+                ),
+            );
+            indexes.push_back(next_index);
+            last_root_bytes = Some(new_root_bytes);
+            next_index += 1;
+            total = total.saturating_add(1);
+        }
+
+        state::set_deposit_frontier(
+            &env,
+            &asset,
+            &frontier_to_vec(&env, &frontier_arr),
+        );
+        if let Some(root_bytes) = last_root_bytes {
+            state::set_deposit_root(&env, &asset, &root_bytes);
+        }
+        state::set_deposit_next_index(&env, &asset, next_index);
+        state::set_total_deposit(&env, &asset, total);
+
+        Ok(indexes)
+    }
+
     /// Burn one deposit note via zk proof, release the fixed
     /// denomination to `to`. Prover shows Merkle inclusion at the
     /// current deposit_root plus a valid nullifier so the contract

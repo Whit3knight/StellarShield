@@ -166,6 +166,10 @@ export function useShieldedBorrowFlow({
       missing,
     })
 
+    // NOTE: contract has `deposit_shielded_batch` but a single Groth16
+    // BLS12-381 verify already occupies ~half the per-tx CPU budget,
+    // so a batch of 2+ trips the ExceededLimit sim error. Until the
+    // verifier learns pairing batching, deposits stay one-per-tx.
     for (let i = 0; i < missing; i++) {
       console.log("[verify] deposit iter", { i, of: missing })
       const result = await deposit(collateralAsset)

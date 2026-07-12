@@ -36,7 +36,7 @@ if (typeof window !== "undefined") {
 export const networks = {
   testnet: {
     networkPassphrase: "Test SDF Network ; September 2015",
-    contractId: "CBJZP45HUUVXWDSEUIQPDJD4RZPTUJUG6IGVM7HQPHRK74SHKPXF4N7L",
+    contractId: "CANGOFS6BUCRVNKBASJEAPDN75OBHDOXLQ4Q7IVQIFKUENI4UHSULP7B",
   }
 } as const
 
@@ -472,6 +472,17 @@ export interface Client {
   liquidate_shielded_v2: ({liquidator, borrow_asset, collateral_asset, loan_commitment, loan_nullifier, proof, bounty_commit, bounty_memo}: {liquidator: string, borrow_asset: string, collateral_asset: string, loan_commitment: Buffer, loan_nullifier: Buffer, proof: BorrowProof, bounty_commit: Buffer, bounty_memo: Buffer}, options?: MethodOptions) => Promise<AssembledTransaction<Result<void>>>
 
   /**
+   * Construct and simulate a deposit_shielded_batch transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   * Batched `deposit_shielded`. `proofs[i]` mints the leaf described
+   * by `memos[i]`; the pair length must match. Signed once at the
+   * caller (single `from.require_auth()`), so the wallet UX only
+   * prompts once for a full round of shielded collateral instead of
+   * N separate deposits. Returns the assigned leaf indexes in the
+   * same order the proofs came in.
+   */
+  deposit_shielded_batch: ({from, asset, proofs, memos}: {from: string, asset: string, proofs: Array<BorrowProof>, memos: Array<Buffer>}, options?: MethodOptions) => Promise<AssembledTransaction<Result<Array<u64>>>>
+
+  /**
    * Construct and simulate a liquidation_service_pk transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    */
   liquidation_service_pk: (options?: MethodOptions) => Promise<AssembledTransaction<Option<Buffer>>>
@@ -564,6 +575,7 @@ export class Client extends ContractClient {
         "AAAAAAAAAAAAAAAUYm9ycm93X2luZGV4X2F0X29wZW4AAAABAAAAAAAAAA9sb2FuX2NvbW1pdG1lbnQAAAAD7gAAACAAAAABAAAD6AAAAAo=",
         "AAAAAAAAAAAAAAAUcG9zaXRpb25zX2J5X2FjY291bnQAAAABAAAAAAAAAAdhY2NvdW50AAAAABMAAAABAAAD6gAAB9AAAAANQm9ycm93UmVjZWlwdAAAAA==",
         "AAAAAAAAAxJTaGllbGRlZCBsaXF1aWRhdGlvbiB2MiAoVHJhY2sgQSkuIFVzZXMgdGhlIHByZS1wdWJsaXNoZWQgbG9hbgpudWxsaWZpZXIgZnJvbSB0aGUgTG9hbk51bGxpZmllciBzaWRlY2FyIHNvIGEgc2VydmljZSB3b3JrZXIKaG9sZGluZyBvbmx5IHRoZSBtZW1vIG9wZW5pbmdzIOKAlCBuZXZlciB0aGUgYm9ycm93ZXIncyBzayDigJQKY2FuIHRyaWdnZXIuIFJlcXVpcmVzIGEgcG9zdC1UcmFjay1BIGJvbmQ7IHByZS1BIGxvYW5zIHN0YXkgb24KdGhlIHYxIHBhdGggdmlhIGBsaXF1aWRhdGVfc2hpZWxkZWRgLgoKQ2lyY3VpdCBwdWJsaWMgc2lnbmFscyAoNSk6ClswXSBib3Jyb3dfYW1vdW50X2NvbW1pdCAgICAgICAgICBmcm9tIExpcXVpZGF0aW9uQm9uZApbMV0gY29sbGF0ZXJhbF92YWx1ZV9jb21taXQgICAgICAgZnJvbSBMaXF1aWRhdGlvbkJvbmQKWzJdIGJvcnJvd19wcmljZV9jb21taXQgICAgICAgICAgIGZyb20gTGlxdWlkYXRpb25Cb25kClszXSBjdXJyZW50X3ByaWNlICAgICAgICAgICAgICAgICBvcmFjbGUtc3VwcGxpZWQKWzRdIHRocmVzaG9sZF9icHMgICAgICAgICAgICAgICAgIG1hdGNoZXMgcmlza19wYXJhbXMubGlxdWlkYXRpb25fdGhyZXNob2xkX2JwcwoKYGxvYW5fY29tbWl0bWVudGAgKyBgbG9hbl9udWxsaWZpZXJgIGNvbWUgaW4gYXMgdHggYXJnczsgdGhlCmNvbnRyYWN0IHZhbGlkYXRlcyB0aGVtIGFnYWluc3QgYGxpcXVpZGF0aW9uX2JvbmRgICsKYGxvYW5fbnVsbGlmaWVyYCBzdG9yYWdlLiBCb3VudHkgcGF5b3V0IGlzIGlkZW50aWNhbCB0byB2MS4AAAAAABVsaXF1aWRhdGVfc2hpZWxkZWRfdjIAAAAAAAAIAAAAAAAAAApsaXF1aWRhdG9yAAAAAAATAAAAAAAAAAxib3Jyb3dfYXNzZXQAAAARAAAAAAAAABBjb2xsYXRlcmFsX2Fzc2V0AAAAEQAAAAAAAAAPbG9hbl9jb21taXRtZW50AAAAA+4AAAAgAAAAAAAAAA5sb2FuX251bGxpZmllcgAAAAAD7gAAACAAAAAAAAAABXByb29mAAAAAAAH0AAAAAtCb3Jyb3dQcm9vZgAAAAAAAAAADWJvdW50eV9jb21taXQAAAAAAAPuAAAAIAAAAAAAAAALYm91bnR5X21lbW8AAAAADgAAAAEAAAPpAAAD7QAAAAAAAAAD",
+        "AAAAAAAAAVhCYXRjaGVkIGBkZXBvc2l0X3NoaWVsZGVkYC4gYHByb29mc1tpXWAgbWludHMgdGhlIGxlYWYgZGVzY3JpYmVkCmJ5IGBtZW1vc1tpXWA7IHRoZSBwYWlyIGxlbmd0aCBtdXN0IG1hdGNoLiBTaWduZWQgb25jZSBhdCB0aGUKY2FsbGVyIChzaW5nbGUgYGZyb20ucmVxdWlyZV9hdXRoKClgKSwgc28gdGhlIHdhbGxldCBVWCBvbmx5CnByb21wdHMgb25jZSBmb3IgYSBmdWxsIHJvdW5kIG9mIHNoaWVsZGVkIGNvbGxhdGVyYWwgaW5zdGVhZCBvZgpOIHNlcGFyYXRlIGRlcG9zaXRzLiBSZXR1cm5zIHRoZSBhc3NpZ25lZCBsZWFmIGluZGV4ZXMgaW4gdGhlCnNhbWUgb3JkZXIgdGhlIHByb29mcyBjYW1lIGluLgAAABZkZXBvc2l0X3NoaWVsZGVkX2JhdGNoAAAAAAAEAAAAAAAAAARmcm9tAAAAEwAAAAAAAAAFYXNzZXQAAAAAAAARAAAAAAAAAAZwcm9vZnMAAAAAA+oAAAfQAAAAC0JvcnJvd1Byb29mAAAAAAAAAAAFbWVtb3MAAAAAAAPqAAAADgAAAAEAAAPpAAAD6gAAAAYAAAAD",
         "AAAAAAAAAAAAAAAWbGlxdWlkYXRpb25fc2VydmljZV9wawAAAAAAAAAAAAEAAAPoAAAD7gAAACA=",
         "AAAAAAAAAmtMb2FuLXRyZWUgdmFyaWFudCBvZiB3aXRoZHJhdy4gU2FtZSBHcm90aDE2IGNpcmN1aXQgYXMgdGhlCmRlcG9zaXQtc2lkZSB3aXRoZHJhdywgYnV0IHRoZSBjb250cmFjdCBjaGVja3MgdGhlIGNhbGxlcidzCmRlY2xhcmVkIGBhbW91bnRgIGFnYWluc3QgdGhlIGxvYW4gdHJlZSdzIHJvb3QgaW5zdGVhZCBvZiB0aGUKZml4ZWQgZGVwb3NpdCBkZW5vbWluYXRpb24uIFBheW91dCBzaXplIGlzIHZhcmlhYmxlICh3aGF0ZXZlcgp0aGUgYm9ycm93IHByb29mIGNvbW1pdHRlZCB0byksIHNvIHRoaXMgRE9FUyBsZWFrIHRoZSBsb2FuCmFtb3VudCBwdWJsaWNseSBvbiBIb3Jpem9uIOKAlCBhY2NlcHRlZCB0cmFkZS1vZmYgZm9yIE1WUDogY2hhaW4Kb2JzZXJ2ZXIgc2VlcyBhbiB1bmxpbmthYmxlIHdpdGhkcmF3YWwgb2YgYW1vdW50IFgsIG5vIHdhbGxldApsaW5rYWdlIHRvIGFueSBzcGVjaWZpYyBib3Jyb3cgdHguCgpQdWJsaWMgc2lnbmFscyBvcmRlciAoc2FtZSBhcyB3aXRoZHJhd19zaGllbGRlZCk6ClswXSBhc3NldF90YWcKWzFdIGFtb3VudCAgICAgICAgICAgKGJvcnJvdyBhbW91bnQgbWludGVkIGJ5IGJvcnJvd19zaGllbGRlZCkKWzJdIGxvYW5fcm9vdApbM10gbnVsbGlmaWVyAAAAABZ3aXRoZHJhd19sb2FuX3NoaWVsZGVkAAAAAAADAAAAAAAAAAJ0bwAAAAAAEwAAAAAAAAAFYXNzZXQAAAAAAAARAAAAAAAAAAVwcm9vZgAAAAAAB9AAAAALQm9ycm93UHJvb2YAAAAAAQAAA+kAAAALAAAAAw==",
         "AAAAAAAAAOpSZWdpc3RlciAob3Igcm90YXRlKSB0aGUgWDI1NTE5IHB1YmtleSB0aGUgbGlxdWlkYXRpb24gc2VydmljZQp1c2VzIHRvIGRlY3J5cHQgYm9ycm93IG1lbW9zLiBFbXB0eSB1bnRpbCBhbiBhZG1pbiBzZXRzIGl0OyBuZXcKYm9ycm93cyBlbmNyeXB0IHRvIGJvcnJvd2VyIG9ubHkgaW4gdGhlIG1lYW50aW1lIGFuZCBzdGF5Cm5vbi1saXF1aWRhdGFibGUuIFNlZSBkb2NzL2xpcXVpZGF0aW9uLWRlc2lnbi5tZC4AAAAAABpzZXRfbGlxdWlkYXRpb25fc2VydmljZV9wawAAAAAAAQAAAAAAAAACcGsAAAAAA+4AAAAgAAAAAQAAA+kAAAPtAAAAAAAAAAM=",
@@ -615,6 +627,7 @@ export class Client extends ContractClient {
         borrow_index_at_open: this.txFromJSON<Option<u128>>,
         positions_by_account: this.txFromJSON<Array<BorrowReceipt>>,
         liquidate_shielded_v2: this.txFromJSON<Result<void>>,
+        deposit_shielded_batch: this.txFromJSON<Result<Array<u64>>>,
         liquidation_service_pk: this.txFromJSON<Option<Buffer>>,
         withdraw_loan_shielded: this.txFromJSON<Result<i128>>,
         set_liquidation_service_pk: this.txFromJSON<Result<void>>

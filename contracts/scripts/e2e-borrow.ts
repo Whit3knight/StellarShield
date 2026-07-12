@@ -178,9 +178,12 @@ for (const n of notes) {
   )
 }
 
-if (notes.length < 4) {
+// Always ADD 4 fresh notes so nullifiers can't collide with prior
+// borrow txs — the goal here is to exercise the full path each run.
+const FORCE_FRESH = true
+if (FORCE_FRESH || notes.length < 4) {
   console.log(
-    `Not enough own notes on chain (${notes.length}/4). Depositing to fill the gap…`
+    `Depositing ${FORCE_FRESH ? 4 : 4 - notes.length} fresh note(s) via batch fn…`
   )
   const { proveDeposit } = await import(
     "../../features/shielded-pool/deposit-prover"
@@ -194,7 +197,13 @@ if (notes.length < 4) {
     rpcUrl: RPC_URL,
     publicKey: stellarAddr,
   })
-  for (let i = 0; notes.length < 4 && i < 8; i++) {
+  const missing = FORCE_FRESH ? 4 : 4 - notes.length
+  const preparedDeposits: {
+    salt: bigint
+    proof: Awaited<ReturnType<typeof proveDeposit>>
+    memoBytes: Uint8Array
+  }[] = []
+  for (let i = 0; i < missing; i++) {
     const salt = rand()
     const depositProof = await proveDeposit(
       {
@@ -217,17 +226,28 @@ if (notes.length < 4) {
         recipientPk: identity.publicKey,
       })
     )
-    const asm = await depositClient.deposit_shielded({
+    preparedDeposits.push({ salt, proof: depositProof, memoBytes: depositMemo })
+    console.log(`  prepared proof ${i + 1}/${missing}`)
+  }
+  // Chunk into groups of 2 — a single tx exceeds the 100M CPU budget
+  // above ~2 Groth16 verifies over BLS12-381. Two batches of two ⇒
+  // two signatures instead of four singletons; still cuts the UX from
+  // N prompts to ceil(N/2).
+  const BATCH_CHUNK = 1
+  const rawIdx: unknown[] = []
+  for (let start = 0; start < preparedDeposits.length; start += BATCH_CHUNK) {
+    const slice = preparedDeposits.slice(start, start + BATCH_CHUNK)
+    const asm = await depositClient.deposit_shielded_batch({
       from: stellarAddr,
       asset: COLLATERAL_ASSET,
-      proof: {
-        a: Buffer.from(depositProof.a),
-        b: Buffer.from(depositProof.b),
-        c: Buffer.from(depositProof.c),
+      proofs: slice.map((p) => ({
+        a: Buffer.from(p.proof.a),
+        b: Buffer.from(p.proof.b),
+        c: Buffer.from(p.proof.c),
         oracle_epoch: BigInt(0),
-        public_signals: depositProof.publicSignals.map(bytesUintToBigint),
-      },
-      memo: Buffer.from(depositMemo),
+        public_signals: p.proof.publicSignals.map(bytesUintToBigint),
+      })),
+      memos: slice.map((p) => Buffer.from(p.memoBytes)),
     })
     const dsent = await asm.signAndSend({
       signTransaction: (async (xdrToSign: string) => {
@@ -237,13 +257,19 @@ if (notes.length < 4) {
       }) as unknown as never,
     })
     const dhash = dsent.sendTransactionResponse?.hash
-    // SDK Result Ok<u64>.value carries the leaf index.
+    console.log(`  batch tx (${slice.length} deposits): ${dhash}`)
     const dresult = dsent.result as unknown as
-      | { value: bigint }
+      | { value: unknown[] }
       | { error: { message: string } }
     if (dresult && "error" in dresult) throw new Error(dresult.error.message)
-    const leafIndex = Number(("value" in dresult ? dresult.value : 0n) as bigint)
-    console.log(`  deposit #${notes.length} → leaf ${leafIndex} (${dhash})`)
+    const chunkIdx =
+      "value" in dresult ? (dresult.value as unknown[]) : []
+    rawIdx.push(...chunkIdx)
+    await new Promise((r) => setTimeout(r, 2000))
+  }
+  for (let i = 0; i < preparedDeposits.length; i++) {
+    const salt = preparedDeposits[i].salt
+    const leafIndex = Number(rawIdx[i] as bigint)
     const leaf = computeCommitment({
       amount: DENOMINATION[COLLATERAL_ASSET],
       asset: COLLATERAL_ASSET,
@@ -259,9 +285,9 @@ if (notes.length < 4) {
       sk: identity.skField,
       leaf,
     })
-    // Wait a bit for RPC to index before the next round.
-    await new Promise((r) => setTimeout(r, 3000))
+    console.log(`  deposit ${i + 1}/${missing} → leaf ${leafIndex}`)
   }
+  await new Promise((r) => setTimeout(r, 3000))
   chainLeaves.sort((a, b) => a.index - b.index)
   notes.sort((a, b) => a.index - b.index)
   if (notes.length < 4) {
@@ -270,7 +296,10 @@ if (notes.length < 4) {
 }
 
 // ---- Build tree witnesses (final-state, single root) -----------------
-const collateralNotes = notes.slice(0, 4)
+// Take the 4 MOST RECENT notes (highest indexes) — under FORCE_FRESH
+// those are exactly the 4 we just batched in, so nullifiers are
+// virgin. Sorts ascending in `notes`; slice from the tail.
+const collateralNotes = notes.slice(-4)
 const witnesses = buildWitnesses(chainLeaves.map((l) => l.leaf))
 const collateralWitnesses = collateralNotes.map((n) => {
   const w = witnesses.find((x) => x.leafIndex === n.index)
