@@ -115,46 +115,56 @@ export async function scanShieldedNotes(
   // has length 1. Our contract emits 2 topics for deposit / borrow /
   // repay (`(topic, asset)`) and 3 for withdraw + liquidate
   // (`(topic, asset, tree_kind)`). Widen to cover both.
+  // Soroban RPC caps `filters` at 5 entries per request. We need 6:
+  // deposit (2-slot), borrow (3-slot), withdraw (2-slot),
+  // withdraw-loan (3-slot), repay (2-slot), liquidate (2-slot).
+  // Split into two calls + merge.
+  const filtersA = [
+    {
+      type: "contract" as const,
+      contractIds: [contractId],
+      topics: [[depositTopic, "*"]],
+    },
+    {
+      type: "contract" as const,
+      contractIds: [contractId],
+      topics: [[borrowTopic, "*", "*"]],
+    },
+    {
+      type: "contract" as const,
+      contractIds: [contractId],
+      topics: [[withdrawTopic, "*"]],
+    },
+    {
+      type: "contract" as const,
+      contractIds: [contractId],
+      topics: [[withdrawTopic, "*", "*"]],
+    },
+    {
+      type: "contract" as const,
+      contractIds: [contractId],
+      topics: [[repayTopic, "*"]],
+    },
+  ]
+  const filtersB = [
+    {
+      type: "contract" as const,
+      contractIds: [contractId],
+      topics: [[liquidateTopic, "*"]],
+    },
+  ]
+
   let response: unknown
   try {
     // eslint-disable-next-line no-console
     console.log("[scanner] getEvents startLedger=", startLedger)
-    response = await server.getEvents({
-      filters: [
-        {
-          type: "contract",
-          contractIds: [contractId],
-          topics: [[depositTopic, "*"]],
-        },
-        {
-          type: "contract",
-          contractIds: [contractId],
-          topics: [[borrowTopic, "*", "*"]],
-        },
-        {
-          type: "contract",
-          contractIds: [contractId],
-          topics: [[withdrawTopic, "*"]],
-        },
-        {
-          type: "contract",
-          contractIds: [contractId],
-          topics: [[withdrawTopic, "*", "*"]],
-        },
-        {
-          type: "contract",
-          contractIds: [contractId],
-          topics: [[repayTopic, "*"]],
-        },
-        {
-          type: "contract",
-          contractIds: [contractId],
-          topics: [[liquidateTopic, "*"]],
-        },
-      ],
-      startLedger,
-      limit: 500,
-    })
+    const [respA, respB] = await Promise.all([
+      server.getEvents({ filters: filtersA, startLedger, limit: 500 }),
+      server.getEvents({ filters: filtersB, startLedger, limit: 500 }),
+    ])
+    const eventsA = (respA as { events?: unknown[] }).events ?? []
+    const eventsB = (respB as { events?: unknown[] }).events ?? []
+    response = { events: [...eventsA, ...eventsB] }
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error("[scanner] getEvents threw", err)
