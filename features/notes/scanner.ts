@@ -27,7 +27,12 @@ import {
 } from "@/features/wallet/network"
 
 // Testnet event retention ≈ 24h @ 5s ledgers. Stay just under.
-const LEDGER_LOOKBACK = 16_500
+// Testnet event retention is nominally 24h (~17k ledgers @ 5s each)
+// but the public RPC quietly returns 0 events once startLedger falls
+// past the actual on-disk window (empirical: ~8k on the SDF testnet
+// endpoint). Cap safely under that so scans never come back empty
+// just because we overshot the retention edge.
+const LEDGER_LOOKBACK = 8_000
 
 type RpcEvent = {
   contractId?: string

@@ -14,7 +14,7 @@ import {
   getConfiguredSorobanRpcUrl,
 } from "@/features/wallet/network"
 
-const LEDGER_LOOKBACK = 16_500
+const LEDGER_LOOKBACK = 8_000
 
 export type WithdrawWitness = {
   leaf: bigint

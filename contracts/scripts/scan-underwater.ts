@@ -50,7 +50,7 @@ const CONTRACT =
 const RPC_URL =
   process.env.STELLAR_SOROBAN_RPC_URL ?? "https://soroban-testnet.stellar.org"
 const NETWORK_PASSPHRASE = "Test SDF Network ; September 2015"
-const LEDGER_LOOKBACK = Number(process.env.LOOKBACK_LEDGERS ?? "16500")
+const LEDGER_LOOKBACK = Number(process.env.LOOKBACK_LEDGERS ?? "8000")
 
 const REFLECTOR_CEX =
   process.env.STELLAR_REFLECTOR_CEX_CONTRACT_ID ??
