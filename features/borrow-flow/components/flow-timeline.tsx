@@ -37,7 +37,8 @@ type TimelineItemProps = {
 }
 
 const timelineStatusClass: Record<TimelineItemStatus, string> = {
-  active: "border-primary/40 bg-primary/10 text-primary ring-4 ring-primary/10",
+  active:
+    "border-primary/40 bg-primary/10 text-primary ring-4 ring-primary/10 animate-pulse",
   done: "border-success/32 bg-success/12 text-success",
   failed: "border-destructive/32 bg-destructive/10 text-destructive",
   pending: "border-border bg-background text-muted-foreground",

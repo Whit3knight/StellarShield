@@ -1,5 +1,5 @@
 import { ArrowLeftIcon, ArrowRightIcon, WalletIcon } from "lucide-react"
-import type * as React from "react"
+import * as React from "react"
 
 import type { ConnectedAccount } from "@/app/_constants/account"
 import { useNavMenus } from "@/app/_hooks/use-nav-menus"
@@ -36,8 +36,23 @@ function MobileTransactionDrawer({
 }: Omit<BorrowFlowDrawerProps, "onVerify">): React.ReactElement {
   const isSubmitting = isSubmitPending(flow.transaction)
 
+  // This component only mounts once eligibility verifies (its parent
+  // `MobileVerificationDrawer` conditionally renders it on
+  // `canSubmit`). Auto-open the drawer + auto-fire submit on mount so
+  // mobile users don't have to tap "Submit transaction" — the desktop
+  // path already auto-advances via `desktop-market-drawer.tsx`. Ref
+  // guard prevents a StrictMode double-mount from double-signing.
+  const [open, setOpen] = React.useState(false)
+  const submittedRef = React.useRef(false)
+  React.useEffect(() => {
+    if (submittedRef.current) return
+    submittedRef.current = true
+    setOpen(true)
+    onSubmit()
+  }, [onSubmit])
+
   return (
-    <Drawer>
+    <Drawer onOpenChange={setOpen} open={open}>
       <DrawerTrigger
         disabled={isSubmitting}
         onClick={onSubmit}
