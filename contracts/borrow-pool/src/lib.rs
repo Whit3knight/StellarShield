@@ -352,13 +352,15 @@ impl BorrowPool {
     ) -> Result<u64, Error> {
         from.require_auth();
 
-        // Deposit circuit publishes [amount, asset_tag, commitment].
+        // Deposit circuit publishes [commitment, amount, asset_tag] —
+        // snarkjs puts the `commitment` output ahead of the public
+        // inputs in declaration order.
         if proof.public_signals.len() != 3 {
             return Err(Error::InvalidProof);
         }
-        let amount_fr = proof.public_signals.get(0).unwrap();
-        let asset_tag_fr = proof.public_signals.get(1).unwrap();
-        let commitment_fr = proof.public_signals.get(2).unwrap();
+        let commitment_fr = proof.public_signals.get(0).unwrap();
+        let amount_fr = proof.public_signals.get(1).unwrap();
+        let asset_tag_fr = proof.public_signals.get(2).unwrap();
 
         // The circuit constrains `commitment == Poseidon(amount, asset_tag, sk, salt)`.
         // Contract must additionally check the token movement matches
