@@ -114,6 +114,11 @@ export function BorrowTermsStep({
               onValueChange={(raw) =>
                 onFieldChange("collateralAmount", raw)
               }
+              placeholder={
+                minimumCollateralAmount
+                  ? `${Math.ceil(minimumCollateralAmount)}`
+                  : "0.00"
+              }
               value={flow.collateralAmount}
             />
             <InputHelpAddon>
@@ -148,6 +153,9 @@ export function BorrowTermsStep({
               max={metrics.maxLoanAmount}
               min={minimumLoanAmount}
               onValueChange={(raw) => onFieldChange("loanAmount", raw)}
+              placeholder={
+                minimumLoanAmount ? `${Math.ceil(minimumLoanAmount)}` : "0.00"
+              }
               value={flow.loanAmount}
             />
             <InputHelpAddon>

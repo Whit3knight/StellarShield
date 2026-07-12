@@ -28,14 +28,21 @@ export type AmountInputProps = {
 }
 
 export function AmountInput({
+  "aria-invalid": ariaInvalid,
   className,
   decimalScale = 6,
   onValueChange,
+  placeholder = "0.00",
   value,
   max,
   min,
   ...rest
 }: AmountInputProps): React.ReactElement {
+  // Only surface `aria-invalid` when it is actually true — the shared
+  // Input primitive's `has-aria-invalid` selector matches attribute
+  // presence, so passing `aria-invalid="false"` still paints the
+  // destructive border.
+  const invalidAttrs = ariaInvalid ? { "aria-invalid": true as const } : {}
   return (
     <NumericFormat
       allowNegative={false}
@@ -53,9 +60,11 @@ export function AmountInput({
       onValueChange={(values) => {
         onValueChange(values.value)
       }}
+      placeholder={placeholder}
       thousandSeparator=","
       unstyled
       value={value}
+      {...invalidAttrs}
       {...rest}
     />
   )
