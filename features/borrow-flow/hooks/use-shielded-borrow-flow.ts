@@ -135,19 +135,19 @@ export function useShieldedBorrowFlow({
       transaction: { status: "Draft" },
     }))
 
-    // Round the collateral input up to a note-count multiple. If the
-    // input is empty or below the circuit's fixed 4-note floor, fall
-    // back to the minimum.
+    // The shielded-borrow circuit always consumes exactly
+    // `COLLATERAL_NOTES_PER_BORROW` notes — the user's collateral
+    // amount input is a display convenience, not a spend cap. Shield
+    // only what the circuit needs; larger inputs don't buy more
+    // borrow capacity today. Doing anything else here caused the
+    // "sign 30 times" loop when the legacy default input of `"3000"`
+    // XLM leaked through: `ceil(3000 / 100) = 30` targeted 30
+    // deposits.
     const collateralWhole = Number(deferredCollateralAmount) || 0
-    // The prover requires the 4-note minimum regardless of the user's
-    // input; the deposit loop tops up whatever's missing.
     const ownedNotes = notes.filter(
       (n) => n.tree === "deposit" && n.asset === collateralAsset
     ).length
-    const targetNotes = Math.max(
-      COLLATERAL_NOTES_PER_BORROW,
-      Math.ceil(collateralWhole / notesForOneUnit(collateralAsset))
-    )
+    const targetNotes = COLLATERAL_NOTES_PER_BORROW
     const missing = Math.max(0, targetNotes - ownedNotes)
 
     setFlow((currentFlow) => ({
@@ -366,13 +366,3 @@ export function useShieldedBorrowFlow({
   }
 }
 
-/**
- * Convenience: how many whole units one deposit note carries. This
- * belongs next to DENOMINATION but is inlined here to avoid another
- * import churn; refactor if it grows callers.
- */
-function notesForOneUnit(asset: ShieldedAsset): number {
-  // Matches DENOMINATION values in features/notes/note.ts.
-  if (asset === "XLM") return 100
-  return 10 // USDC + EURC
-}
