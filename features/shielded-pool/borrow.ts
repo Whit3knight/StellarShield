@@ -119,8 +119,21 @@ export async function prepareBorrow(
         candidate.leafIndex === note.index && candidate.leaf === commitment
     )
     if (!witness) {
+      const byIndex = fallbackWitnesses.find(
+        (candidate) => candidate.leafIndex === note.index
+      )
+      console.error("[borrow] fallback witness miss", {
+        noteIndex: note.index,
+        noteAsset: note.asset,
+        commitment: commitment.toString(),
+        fallbackCount: fallbackWitnesses.length,
+        fallbackIndexes: fallbackWitnesses
+          .map((w) => w.leafIndex)
+          .sort((a, b) => a - b),
+        matchByIndexOnly: byIndex ? byIndex.leaf.toString() : null,
+      })
       throw new Error(
-        `No matching deposit event for note #${note.index}. Tree may have advanced beyond retention.`
+        `No matching deposit event for note #${note.index}. Tree may have advanced beyond retention. See console for diagnostic.`
       )
     }
     return witness
