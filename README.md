@@ -41,6 +41,9 @@ Registered markets: `USDC/XLM`, `XLM/USDC`, `EURC/USDC`, `USDC/EURC`, `EURC/XLM`
 | **Track D** interest accrual on repay (`BorrowIndexAtOpen` + extended repay circuit) | shipped |
 | Track E fixture harness (TS-side against on-disk fixtures) | shipped |
 | Track G-full permissionless service worker (authenticated CLI mode) | shipped (needs deployed `liquidation_service_pk` slot value + matching `LIQUIDATION_SERVICE_SK` to activate) |
+| Autonomous liquidation loop (`scan:underwater --trigger`) | shipped (needs `LIQUIDATOR_SECRET` Stellar signing key alongside the service sk) |
+| Service keypair generator (`bun run gen:service-key`) | shipped |
+| Deployment runbook + lifecycle demo doc | shipped (`docs/deployment.md`, `docs/demo.md`) |
 | Track F UI polish | opportunistic |
 | Track B FROST threshold | dropped — Track A alone closes the sk-drain flagged in the design doc |
 | Rust-side fixture reader | blocked on `soroban-sdk` 23 (testutils build fix) |
