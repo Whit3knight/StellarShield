@@ -198,6 +198,114 @@ worker deferred until one of the above lands.** The
 built during Track L are the prerequisites for either follow-up —
 none of it is wasted work.
 
+## Track A design (2026-07-12) — pre-published loan nullifier
+
+After the D1 gap surfaced above, the "sapling ivk/nk split" fix was
+scoped in generic terms. This section pins the concrete design so
+the next implementation session starts from a ratified spec rather
+than open exploration.
+
+### Chosen scheme
+
+Bind the loan nullifier to the loan commitment (not the tree index),
+publish it at borrow-time, and let the liquidator supply it as a
+public input the contract cross-checks against storage. No sk in the
+liquidate circuit.
+
+```
+borrow_commitment = Poseidon(borrow_amount, borrow_asset_tag, sk, borrow_salt)
+loan_nullifier    = Poseidon(sk, borrow_commitment)
+```
+
+Why bind to `borrow_commitment` and not the tree `leaf_index`:
+
+- The borrower doesn't know their leaf index at proof time — it's
+  assigned by the contract when the tx executes. Binding to
+  `borrow_commitment` makes the nullifier fully determined by the
+  witness the borrower already computes.
+- Commitment is unique per note (different salt = different
+  commitment), so nullifier stays unique per loan.
+- Same PRF key (sk) across every loan the borrower holds — sharing
+  sk still lets an attacker derive every loan's nullifier, so sk
+  stays private.
+
+### Circuit changes
+
+- **Borrow circuit** gains one new public signal `loan_nullifier`
+  and one new constraint `Poseidon(sk, borrow_commitment) === loan_nullifier`.
+  Constraint cost: 1 Poseidon(2) ≈ 240 non-linear. Fits in the
+  current pot17 with wide headroom.
+- **Withdraw-loan (currently the withdraw circuit reused via
+  `withdraw_loan_shielded`)** — the leaf-index nullifier binding
+  stays. The stored `loan_nullifier` is a *pre-declaration*; the
+  borrower still proves ownership via `Poseidon(sk, leaf_index)` at
+  withdraw time. This means loan-tree withdraw + liquidate use
+  *different* nullifiers for the same note. Both get marked on
+  spend; either burns the note. Fine on solvency (double-marking is
+  a no-op).
+  - Simpler alternative to explore during implementation: rewrite
+    withdraw-loan to also use `Poseidon(sk, borrow_commitment)`, so
+    a single nullifier gates both paths. Requires a new circuit
+    (can't reuse withdraw). Deferred to implementation session.
+- **Liquidate circuit** drops the `Poseidon(sk, loan_index) === loan_nullifier`
+  constraint entirely. Public signal `loan_nullifier` becomes an
+  opaque value; contract does the binding via storage. Circuit's
+  underwater math + bond-opening reconstruction stays as-is.
+
+### Storage
+
+Do **not** grow `LiquidationBond`. Existing bonds (Track L v1) fail
+to decode if the struct changes — every live loan becomes
+un-liquidatable.
+
+Add a sidecar slot:
+
+```rust
+enum PersistentKey {
+    ...existing...,
+    LoanNullifier(BytesN<32>),  // key = loan_commitment
+}
+```
+
+Written by the new borrow path. Absent for pre-A borrows.
+
+### Contract
+
+`liquidate_shielded` reads the sidecar. Three cases:
+
+| Bond present | LoanNullifier present | Path |
+|--------------|----------------------|------|
+| yes | yes | New. Contract cross-checks `proof.public_signals[6] == LoanNullifier(loan_commit)`. Service-triggerable. |
+| yes | no | Grandfathered Track L v1 bond. Contract falls back to the old liquidate circuit path (proof binds `Poseidon(sk, loan_index)`). Only borrower can self-liquidate. |
+| no | — | InvalidProof, as today. |
+
+Migration = zero-op: old bonds keep working via the fallback; new
+bonds enable service triggering.
+
+### Follow-up work
+
+- Ship a new **shielded-liquidate-v2** circuit for the new path;
+  keep the current one for grandfathered bonds. Both verifiers stay
+  in the contract until the retention window rolls old bonds off.
+- The dual-recipient memo already carries the openings the service
+  needs (`saltAmount`, `saltValue`, `saltPrice`, `collateralValue`,
+  `oraclePrice`). No memo schema change for A.
+- **Track B (FROST)** would layer on top of this: shard the service
+  key across N parties. Design here removes the sk-drain, so B is a
+  pure decentralization pass — no additional circuit changes.
+
+### Session budget (revised from 3-5 sesi)
+
+1. Extend borrow circuit + rebuild + verifier bytes + LoanNullifier
+   storage slot + contract wires bond + sidecar → ~1 sesi.
+2. New `shielded-liquidate-v2` circuit + verifier + `liquidate_shielded`
+   branch → ~1 sesi.
+3. TS prover + hook wiring (service-side path) + scanner extension
+   → ~1 sesi.
+
+Total ~3 sesi (was 3-5). Migration risk removed by the sidecar
+storage decision.
+
 ## Open questions
 
 - **Service key rotation.** If the liquidation-service pubkey rotates,
