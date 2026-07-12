@@ -1,6 +1,12 @@
 "use client"
 
-import { DownloadIcon, LockIcon, Loader2Icon, UploadIcon } from "lucide-react"
+import {
+  ArrowRightIcon,
+  DownloadIcon,
+  LockIcon,
+  Loader2Icon,
+  UploadIcon,
+} from "lucide-react"
 import * as React from "react"
 
 import { PrivateValue } from "@/components/atoms/private-value"
@@ -180,8 +186,10 @@ function BorrowPanel({
       <div className="flex items-center justify-between gap-2">
         <div>
           <div className="font-medium">Borrow shielded</div>
-          <p className="text-xs text-muted-foreground">
-            4 collateral notes → 1 loan note, amounts + wallet hidden.
+          <p className="text-xs text-muted-foreground flex items-center gap-1">
+            4 collateral notes
+            <ArrowRightIcon aria-hidden="true" className="size-3" />
+            1 loan note, amounts + wallet hidden.
           </p>
         </div>
       </div>
@@ -205,7 +213,9 @@ function BorrowPanel({
                 {busy ? (
                   <Loader2Icon aria-hidden="true" className="animate-spin" />
                 ) : null}
-                {collateral} → {borrowAsset}
+                {collateral}
+                <ArrowRightIcon aria-hidden="true" className="size-3.5" />
+                {borrowAsset}
               </Button>
             )
           )
