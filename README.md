@@ -28,6 +28,23 @@ user's note inventory from public events alone.
 
 Registered markets: `USDC/XLM`, `XLM/USDC`, `EURC/USDC`, `USDC/EURC`, `EURC/XLM`, `XLM/EURC`.
 
+## Roadmap status
+
+| Track | Status |
+| --- | --- |
+| Phase 1 (receipt registry → real testnet) | shipped |
+| Phase 2 v1 shielded pool (deposit / withdraw / borrow / repay / withdraw_loan) | shipped |
+| Track L v1 self-liquidate (bond commits, liquidate circuit, health badge) | shipped |
+| Track C-simple bounty payout (1×denomination per liquidation) | shipped |
+| Track G-lite watchlist CLI (`bun run scan:underwater`) | shipped |
+| **Track A** ivk/nk split → pre-published `loan_nullifier` + sidecar + `liquidate_shielded_v2` | shipped |
+| **Track D** interest accrual on repay (`BorrowIndexAtOpen` + extended repay circuit) | shipped |
+| Track E fixture harness (TS-side against on-disk fixtures) | shipped |
+| Track G-full permissionless service worker | pending (needs deployed service key, then trivial extension of G-lite) |
+| Track F UI polish | opportunistic |
+| Track B FROST threshold | dropped — Track A alone closes the sk-drain flagged in the design doc |
+| Rust-side fixture reader | blocked on `soroban-sdk` 23 (testutils build fix) |
+
 ## Setup
 
 ```bash
