@@ -3,6 +3,7 @@ import type * as React from "react"
 import type { ConnectedAccount } from "@/app/_constants/account"
 import { MetricTile } from "@/components/atoms/metric-tile"
 import { PrivateValue } from "@/components/atoms/private-value"
+import { AmountInput } from "@/components/molecules/amount-input"
 import { InputHelpAddon } from "@/components/molecules/input-help-addon"
 import {
   Field,
@@ -104,18 +105,15 @@ export function BorrowTermsStep({
           <FieldLabel>Collateral amount</FieldLabel>
           <InputGroup>
             <InputGroupAddon>{market.collateral}</InputGroupAddon>
-            <InputGroupInput
+            <AmountInput
               aria-invalid={Boolean(collateralError)}
               aria-label="Collateral amount"
               className="*:[input]:ps-0!"
-              inputMode="decimal"
               max={metrics.collateralWalletBalance || undefined}
               min={minimumCollateralAmount}
-              onChange={(event) => {
-                onFieldChange("collateralAmount", event.currentTarget.value)
-              }}
-              step="0.01"
-              type="number"
+              onValueChange={(raw) =>
+                onFieldChange("collateralAmount", raw)
+              }
               value={flow.collateralAmount}
             />
             <InputHelpAddon>
@@ -143,18 +141,13 @@ export function BorrowTermsStep({
           <FieldLabel>Loan amount</FieldLabel>
           <InputGroup>
             <InputGroupAddon>{market.symbol}</InputGroupAddon>
-            <InputGroupInput
+            <AmountInput
               aria-invalid={Boolean(loanError)}
               aria-label="Loan amount"
               className="*:[input]:ps-0!"
-              inputMode="decimal"
               max={metrics.maxLoanAmount}
               min={minimumLoanAmount}
-              onChange={(event) => {
-                onFieldChange("loanAmount", event.currentTarget.value)
-              }}
-              step="0.01"
-              type="number"
+              onValueChange={(raw) => onFieldChange("loanAmount", raw)}
               value={flow.loanAmount}
             />
             <InputHelpAddon>
