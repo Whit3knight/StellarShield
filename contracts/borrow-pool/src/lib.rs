@@ -8,6 +8,7 @@ use soroban_sdk::{
 
 mod borrow_verifier;
 mod deposit_verifier;
+mod liquidate_v2_verifier;
 mod liquidate_verifier;
 mod merkle;
 mod notes;
@@ -957,6 +958,143 @@ impl BorrowPool {
         // Also emit a DEPOSIT_EVENT so the scanner picks the bounty
         // leaf up on the next scan and materialises it as a
         // liquidator-owned deposit note.
+        env.events().publish(
+            (DEPOSIT_EVENT, collateral_asset.clone()),
+            (next_index, new_root.to_bytes(), bounty_commit, bounty_memo),
+        );
+        Ok(())
+    }
+
+    /// Shielded liquidation v2 (Track A). Uses the pre-published loan
+    /// nullifier from the LoanNullifier sidecar so a service worker
+    /// holding only the memo openings — never the borrower's sk —
+    /// can trigger. Requires a post-Track-A bond; pre-A loans stay on
+    /// the v1 path via `liquidate_shielded`.
+    ///
+    /// Circuit public signals (5):
+    ///   [0] borrow_amount_commit          from LiquidationBond
+    ///   [1] collateral_value_commit       from LiquidationBond
+    ///   [2] borrow_price_commit           from LiquidationBond
+    ///   [3] current_price                 oracle-supplied
+    ///   [4] threshold_bps                 matches risk_params.liquidation_threshold_bps
+    ///
+    /// `loan_commitment` + `loan_nullifier` come in as tx args; the
+    /// contract validates them against `liquidation_bond` +
+    /// `loan_nullifier` storage. Bounty payout is identical to v1.
+    pub fn liquidate_shielded_v2(
+        env: Env,
+        liquidator: Address,
+        borrow_asset: Symbol,
+        collateral_asset: Symbol,
+        loan_commitment: BytesN<32>,
+        loan_nullifier: BytesN<32>,
+        proof: BorrowProof,
+        bounty_commit: BytesN<32>,
+        bounty_memo: soroban_sdk::Bytes,
+    ) -> Result<(), Error> {
+        liquidator.require_auth();
+
+        if proof.public_signals.len() != 5 {
+            return Err(Error::InvalidProof);
+        }
+        let borrow_amount_commit_fr = proof.public_signals.get(0).unwrap();
+        let collateral_value_commit_fr = proof.public_signals.get(1).unwrap();
+        let borrow_price_commit_fr = proof.public_signals.get(2).unwrap();
+        let threshold_fr = proof.public_signals.get(4).unwrap();
+
+        let bond = state::liquidation_bond(&env, &loan_commitment)
+            .ok_or(Error::InvalidProof)?;
+
+        // Bond openings the circuit proved against must be the ones
+        // the contract stored at borrow-time.
+        if bond.borrow_amount_commit != borrow_amount_commit_fr.to_bytes()
+            || bond.collateral_value_commit != collateral_value_commit_fr.to_bytes()
+            || bond.borrow_price_commit != borrow_price_commit_fr.to_bytes()
+        {
+            return Err(Error::InvalidProof);
+        }
+
+        // Post-A bond gate: v2 requires the sidecar. Pre-A bonds
+        // stay on the v1 fn where the circuit binds nullifier via sk.
+        let expected_nullifier = state::loan_nullifier(&env, &loan_commitment)
+            .ok_or(Error::InvalidProof)?;
+        if expected_nullifier != loan_nullifier {
+            return Err(Error::InvalidProof);
+        }
+
+        let expected_borrow_tag =
+            notes::asset_tag(&env, &borrow_asset).ok_or(Error::AssetUnknown)?;
+        if bond.borrow_asset_tag != expected_borrow_tag {
+            return Err(Error::DenominationMismatch);
+        }
+        let expected_collateral_tag =
+            notes::asset_tag(&env, &collateral_asset).ok_or(Error::AssetUnknown)?;
+        if bond.collateral_asset_tag != expected_collateral_tag {
+            return Err(Error::DenominationMismatch);
+        }
+
+        let risk = state::risk_params(&env).ok_or(Error::NotInitialized)?;
+        if fr_to_u32(&threshold_fr) != risk.liquidation_threshold_bps {
+            return Err(Error::InvalidProof);
+        }
+
+        let now = env.ledger().timestamp();
+        if proof.oracle_epoch + MAX_ORACLE_AGE_SECS < now {
+            return Err(Error::StaleOracle);
+        }
+        if proof.oracle_epoch > now + ORACLE_FUTURE_SKEW_SECS {
+            return Err(Error::StaleOracle);
+        }
+
+        if state::nullifier_used(&env, &loan_nullifier) {
+            return Err(Error::ProofReplayed);
+        }
+
+        if !liquidate_v2_verifier::verify_groth16(
+            &env,
+            proof.a.clone(),
+            proof.b.clone(),
+            proof.c.clone(),
+            proof.public_signals.clone(),
+        ) {
+            return Err(Error::InvalidProof);
+        }
+
+        state::mark_nullifier_used(&env, &loan_nullifier);
+        state::set_total_borrow(
+            &env,
+            &borrow_asset,
+            state::total_borrow(&env, &borrow_asset).saturating_sub(1),
+        );
+
+        // Bounty payout — identical to v1 path.
+        let next_index = state::deposit_next_index(&env, &collateral_asset);
+        let capacity = 1u64 << (merkle::DEPTH as u64);
+        if next_index >= capacity {
+            return Err(Error::TreeCapacityExceeded);
+        }
+        let mut frontier_arr =
+            load_frontier(&env, state::deposit_frontier(&env, &collateral_asset));
+        let bounty_fr = Fr::from_bytes(bounty_commit.clone());
+        let new_root =
+            merkle::append(&env, &bounty_fr, &mut frontier_arr, next_index);
+        state::set_deposit_frontier(
+            &env,
+            &collateral_asset,
+            &frontier_to_vec(&env, &frontier_arr),
+        );
+        state::set_deposit_root(&env, &collateral_asset, &new_root.to_bytes());
+        state::set_deposit_next_index(&env, &collateral_asset, next_index + 1);
+        state::set_total_deposit(
+            &env,
+            &collateral_asset,
+            state::total_deposit(&env, &collateral_asset).saturating_add(1),
+        );
+
+        env.events().publish(
+            (LIQUIDATE_EVENT, borrow_asset.clone()),
+            (loan_commitment, loan_nullifier, liquidator.clone()),
+        );
         env.events().publish(
             (DEPOSIT_EVENT, collateral_asset.clone()),
             (next_index, new_root.to_bytes(), bounty_commit, bounty_memo),
