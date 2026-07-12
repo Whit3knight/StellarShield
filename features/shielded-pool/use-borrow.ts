@@ -62,7 +62,13 @@ export function useBorrow(
   const [message, setMessage] = React.useState<string | null>(null)
 
   const availableCollateral = React.useMemo(
-    () => notes.filter((note) => note.tree === "deposit"),
+    // Exclude notes with `amount === 0`: those are the local
+    // "spent" tombstones this hook itself writes after a successful
+    // borrow. Scanner drops them once the corresponding withdraw /
+    // borrow nullifier lands, but until then a subsequent borrow that
+    // picked them up again would fail
+    // `collateral amount mismatch: expected N, saw 0` in the prover.
+    () => notes.filter((note) => note.tree === "deposit" && note.amount > 0n),
     [notes]
   )
 
