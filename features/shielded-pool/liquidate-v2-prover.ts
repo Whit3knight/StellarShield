@@ -46,7 +46,12 @@ async function fetchArtefact(url: string): Promise<Uint8Array> {
 
 export async function proveLiquidateV2(
   inputs: LiquidateV2ProofInputs,
-  options: { wasmUrl?: string; zkeyUrl?: string } = {}
+  options: {
+    wasmUrl?: string
+    zkeyUrl?: string
+    wasm?: Uint8Array
+    zkey?: Uint8Array
+  } = {}
 ): Promise<LiquidateV2ProofResult> {
   const borrowAmountCommit = poseidon([inputs.loanAmount, inputs.bondSaltAmount])
   const collateralValueCommit = poseidon([
@@ -68,8 +73,8 @@ export async function proveLiquidateV2(
   const [snarkjsModule, wasm, zkey] = await Promise.all([
     // @ts-expect-error — snarkjs ships no TS types.
     import("snarkjs"),
-    fetchArtefact(wasmUrl),
-    fetchArtefact(zkeyUrl),
+    options.wasm ? Promise.resolve(options.wasm) : fetchArtefact(wasmUrl),
+    options.zkey ? Promise.resolve(options.zkey) : fetchArtefact(zkeyUrl),
   ])
   const snarkjs =
     (snarkjsModule as { default?: unknown }).default ?? snarkjsModule

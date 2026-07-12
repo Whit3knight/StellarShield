@@ -37,7 +37,12 @@ import {
   xdr,
 } from "@stellar/stellar-sdk"
 
-import { tryDecryptAnyMemo } from "@/features/notes/memo"
+import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
+
+import { computeCommitment, DENOMINATION, randomFieldElement } from "@/features/notes"
+import { deriveShieldedIdentity, encodeMemoBundle, encryptMemo, tryDecryptAnyMemo } from "@/features/notes/memo"
+import { proveLiquidateV2 } from "@/features/shielded-pool/liquidate-v2-prover"
 
 const CONTRACT =
   process.env.STELLAR_SHIELD_CONTRACT_ID ??
@@ -50,6 +55,19 @@ const LEDGER_LOOKBACK = Number(process.env.LOOKBACK_LEDGERS ?? "16500")
 const REFLECTOR_CEX =
   process.env.STELLAR_REFLECTOR_CEX_CONTRACT_ID ??
   "CCYOZJCOPG34LLQQ7N24YXBM7LL62R7ONMZ3G6WZAAYPB5OYKOMJRN63"
+
+const TRIGGER = process.argv.includes("--trigger")
+const LIQUIDATOR_SECRET = process.env.LIQUIDATOR_SECRET?.trim()
+
+const REPO_ROOT = resolve(__dirname, "..", "..")
+const LIQ_V2_WASM = resolve(
+  REPO_ROOT,
+  "public/circuits-circom/shielded/liquidate-v2/liquidate.wasm"
+)
+const LIQ_V2_ZKEY = resolve(
+  REPO_ROOT,
+  "public/circuits-circom/shielded/liquidate-v2/liquidate.zkey"
+)
 
 // Fixed 8500 bps default matches contract's initialize_shielded call.
 // Optional env override for staging deployments with tighter limits.
@@ -226,9 +244,180 @@ async function main(): Promise<void> {
   if (authenticated) {
     const underwaterCount = rows.filter((r) => r.underwater).length
     console.log(
-      `\n${underwaterCount} underwater bond${underwaterCount === 1 ? "" : "s"} flagged. Trigger via useLiquidate in the frontend.`
+      `\n${underwaterCount} underwater bond${underwaterCount === 1 ? "" : "s"} flagged.`
     )
+    if (TRIGGER && underwaterCount > 0) {
+      if (!LIQUIDATOR_SECRET) {
+        console.error(
+          "--trigger requires LIQUIDATOR_SECRET env (Stellar secret key, S...)"
+        )
+        process.exit(1)
+      }
+      await triggerAll(server, serviceSk!, rows, commitments)
+    } else if (underwaterCount > 0) {
+      console.log("Rerun with --trigger + LIQUIDATOR_SECRET to auto-liquidate.")
+    }
   }
+}
+
+async function triggerAll(
+  server: rpc.Server,
+  serviceSk: Uint8Array,
+  rows: Array<{
+    commit: Uint8Array
+    bond: LiquidationBond
+    underwater?: boolean
+  }>,
+  commitments: Array<{ commit: Uint8Array; memo?: Uint8Array }>
+): Promise<void> {
+  const sdk = await import("@stellar/stellar-sdk")
+  const bindings = await import("@/features/protocol/bindings/borrow-pool")
+  const wasm = new Uint8Array(readFileSync(LIQ_V2_WASM))
+  const zkey = new Uint8Array(readFileSync(LIQ_V2_ZKEY))
+  const keypair = sdk.Keypair.fromSecret(LIQUIDATOR_SECRET!)
+  const liquidator = keypair.publicKey()
+  console.log(`liquidator=${liquidator}`)
+
+  const client = new bindings.Client({
+    contractId: CONTRACT,
+    networkPassphrase: NETWORK_PASSPHRASE,
+    rpcUrl: RPC_URL,
+    publicKey: liquidator,
+  })
+
+  const memoByCommit = new Map<string, Uint8Array>()
+  for (const c of commitments) {
+    if (c.memo) memoByCommit.set(bytesToHex(c.commit), c.memo)
+  }
+
+  const liquidatorIdentity = deriveShieldedIdentity(serviceSk)
+  // Liquidator note key derived from the service sk so bounties are
+  // recoverable by whoever holds the service secret. Fresh salt per
+  // note keeps individual bounties unlinkable.
+  const liquidatorPoseidonSk = bigintFromBytes(liquidatorIdentity.secretKey)
+
+  for (const row of rows) {
+    if (!row.underwater) continue
+    const commitHex = bytesToHex(row.commit)
+    const memo = memoByCommit.get(commitHex)
+    if (!memo) {
+      console.log(`skip ${commitHex.slice(0, 8)}… — no memo captured`)
+      continue
+    }
+    const openings = decryptOpenings(memo, serviceSk)
+    if (!openings) {
+      console.log(`skip ${commitHex.slice(0, 8)}… — memo decrypt failed`)
+      continue
+    }
+    const borrowAsset = SUPPORTED_ASSETS[Number(row.bond.borrow_asset_tag)]
+    const collateralAsset =
+      SUPPORTED_ASSETS[Number(row.bond.collateral_asset_tag)]
+    if (!borrowAsset || !collateralAsset) continue
+
+    const priceNow = await fetchReflectorPrice(server, borrowAsset)
+    if (priceNow === null) {
+      console.log(`skip ${commitHex.slice(0, 8)}… — Reflector unavailable`)
+      continue
+    }
+
+    const nullifierFetch = await client.loan_nullifier({
+      loan_commitment: Buffer.from(row.commit),
+    })
+    const sidecarNullifier = nullifierFetch.result
+    if (!sidecarNullifier) {
+      console.log(
+        `skip ${commitHex.slice(0, 8)}… — no LoanNullifier sidecar (pre-A bond)`
+      )
+      continue
+    }
+
+    console.log(`liquidating ${commitHex.slice(0, 8)}… (${borrowAsset})`)
+    const proof = await proveLiquidateV2(
+      {
+        loanAmount: openings.loanAmount,
+        bondSaltAmount: openings.bondSaltAmount,
+        collateralNotional: openings.collateralNotional,
+        bondSaltValue: openings.bondSaltValue,
+        borrowPrice: openings.borrowPrice,
+        bondSaltPrice: openings.bondSaltPrice,
+        currentPrice: priceNow,
+        thresholdBps: LIQUIDATION_THRESHOLD_BPS,
+      },
+      { wasm, zkey }
+    )
+
+    const bountySalt = randomFieldElement()
+    const bountyAmount = DENOMINATION[collateralAsset]
+    const bountyCommitment = computeCommitment({
+      amount: bountyAmount,
+      asset: collateralAsset,
+      salt: bountySalt,
+      sk: liquidatorPoseidonSk,
+    })
+    const bountyMemo = encodeMemoBundle(
+      encryptMemo({
+        plaintext: {
+          amount: bountyAmount.toString(),
+          asset: collateralAsset,
+          index: 0,
+          salt: bountySalt.toString(),
+          tree: "deposit",
+        },
+        recipientPk: liquidatorIdentity.publicKey,
+      })
+    )
+
+    const nowSecs = BigInt(Math.floor(Date.now() / 1000))
+    const proofBuffers = {
+      a: Buffer.from(proof.a),
+      b: Buffer.from(proof.b),
+      c: Buffer.from(proof.c),
+      oracle_epoch: nowSecs,
+      public_signals: proof.publicSignals.map(bigintFromBytes),
+    }
+
+    try {
+      const assembled = await client.liquidate_shielded_v2({
+        liquidator,
+        borrow_asset: borrowAsset,
+        collateral_asset: collateralAsset,
+        loan_commitment: Buffer.from(row.commit),
+        loan_nullifier: Buffer.from(sidecarNullifier as Uint8Array),
+        proof: proofBuffers,
+        bounty_commit: Buffer.from(bigintTo32Bytes(bountyCommitment)),
+        bounty_memo: Buffer.from(bountyMemo),
+      })
+      const sent = await assembled.signAndSend({
+        signTransaction: async (xdrToSign: string) => {
+          const tx = sdk.TransactionBuilder.fromXDR(xdrToSign, NETWORK_PASSPHRASE)
+          tx.sign(keypair)
+          return { signedTxXdr: tx.toXDR(), signerAddress: liquidator }
+        },
+      })
+      const hash = sent.sendTransactionResponse?.hash ?? "?"
+      console.log(`  ✓ tx ${hash}`)
+    } catch (err) {
+      console.log(
+        `  ✗ ${err instanceof Error ? err.message : String(err)}`
+      )
+    }
+  }
+}
+
+function bigintFromBytes(bytes: Uint8Array): bigint {
+  let value = 0n
+  for (const byte of bytes) value = (value << 8n) | BigInt(byte)
+  return value
+}
+
+function bigintTo32Bytes(value: bigint): Uint8Array {
+  const out = new Uint8Array(32)
+  let residue = value
+  for (let index = 31; index >= 0; index--) {
+    out[index] = Number(residue & 0xffn)
+    residue >>= 8n
+  }
+  return out
 }
 
 type BorrowEventDecoded = {
@@ -259,6 +448,9 @@ function decryptOpenings(
   loanAmount: bigint
   collateralNotional: bigint
   borrowPrice: bigint
+  bondSaltAmount: bigint
+  bondSaltValue: bigint
+  bondSaltPrice: bigint
 } | null {
   const plaintext = tryDecryptAnyMemo({ raw: memo, recipientSk: serviceSk })
   if (!plaintext || plaintext.tree !== "loan" || !plaintext.bond) return null
@@ -267,6 +459,9 @@ function decryptOpenings(
       loanAmount: BigInt(plaintext.amount),
       collateralNotional: BigInt(plaintext.bond.collateralValue),
       borrowPrice: BigInt(plaintext.bond.oraclePrice),
+      bondSaltAmount: BigInt(plaintext.bond.saltAmount),
+      bondSaltValue: BigInt(plaintext.bond.saltValue),
+      bondSaltPrice: BigInt(plaintext.bond.saltPrice),
     }
   } catch {
     return null
