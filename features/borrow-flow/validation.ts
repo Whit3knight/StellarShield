@@ -14,6 +14,13 @@ export function getCollateralValidationError({
   symbol: string
   valueUsd: number
 }): string | null {
+  // Untouched empty input reads as zero — treat that as "no error yet"
+  // so a freshly opened drawer doesn't paint every field red before
+  // the user has typed anything.
+  if (amount <= 0) {
+    return null
+  }
+
   if (!hasWallet) {
     return "Connect wallet to continue."
   }
@@ -35,6 +42,10 @@ export function getLoanValidationError(
   valueUsd: number,
   borrowingPower: number
 ): string | null {
+  if (valueUsd <= 0) {
+    return null
+  }
+
   if (valueUsd < MIN_LOAN_VALUE) {
     return `Loan amount must be at least ${formatUsd(MIN_LOAN_VALUE)}.`
   }
