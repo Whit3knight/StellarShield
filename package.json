@@ -14,7 +14,8 @@
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit",
     "check:bundle": "bun scripts/check-bundle.ts",
-    "scan:underwater": "bun contracts/scripts/scan-underwater.ts"
+    "scan:underwater": "bun contracts/scripts/scan-underwater.ts",
+    "gen:service-key": "bun contracts/scripts/gen-service-key.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",
