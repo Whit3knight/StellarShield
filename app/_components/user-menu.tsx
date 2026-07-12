@@ -6,7 +6,6 @@ import {
   DownloadIcon,
   ExternalLinkIcon,
   LayersIcon,
-  LockIcon,
   LogOutIcon,
   ShieldCheckIcon,
   UploadIcon,
@@ -52,7 +51,6 @@ export function UserMenu({
     activityDrawer,
     positionsDrawer,
     proofsDrawer,
-    shieldedDrawer,
     walletMenu,
   } = useNavMenus()
   const explorerUrl = getStellarExpertAccountUrl(account.wallet.address)
@@ -119,13 +117,6 @@ export function UserMenu({
           >
             <LayersIcon aria-hidden="true" />
             Positions
-          </MenuItem>
-          <MenuItem
-            closeOnClick
-            onClick={() => shieldedDrawer.setOpen(true)}
-          >
-            <LockIcon aria-hidden="true" />
-            Shielded pool
           </MenuItem>
           <MenuItem
             closeOnClick

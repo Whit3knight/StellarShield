@@ -4,7 +4,7 @@ import type { ConnectedAccount } from "@/app/_constants/account"
 import type { MarketCardData } from "@/features/markets"
 
 import { MARKET_STEPS } from "../../constants"
-import { useBorrowFlow } from "../../hooks/use-borrow-flow"
+import { useShieldedBorrowFlow } from "../../hooks/use-shielded-borrow-flow"
 import type { MarketStep } from "../../types"
 import { DesktopMarketStepPanel } from "./desktop-market-step-panel"
 
@@ -28,7 +28,7 @@ export function DesktopMarketDrawer({
     setFieldValue,
     submitTransaction,
     verifyEligibility,
-  } = useBorrowFlow({ account, market })
+  } = useShieldedBorrowFlow({ account, market })
 
   // Whenever the transaction has moved past Ready (Signing / Submitted /
   // Confirmed / Failed), pin the drawer to the review-transaction step.

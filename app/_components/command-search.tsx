@@ -8,7 +8,6 @@ import {
   EyeOffIcon,
   LandmarkIcon,
   LayersIcon,
-  LockIcon,
   LogOutIcon,
   MoonIcon,
   SearchIcon,
@@ -73,7 +72,6 @@ export function CommandSearch(): React.ReactElement {
     notifications,
     positionsDrawer,
     proofsDrawer,
-    shieldedDrawer,
     walletMenu,
   } = useNavMenus()
   const { account, disconnect } = useWalletConnection()
@@ -176,15 +174,6 @@ export function CommandSearch(): React.ReactElement {
         value: "open proofs",
       },
       {
-        icon: LockIcon,
-        label: "Open shielded pool",
-        onSelect: () => {
-          shieldedDrawer.setOpen(true)
-          setOpen(false)
-        },
-        value: "open shielded pool notes deposit borrow",
-      },
-      {
         icon: SparklesIcon,
         label: "Take a tour",
         onSelect: () => {
@@ -249,7 +238,6 @@ export function CommandSearch(): React.ReactElement {
     resolvedTheme,
     selectMarket,
     setTheme,
-    shieldedDrawer,
     walletMenu,
   ])
 

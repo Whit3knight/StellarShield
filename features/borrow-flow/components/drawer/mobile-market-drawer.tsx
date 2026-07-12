@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Drawer, DrawerClose, DrawerTrigger } from "@/components/ui/drawer"
 import type { MarketCardData } from "@/features/markets"
 
-import { useBorrowFlow } from "../../hooks/use-borrow-flow"
+import { useShieldedBorrowFlow } from "../../hooks/use-shielded-borrow-flow"
 import { canSubmitTransaction } from "../../flow-actions"
 import { isSubmitPending, isVerificationPending } from "../../steps"
 import { MarketDrawerFooter } from "./market-drawer-footer"
@@ -184,7 +184,7 @@ export function MobileMarketDrawer({
     setFieldValue,
     submitTransaction,
     verifyEligibility,
-  } = useBorrowFlow({ account, market })
+  } = useShieldedBorrowFlow({ account, market })
 
   const drawerProps = {
     account,
