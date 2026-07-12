@@ -17,6 +17,8 @@ import {
   getStellarExpertTxUrl,
 } from "@/features/wallet/network"
 
+import type { ScanIdentity } from "@/features/notes"
+
 import { prepareBorrow } from "./borrow"
 import { createToastTracker, describeError } from "./hook-utils"
 
@@ -52,7 +54,7 @@ type UseBorrowResult = {
  */
 export function useBorrow(
   account: string | null,
-  walletSeed: Uint8Array | null
+  identity: ScanIdentity | null
 ): UseBorrowResult {
   const notes = useNotes()
   const [status, setStatus] = React.useState<Status>("idle")
@@ -76,7 +78,7 @@ export function useBorrow(
       borrowAsset: ShieldedAsset
       collateralAsset: ShieldedAsset
     }) => {
-      if (!account || !walletSeed) {
+      if (!account || !identity) {
         setStatus("failed")
         setMessage("Connect a wallet first.")
         return null
@@ -137,7 +139,7 @@ export function useBorrow(
           collateralNotes,
           hfMinBps: risk.hfMinBps,
           maxLtvBps: risk.maxLtvBps,
-          walletSeed,
+          identity,
         })
 
         toast.set(
@@ -250,7 +252,7 @@ export function useBorrow(
         return null
       }
     },
-    [account, availableCollateral, walletSeed]
+    [account, availableCollateral, identity]
   )
 
   return { availableCollateral, borrow, message, reset, status }

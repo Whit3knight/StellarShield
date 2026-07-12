@@ -11,7 +11,6 @@
 import {
   DENOMINATION,
   computeCommitment,
-  deriveShieldedIdentity,
   encodeMemoBundle,
   encodeMemoBundleMulti,
   encryptMemo,
@@ -33,7 +32,14 @@ export type PrepareBorrowParams = {
   collateralNotes: ShieldedNote[] // exactly 4
   hfMinBps: number
   maxLtvBps: number
-  walletSeed: Uint8Array
+  // Address-derived shielded identity from useShieldedPool /
+  // useShieldedIdentity. Pass through directly — do NOT rewrap via
+  // deriveShieldedIdentity, that double-hashes the seed and desyncs
+  // the borrow-side memo pubkey from the scanner's.
+  identity: {
+    publicKey: Uint8Array
+    skField: bigint
+  }
   wasmUrl?: string
   zkeyUrl?: string
 }
@@ -54,8 +60,7 @@ export async function prepareBorrow(
 ): Promise<PrepareBorrowResult> {
   validateCollateralNotes(params.collateralNotes, params.collateralAsset)
 
-  const identity = deriveShieldedIdentity(params.walletSeed)
-  const sk = bytesToBigInt(identity.secretKey)
+  const sk = params.identity.skField
 
   // Fetch inclusion witnesses for all 4 collateral notes.
   const witnesses = await fetchDepositWitnesses(params.collateralAsset)
@@ -156,11 +161,11 @@ export async function prepareBorrow(
     ? encodeMemoBundleMulti(
         encryptMemoMulti({
           plaintext,
-          recipientPks: [identity.publicKey, servicePk],
+          recipientPks: [params.identity.publicKey, servicePk],
         })
       )
     : encodeMemoBundle(
-        encryptMemo({ plaintext, recipientPk: identity.publicKey })
+        encryptMemo({ plaintext, recipientPk: params.identity.publicKey })
       )
 
   // Silence unused import — DENOMINATION consumed via validateCollateralNotes.
@@ -173,10 +178,3 @@ export async function prepareBorrow(
   }
 }
 
-function bytesToBigInt(bytes: Uint8Array): bigint {
-  let value = 0n
-  for (const byte of bytes) {
-    value = (value << 8n) | BigInt(byte)
-  }
-  return value
-}

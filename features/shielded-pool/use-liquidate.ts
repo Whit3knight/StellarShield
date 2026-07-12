@@ -6,11 +6,11 @@ import { toastManager } from "@/components/ui/toast"
 import {
   computeCommitment,
   DENOMINATION,
-  deriveShieldedIdentity,
   encodeMemoBundle,
   encryptMemo,
   randomFieldElement,
   SUPPORTED_ASSETS,
+  type ScanIdentity,
   type ShieldedAsset,
   type ShieldedNote,
 } from "@/features/notes"
@@ -54,7 +54,7 @@ type UseLiquidateResult = {
  */
 export function useLiquidate(
   account: string | null,
-  walletSeed: Uint8Array | null
+  identity: ScanIdentity | null
 ): UseLiquidateResult {
   const [status, setStatus] = React.useState<Status>("idle")
   const [message, setMessage] = React.useState<string | null>(null)
@@ -70,7 +70,7 @@ export function useLiquidate(
 
   const liquidate = React.useCallback(
     async (loanNote: ShieldedNote) => {
-      if (!account || !walletSeed) {
+      if (!account || !identity) {
         setStatus("failed")
         setMessage("Connect a wallet first.")
         return null
@@ -225,8 +225,8 @@ export function useLiquidate(
         // unlinkable across liquidations. Amount fixed at the
         // asset's denomination so the standard withdraw circuit
         // accepts the resulting deposit note.
-        const liquidatorIdentity = deriveShieldedIdentity(walletSeed)
-        const liquidatorSk = bytesToBigInt(liquidatorIdentity.secretKey)
+        const liquidatorIdentity = identity
+        const liquidatorSk = identity.skField
         const bountySalt = randomFieldElement()
         const bountyAmount = DENOMINATION[collateralAsset]
         const bountyCommitment = computeCommitment({
@@ -323,7 +323,7 @@ export function useLiquidate(
         return null
       }
     },
-    [account, walletSeed]
+    [account, identity]
   )
 
   return { activeLoanIndex, message, reset, status, liquidate }
@@ -347,10 +347,3 @@ function bigintTo32Bytes(value: bigint): Uint8Array {
   return out
 }
 
-function bytesToBigInt(bytes: Uint8Array): bigint {
-  let value = 0n
-  for (const byte of bytes) {
-    value = (value << 8n) | BigInt(byte)
-  }
-  return value
-}

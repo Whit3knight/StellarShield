@@ -10,7 +10,6 @@
 // without having to decrypt the memo again.
 
 import {
-  deriveShieldedIdentity,
   encodeMemoBundle,
   encryptMemo,
   DENOMINATION,
@@ -24,7 +23,15 @@ import { proveDeposit } from "./deposit-prover"
 export type DepositParams = {
   account: string
   asset: ShieldedAsset
-  walletSeed: Uint8Array
+  // The address-derived shielded identity from `useShieldedPool` /
+  // `useShieldedIdentity`. Passed through as-is — DO NOT wrap in
+  // another `deriveShieldedIdentity` call. Doing so double-hashes
+  // the seed and produces a pubkey the scanner can't decrypt notes
+  // for, so every deposited note goes silently invisible.
+  identity: {
+    publicKey: Uint8Array
+    skField: bigint
+  }
   wasmUrl?: string
   zkeyUrl?: string
 }
@@ -47,8 +54,7 @@ export async function prepareDeposit(params: DepositParams): Promise<{
   proof: Awaited<ReturnType<typeof proveDeposit>>
 }> {
   const denomination = DENOMINATION[params.asset]
-  const identity = deriveShieldedIdentity(params.walletSeed)
-  const sk = bytesToBigInt(identity.secretKey)
+  const sk = params.identity.skField
   const salt = randomFieldElement()
 
   const proof = await proveDeposit(
@@ -78,7 +84,7 @@ export async function prepareDeposit(params: DepositParams): Promise<{
       salt: salt.toString(),
       tree: "deposit",
     },
-    recipientPk: identity.publicKey,
+    recipientPk: params.identity.publicKey,
   })
 
   return {
@@ -86,12 +92,4 @@ export async function prepareDeposit(params: DepositParams): Promise<{
     note,
     proof,
   }
-}
-
-function bytesToBigInt(bytes: Uint8Array): bigint {
-  let value = 0n
-  for (const byte of bytes) {
-    value = (value << 8n) | BigInt(byte)
-  }
-  return value
 }

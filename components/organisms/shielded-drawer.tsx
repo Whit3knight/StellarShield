@@ -54,14 +54,13 @@ export function ShieldedDrawer({
   const isMobile = useMediaQuery("max-lg")
   const { identity, isScanning } = useShieldedPool(account)
   const notes = useNotes()
-  const walletSeed = identity?.secretKey ?? null
-  const { deposit, status } = useDeposit(account, walletSeed)
+  const { deposit, status } = useDeposit(account, identity)
   const {
     activeNoteIndex: withdrawingIndex,
     status: withdrawStatus,
     withdraw,
   } = useWithdraw(account)
-  const { borrow, status: borrowStatus } = useBorrow(account, walletSeed)
+  const { borrow, status: borrowStatus } = useBorrow(account, identity)
   const {
     activeLoanIndex: repayingIndex,
     status: repayStatus,
@@ -71,7 +70,7 @@ export function ShieldedDrawer({
     activeLoanIndex: liquidatingIndex,
     status: liquidateStatus,
     liquidate,
-  } = useLiquidate(account, walletSeed)
+  } = useLiquidate(account, identity)
 
   const balances = React.useMemo(() => summariseByAsset(notes), [notes])
   const prices = useAssetPrices()

@@ -12,6 +12,7 @@ import {
 } from "@/features/wallet/network"
 
 import { emitDepositConfirmed } from "@/features/borrow-flow/borrow-events"
+import type { ScanIdentity } from "@/features/notes"
 
 import { prepareDeposit } from "./deposit"
 import { createToastTracker, describeError } from "./hook-utils"
@@ -37,7 +38,7 @@ type UseDepositResult = {
  */
 export function useDeposit(
   account: string | null,
-  walletSeed: Uint8Array | null
+  identity: ScanIdentity | null
 ): UseDepositResult {
   const [status, setStatus] = React.useState<Status>("idle")
   const [message, setMessage] = React.useState<string | null>(null)
@@ -49,7 +50,7 @@ export function useDeposit(
 
   const deposit = React.useCallback(
     async (asset: ShieldedAsset) => {
-      if (!account || !walletSeed) {
+      if (!account || !identity) {
         setStatus("failed")
         setMessage("Connect a wallet first.")
         return null
@@ -77,7 +78,7 @@ export function useDeposit(
         const prepared = await prepareDeposit({
           account,
           asset,
-          walletSeed,
+          identity,
         })
 
         setStatus("signing")
@@ -192,7 +193,7 @@ export function useDeposit(
         return null
       }
     },
-    [account, walletSeed]
+    [account, identity]
   )
 
   return { deposit, message, reset, status }
