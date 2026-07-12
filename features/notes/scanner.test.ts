@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import { computeNullifier } from "./note"
-import { eventOpenedAt, filterSpentNotes } from "./scanner"
+import { dedupeNotes, eventOpenedAt, filterSpentNotes } from "./scanner"
 
 describe("eventOpenedAt", () => {
   it("parses an ISO ledgerClosedAt to unix seconds", () => {
@@ -61,5 +61,37 @@ describe("filterSpentNotes", () => {
     ]
     const result = filterSpentNotes(notes, spentForFortyTwo)
     expect(result).toEqual([{ sk: 99n, index: 5 }])
+  })
+})
+
+describe("dedupeNotes", () => {
+  const base = {
+    amount: 100n,
+    salt: 1n,
+    sk: 42n,
+  }
+
+  it("keeps the first sighting of a (asset, tree, index) tuple", () => {
+    const notes = [
+      { ...base, asset: "XLM" as const, index: 0, tree: "deposit" as const },
+      { ...base, asset: "XLM" as const, index: 0, tree: "deposit" as const },
+      { ...base, asset: "XLM" as const, index: 1, tree: "deposit" as const },
+    ]
+    const result = dedupeNotes(notes)
+    expect(result).toHaveLength(2)
+    expect(result.map((n) => n.index)).toEqual([0, 1])
+  })
+
+  it("does not collapse across trees or assets", () => {
+    const notes = [
+      { ...base, asset: "XLM" as const, index: 0, tree: "deposit" as const },
+      { ...base, asset: "XLM" as const, index: 0, tree: "loan" as const },
+      { ...base, asset: "USDC" as const, index: 0, tree: "deposit" as const },
+    ]
+    expect(dedupeNotes(notes)).toHaveLength(3)
+  })
+
+  it("is a no-op on empty input", () => {
+    expect(dedupeNotes([])).toEqual([])
   })
 })

@@ -32,6 +32,7 @@ pragma circom 2.1.9;
 
 include "circomlib/circuits/poseidon.circom";
 include "circomlib/circuits/comparators.circom";
+include "circomlib/circuits/bitify.circom";
 
 template MerkleInclusion(depth) {
     signal input leaf;
@@ -133,6 +134,16 @@ template Repay(depth) {
     depNul.inputs[0] <== sk;
     depNul.inputs[1] <== deposit_index;
     depNul.out === deposit_nullifier;
+
+    // Range-check both index signals to 128 bits so the contract's
+    // fr_to_u128 read matches the value the circuit uses. Without
+    // this, an attacker can supply `snapshot = true_snapshot + 2^128`;
+    // low-128-bit match passes the contract cross-check while the
+    // full field value inflates LHS and defeats the inequality.
+    component snapshotBits = Num2Bits(128);
+    snapshotBits.in <== borrow_index_snapshot;
+    component nowBits = Num2Bits(128);
+    nowBits.in <== borrow_index_now;
 
     // Track D: deposit_amount * snapshot >= loan_amount * index_now
     // (rearranged from `deposit_amount >= loan_amount * index_now /

@@ -214,10 +214,29 @@ export async function scanShieldedNotes(
     }
   }
 
-  const live = filterSpentNotes(notes, spentNullifiers)
+  const deduped = dedupeNotes(notes)
+  const live = filterSpentNotes(deduped, spentNullifiers)
   live.sort((a, b) => b.index - a.index)
   replaceNotes(live)
   return live
+}
+
+/**
+ * getEvents pagination can echo the same event across two calls if
+ * ledgers close near the page boundary. `${tree}:${index}` is unique
+ * per note within an asset; drop the second sighting so `replaceNotes`
+ * never propagates a phantom balance.
+ */
+export function dedupeNotes(notes: ShieldedNote[]): ShieldedNote[] {
+  const seen = new Set<string>()
+  const out: ShieldedNote[] = []
+  for (const note of notes) {
+    const key = `${note.asset}:${note.tree}:${note.index}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(note)
+  }
+  return out
 }
 
 function decodeWithdrawNullifier(

@@ -12,6 +12,7 @@ import {
 } from "@/features/wallet/network"
 
 import { prepareDeposit } from "./deposit"
+import { createToastTracker, describeError } from "./hook-utils"
 
 type Status = "idle" | "proving" | "signing" | "success" | "failed"
 
@@ -59,11 +60,14 @@ export function useDeposit(
         return null
       }
 
-      const provingToast = toastManager.add({
-        title: "Generating deposit proof",
-        description: "Poseidon witness + Groth16 (a few seconds)…",
-        type: "loading",
-      })
+      const toast = createToastTracker()
+      toast.set(
+        toastManager.add({
+          title: "Generating deposit proof",
+          description: "Poseidon witness + Groth16 (a few seconds)…",
+          type: "loading",
+        })
+      )
       setStatus("proving")
       setMessage(null)
 
@@ -74,14 +78,14 @@ export function useDeposit(
           walletSeed,
         })
 
-        toastManager.close(provingToast)
         setStatus("signing")
-
-        const signingToast = toastManager.add({
-          title: "Sign in wallet",
-          description: "Approve the deposit_shielded call in Freighter.",
-          type: "loading",
-        })
+        toast.set(
+          toastManager.add({
+            title: "Sign in wallet",
+            description: "Approve the deposit_shielded call in Freighter.",
+            type: "loading",
+          })
+        )
 
         const bindings = await import("@/features/protocol/bindings/borrow-pool")
         const client = new bindings.Client({
@@ -130,11 +134,7 @@ export function useDeposit(
               >["signTransaction"],
         })
 
-        try {
-          toastManager.close(signingToast)
-        } catch {
-          // toast already gone
-        }
+        toast.close()
 
         const hash = sent.sendTransactionResponse?.hash ?? ""
         const indexResult = sent.result as unknown as
@@ -163,21 +163,17 @@ export function useDeposit(
         })
         return { index: leafIndex, note: stored, txHash: hash }
       } catch (cause) {
-        try {
-          toastManager.close(provingToast)
-        } catch {
-          // toast already gone
-        }
-        const detail =
-          cause instanceof Error && cause.message
-            ? cause.message
-            : "Deposit failed."
+        toast.close()
+        const { title, description, rejected } = describeError(
+          cause,
+          "Deposit failed"
+        )
         setStatus("failed")
-        setMessage(detail)
+        setMessage(description)
         toastManager.add({
-          title: "Deposit failed",
-          description: detail,
-          type: "error",
+          title,
+          description,
+          type: rejected ? "info" : "error",
           timeout: 8_000,
         })
         return null

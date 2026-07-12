@@ -15,6 +15,7 @@ import {
   getStellarExpertTxUrl,
 } from "@/features/wallet/network"
 
+import { createToastTracker, describeError } from "./hook-utils"
 import { proveWithdraw } from "./withdraw-prover"
 import { fetchDepositWitnesses, fetchLoanWitnesses } from "./withdraw-tree"
 
@@ -65,11 +66,14 @@ export function useWithdraw(account: string | null): UseWithdrawResult {
       setActiveNoteIndex(note.index)
       setMessage(null)
 
-      const reconstructToast = toastManager.add({
-        title: "Reconstructing shielded tree",
-        description: "Scanning deposit events for inclusion witness…",
-        type: "loading",
-      })
+      const toast = createToastTracker()
+      toast.set(
+        toastManager.add({
+          title: "Reconstructing shielded tree",
+          description: "Scanning deposit events for inclusion witness…",
+          type: "loading",
+        })
+      )
 
       try {
         setStatus("reconstructing")
@@ -87,17 +91,13 @@ export function useWithdraw(account: string | null): UseWithdrawResult {
             `No matching ${note.tree} event found for note #${note.index}. Tree may have advanced beyond RPC retention.`
           )
         }
-        try {
-          toastManager.close(reconstructToast)
-        } catch {
-          // already closed
-        }
-
-        const proveToast = toastManager.add({
-          title: "Generating withdraw proof",
-          description: "Merkle inclusion + nullifier…",
-          type: "loading",
-        })
+        toast.set(
+          toastManager.add({
+            title: "Generating withdraw proof",
+            description: "Merkle inclusion + nullifier…",
+            type: "loading",
+          })
+        )
         setStatus("proving")
         const proof = await proveWithdraw({
           depositRoot: witness.root,
@@ -105,17 +105,13 @@ export function useWithdraw(account: string | null): UseWithdrawResult {
           pathBits: witness.pathBits,
           pathElements: witness.pathElements,
         })
-        try {
-          toastManager.close(proveToast)
-        } catch {
-          // already closed
-        }
-
-        const signToast = toastManager.add({
-          title: "Sign in wallet",
-          description: "Approve withdraw_shielded in Freighter.",
-          type: "loading",
-        })
+        toast.set(
+          toastManager.add({
+            title: "Sign in wallet",
+            description: "Approve withdraw_shielded in Freighter.",
+            type: "loading",
+          })
+        )
         setStatus("signing")
         const bindings = await import("@/features/protocol/bindings/borrow-pool")
         const client = new bindings.Client({
@@ -170,11 +166,7 @@ export function useWithdraw(account: string | null): UseWithdrawResult {
               >["signTransaction"],
         })
 
-        try {
-          toastManager.close(signToast)
-        } catch {
-          // already closed
-        }
+        toast.close()
 
         const hash = sent.sendTransactionResponse?.hash ?? ""
         setStatus("success")
@@ -194,21 +186,17 @@ export function useWithdraw(account: string | null): UseWithdrawResult {
         })
         return { txHash: hash }
       } catch (cause) {
-        try {
-          toastManager.close(reconstructToast)
-        } catch {
-          // already closed
-        }
-        const detail =
-          cause instanceof Error && cause.message
-            ? cause.message
-            : "Withdraw failed."
+        toast.close()
+        const { title, description, rejected } = describeError(
+          cause,
+          "Withdraw failed"
+        )
         setStatus("failed")
-        setMessage(detail)
+        setMessage(description)
         toastManager.add({
-          title: "Withdraw failed",
-          description: detail,
-          type: "error",
+          title,
+          description,
+          type: rejected ? "info" : "error",
           timeout: 8_000,
         })
         return null

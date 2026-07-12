@@ -14,6 +14,7 @@ import {
   getStellarExpertTxUrl,
 } from "@/features/wallet/network"
 
+import { createToastTracker, describeError } from "./hook-utils"
 import { proveRepay } from "./repay-prover"
 import { fetchDepositWitnesses, fetchLoanWitnesses } from "./withdraw-tree"
 
@@ -86,11 +87,14 @@ export function useRepay(account: string | null): UseRepayResult {
       setActiveLoanIndex(loanNote.index)
       setMessage(null)
 
-      const scanToast = toastManager.add({
-        title: "Reconstructing shielded trees",
-        description: "Rebuilding loan + deposit inclusion witnesses…",
-        type: "loading",
-      })
+      const toast = createToastTracker()
+      toast.set(
+        toastManager.add({
+          title: "Reconstructing shielded trees",
+          description: "Rebuilding loan + deposit inclusion witnesses…",
+          type: "loading",
+        })
+      )
 
       try {
         setStatus("reconstructing")
@@ -117,12 +121,6 @@ export function useRepay(account: string | null): UseRepayResult {
             `No matching deposit event for note #${depositNote.index}. Retention window may have rolled.`
           )
         }
-        try {
-          toastManager.close(scanToast)
-        } catch {
-          // already closed
-        }
-
         const bindings = await import("@/features/protocol/bindings/borrow-pool")
         const client = new bindings.Client({
           contractId,
@@ -146,17 +144,26 @@ export function useRepay(account: string | null): UseRepayResult {
         ])
         const indexNowSnapshot = indexNowFetch.result
         const borrowIndexNow = indexNowSnapshot?.value ?? BigInt(0)
+        if (borrowIndexNow === BigInt(0)) {
+          // Uninitialised asset — reject rather than let the circuit's
+          // 0 × anything ≥ 0 comparison pass with a dust deposit.
+          throw new Error(
+            `borrow_index for ${loanNote.asset} is uninitialised. Contract admin must set rate params before repay.`
+          )
+        }
         const rawSnapshot = snapshotFetch.result
         const borrowIndexSnapshot =
           rawSnapshot === undefined || rawSnapshot === null
             ? borrowIndexNow
             : rawSnapshot
 
-        const proveToast = toastManager.add({
-          title: "Generating repay proof",
-          description: "2× commitment + 2× Merkle + accrued-debt check…",
-          type: "loading",
-        })
+        toast.set(
+          toastManager.add({
+            title: "Generating repay proof",
+            description: "2× commitment + 2× Merkle + accrued-debt check…",
+            type: "loading",
+          })
+        )
         setStatus("proving")
         const proof = await proveRepay({
           loanNote,
@@ -170,17 +177,13 @@ export function useRepay(account: string | null): UseRepayResult {
           borrowIndexSnapshot,
           borrowIndexNow,
         })
-        try {
-          toastManager.close(proveToast)
-        } catch {
-          // already closed
-        }
-
-        const signToast = toastManager.add({
-          title: "Sign in wallet",
-          description: "Approve repay_shielded in Freighter.",
-          type: "loading",
-        })
+        toast.set(
+          toastManager.add({
+            title: "Sign in wallet",
+            description: "Approve repay_shielded in Freighter.",
+            type: "loading",
+          })
+        )
         setStatus("signing")
 
         const proofBuffers = {
@@ -222,11 +225,7 @@ export function useRepay(account: string | null): UseRepayResult {
               >["signTransaction"],
         })
 
-        try {
-          toastManager.close(signToast)
-        } catch {
-          // already closed
-        }
+        toast.close()
 
         const hash = sent.sendTransactionResponse?.hash ?? ""
         setStatus("success")
@@ -243,21 +242,17 @@ export function useRepay(account: string | null): UseRepayResult {
         })
         return { txHash: hash }
       } catch (cause) {
-        try {
-          toastManager.close(scanToast)
-        } catch {
-          // already closed
-        }
-        const detail =
-          cause instanceof Error && cause.message
-            ? cause.message
-            : "Repay failed."
+        toast.close()
+        const { title, description, rejected } = describeError(
+          cause,
+          "Repay failed"
+        )
         setStatus("failed")
-        setMessage(detail)
+        setMessage(description)
         toastManager.add({
-          title: "Repay failed",
-          description: detail,
-          type: "error",
+          title,
+          description,
+          type: rejected ? "info" : "error",
           timeout: 8_000,
         })
         return null

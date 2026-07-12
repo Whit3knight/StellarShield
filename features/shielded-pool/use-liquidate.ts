@@ -23,6 +23,7 @@ import {
   getStellarExpertTxUrl,
 } from "@/features/wallet/network"
 
+import { createToastTracker, describeError } from "./hook-utils"
 import { proveLiquidate } from "./liquidate-prover"
 import { proveLiquidateV2 } from "./liquidate-v2-prover"
 
@@ -90,11 +91,14 @@ export function useLiquidate(
       setActiveLoanIndex(loanNote.index)
       setMessage(null)
 
-      const priceToast = toastManager.add({
-        title: "Reading current price",
-        description: "Fetching Reflector oracle for underwater check…",
-        type: "loading",
-      })
+      const toast = createToastTracker()
+      toast.set(
+        toastManager.add({
+          title: "Reading current price",
+          description: "Fetching Reflector oracle for underwater check…",
+          type: "loading",
+        })
+      )
 
       try {
         setStatus("pricing")
@@ -104,12 +108,6 @@ export function useLiquidate(
             `Reflector returned no price for ${loanNote.asset}. Retry when the feed refreshes.`
           )
         }
-        try {
-          toastManager.close(priceToast)
-        } catch {
-          // already closed
-        }
-
         const risk = await getRiskParams()
 
         const loanCommitment = computeCommitment({
@@ -156,11 +154,13 @@ export function useLiquidate(
         const sidecarNullifier = nullifierFetch.result
         const useV2 = sidecarNullifier !== undefined && sidecarNullifier !== null
 
-        const proveToast = toastManager.add({
-          title: `Generating liquidate ${useV2 ? "v2" : "v1"} proof`,
-          description: "3 bond commits + underwater range check…",
-          type: "loading",
-        })
+        toast.set(
+          toastManager.add({
+            title: `Generating liquidate ${useV2 ? "v2" : "v1"} proof`,
+            description: "3 bond commits + underwater range check…",
+            type: "loading",
+          })
+        )
         setStatus("proving")
 
         const nowSecs = BigInt(Math.floor(Date.now() / 1000))
@@ -211,17 +211,13 @@ export function useLiquidate(
           }
         }
 
-        try {
-          toastManager.close(proveToast)
-        } catch {
-          // already closed
-        }
-
-        const signToast = toastManager.add({
-          title: "Sign in wallet",
-          description: `Approve liquidate_shielded${useV2 ? "_v2" : ""} in Freighter.`,
-          type: "loading",
-        })
+        toast.set(
+          toastManager.add({
+            title: "Sign in wallet",
+            description: `Approve liquidate_shielded${useV2 ? "_v2" : ""} in Freighter.`,
+            type: "loading",
+          })
+        )
         setStatus("signing")
 
         // Generate a fresh liquidator note (Poseidon(denom, asset_tag,
@@ -294,11 +290,7 @@ export function useLiquidate(
               >["signTransaction"],
         })
 
-        try {
-          toastManager.close(signToast)
-        } catch {
-          // already closed
-        }
+        toast.close()
 
         const hash = sent.sendTransactionResponse?.hash ?? ""
         setStatus("success")
@@ -315,21 +307,17 @@ export function useLiquidate(
         })
         return { txHash: hash }
       } catch (cause) {
-        try {
-          toastManager.close(priceToast)
-        } catch {
-          // already closed
-        }
-        const detail =
-          cause instanceof Error && cause.message
-            ? cause.message
-            : "Liquidate failed."
+        toast.close()
+        const { title, description, rejected } = describeError(
+          cause,
+          "Liquidate failed"
+        )
         setStatus("failed")
-        setMessage(detail)
+        setMessage(description)
         toastManager.add({
-          title: "Liquidate failed",
-          description: detail,
-          type: "error",
+          title,
+          description,
+          type: rejected ? "info" : "error",
           timeout: 8_000,
         })
         return null

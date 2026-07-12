@@ -18,6 +18,7 @@ import {
 } from "@/features/wallet/network"
 
 import { prepareBorrow } from "./borrow"
+import { createToastTracker, describeError } from "./hook-utils"
 
 type Status =
   | "idle"
@@ -103,11 +104,15 @@ export function useBorrow(
         return null
       }
 
-      const reconstructToast = toastManager.add({
-        title: "Reconstructing collateral witnesses",
-        description: "Rebuilding the deposit tree + fetching Reflector price…",
-        type: "loading",
-      })
+      const toast = createToastTracker()
+      toast.set(
+        toastManager.add({
+          title: "Reconstructing collateral witnesses",
+          description:
+            "Rebuilding the deposit tree + fetching Reflector price…",
+          type: "loading",
+        })
+      )
       setStatus("reconstructing")
       setMessage(null)
 
@@ -115,17 +120,13 @@ export function useBorrow(
         // prepareBorrow already handles the witness fetch + oracle
         // read + proof generation. We split the toast lifecycle here
         // so users get progress cues at each big stage.
-        try {
-          toastManager.close(reconstructToast)
-        } catch {
-          // already closed
-        }
-
-        const proveToast = toastManager.add({
-          title: "Generating borrow proof",
-          description: "Merkle × 4 + LTV + nullifiers (~10-15s)…",
-          type: "loading",
-        })
+        toast.set(
+          toastManager.add({
+            title: "Generating borrow proof",
+            description: "Merkle × 4 + LTV + nullifiers (~10-15s)…",
+            type: "loading",
+          })
+        )
         setStatus("proving")
 
         const risk = await getRiskParams()
@@ -139,17 +140,13 @@ export function useBorrow(
           walletSeed,
         })
 
-        try {
-          toastManager.close(proveToast)
-        } catch {
-          // already closed
-        }
-
-        const signToast = toastManager.add({
-          title: "Sign in wallet",
-          description: "Approve borrow_shielded in Freighter.",
-          type: "loading",
-        })
+        toast.set(
+          toastManager.add({
+            title: "Sign in wallet",
+            description: "Approve borrow_shielded in Freighter.",
+            type: "loading",
+          })
+        )
         setStatus("signing")
 
         const bindings = await import("@/features/protocol/bindings/borrow-pool")
@@ -200,11 +197,7 @@ export function useBorrow(
               >["signTransaction"],
         })
 
-        try {
-          toastManager.close(signToast)
-        } catch {
-          // already closed
-        }
+        toast.close()
 
         const hash = sent.sendTransactionResponse?.hash ?? ""
         const indexResult = sent.result as unknown as
@@ -239,21 +232,17 @@ export function useBorrow(
         })
         return { txHash: hash }
       } catch (cause) {
-        try {
-          toastManager.close(reconstructToast)
-        } catch {
-          // already closed
-        }
-        const detail =
-          cause instanceof Error && cause.message
-            ? cause.message
-            : "Borrow failed."
+        toast.close()
+        const { title, description, rejected } = describeError(
+          cause,
+          "Borrow failed"
+        )
         setStatus("failed")
-        setMessage(detail)
+        setMessage(description)
         toastManager.add({
-          title: "Borrow failed",
-          description: detail,
-          type: "error",
+          title,
+          description,
+          type: rejected ? "info" : "error",
           timeout: 8_000,
         })
         return null
