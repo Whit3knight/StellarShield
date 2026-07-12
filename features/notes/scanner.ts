@@ -15,6 +15,7 @@ import { deriveShieldedIdentity, tryDecryptAnyMemo } from "./memo"
 import {
   DENOMINATION,
   SUPPORTED_ASSETS,
+  computeCommitment,
   computeNullifier,
   type ShieldedAsset,
   type ShieldedNote,
@@ -241,12 +242,23 @@ export async function scanShieldedNotes(
     }
     if (!plaintext) continue
     if (topic === "deposit") {
+      const asset = plaintext.asset as ShieldedAsset
+      const computedCommitment =
+        (SUPPORTED_ASSETS as readonly string[]).includes(asset)
+          ? computeCommitment({
+              amount: DENOMINATION[asset],
+              asset,
+              salt: BigInt(plaintext.salt),
+              sk: skForNote,
+            }).toString()
+          : "n/a"
       console.log(
         "[scanner] deposit note",
         JSON.stringify({
           index: decoded.index,
           asset: plaintext.asset,
           usedLegacy,
+          computedCommitment,
         })
       )
     }
