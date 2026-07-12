@@ -540,11 +540,21 @@ async function fetchEvents(
 }
 
 function baseFilter(topic: string): rpc.Api.EventFilter[] {
+  // Soroban's getEvents requires the topic filter array length to
+  // match the emitted event's topic count exactly. Borrow events are
+  // (topic, collateral_asset, borrow_asset) — 3 slots. Liquidate is
+  // (topic, borrow_asset) — 2 slots. Widen so the CLI actually sees
+  // them; pre-fix, both were dropped and every scan returned 0.
   return [
     {
       type: "contract",
       contractIds: [CONTRACT],
-      topics: [[topic]],
+      topics: [[topic, "*", "*"]],
+    },
+    {
+      type: "contract",
+      contractIds: [CONTRACT],
+      topics: [[topic, "*"]],
     },
   ]
 }

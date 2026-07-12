@@ -58,7 +58,7 @@ export async function fetchLoanWitnesses(
         {
           type: "contract",
           contractIds: [contractId],
-          topics: [[borrowTopic]],
+          topics: [[borrowTopic, "*", "*"]],
         },
       ],
       startLedger,

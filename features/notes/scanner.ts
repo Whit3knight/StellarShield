@@ -98,6 +98,11 @@ export async function scanShieldedNotes(
   const repayTopic = sdk.xdr.ScVal.scvSymbol("repay").toXDR("base64")
   const liquidateTopic = sdk.xdr.ScVal.scvSymbol("liquidat").toXDR("base64")
 
+  // Soroban `getEvents` treats a filter's topic array as an EXACT
+  // slot-count match — `[[T]]` only matches events whose topic list
+  // has length 1. Our contract emits 2 topics for deposit / borrow /
+  // repay (`(topic, asset)`) and 3 for withdraw + liquidate
+  // (`(topic, asset, tree_kind)`). Widen to cover both.
   let response: unknown
   try {
     response = await server.getEvents({
@@ -105,27 +110,32 @@ export async function scanShieldedNotes(
         {
           type: "contract",
           contractIds: [contractId],
-          topics: [[depositTopic]],
+          topics: [[depositTopic, "*"]],
         },
         {
           type: "contract",
           contractIds: [contractId],
-          topics: [[borrowTopic]],
+          topics: [[borrowTopic, "*", "*"]],
         },
         {
           type: "contract",
           contractIds: [contractId],
-          topics: [[withdrawTopic]],
+          topics: [[withdrawTopic, "*"]],
         },
         {
           type: "contract",
           contractIds: [contractId],
-          topics: [[repayTopic]],
+          topics: [[withdrawTopic, "*", "*"]],
         },
         {
           type: "contract",
           contractIds: [contractId],
-          topics: [[liquidateTopic]],
+          topics: [[repayTopic, "*"]],
+        },
+        {
+          type: "contract",
+          contractIds: [contractId],
+          topics: [[liquidateTopic, "*"]],
         },
       ],
       startLedger,
