@@ -5,7 +5,6 @@ import { appPreferenceKeys } from "./_constants/preferences"
 
 import { ThemeProvider } from "@/components/theme-provider"
 import { ToastProvider } from "@/components/ui/toast"
-import { AdapterProvider } from "@/features/shared/adapter-provider"
 import { ShieldedPoolProvider } from "@/features/shielded-pool"
 import { cn } from "@/lib/utils"
 
@@ -49,13 +48,11 @@ export default function RootLayout({
         />
         <ThemeProvider>
           <ToastProvider position="bottom-right">
-            <AdapterProvider>
-              <SelectedMarketProvider>
-                <ShieldedPoolProvider>
-                  <NavMenusProvider>{children}</NavMenusProvider>
-                </ShieldedPoolProvider>
-              </SelectedMarketProvider>
-            </AdapterProvider>
+            <SelectedMarketProvider>
+              <ShieldedPoolProvider>
+                <NavMenusProvider>{children}</NavMenusProvider>
+              </ShieldedPoolProvider>
+            </SelectedMarketProvider>
           </ToastProvider>
         </ThemeProvider>
       </body>

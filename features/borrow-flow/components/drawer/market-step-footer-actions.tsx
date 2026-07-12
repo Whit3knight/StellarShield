@@ -14,7 +14,7 @@ import type {
   BorrowFlowState,
   MarketStep,
 } from "../../types"
-import { canSubmitTransaction } from "../../flow-actions"
+import { canSubmitTransaction } from "../../gates"
 import { isSubmitPending, isVerificationPending } from "../../steps"
 
 type MarketStepFooterActionsProps = {

@@ -8,7 +8,7 @@ import { Drawer, DrawerClose, DrawerTrigger } from "@/components/ui/drawer"
 import type { MarketCardData } from "@/features/markets"
 
 import { useShieldedBorrowFlow } from "../../hooks/use-shielded-borrow-flow"
-import { canSubmitTransaction } from "../../flow-actions"
+import { canSubmitTransaction } from "../../gates"
 import { isSubmitPending, isVerificationPending } from "../../steps"
 import { MarketDrawerFooter } from "./market-drawer-footer"
 import { MarketDrawerPopup } from "./market-drawer-popup"
