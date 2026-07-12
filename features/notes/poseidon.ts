@@ -1,22 +1,18 @@
-// Poseidon over BLS12-381 Fr — pure bigint impl.
+// Poseidon over BLS12-381 Fr — mirror of `contracts/circuits/**/*.circom`'s
+// use of `circomlib/circuits/poseidon.circom::Poseidon(nInputs)`.
 //
-// Why not `circomlibjs`? circomlibjs's Poseidon operates on BN254
-// arithmetic. Our circom circuits compile with `-p bls12381` (Soroban
-// only exposes BLS12-381 host functions, not BN254), so client-side
-// commitments have to be produced with the *same* field or every
-// zk proof will fail with "public output mismatch".
+// The circomlib circuit uses the "optimized" Poseidon variant with a
+// sparse-matrix partial round layout: full rounds add `t` constants and
+// mix via `M`, partial rounds add one constant + apply x^5 to state[0]
+// only, then mix via a sparse `S`-derived matrix. Constants come from
+// circomlib's `poseidon_constants.circom` — extracted verbatim into
+// `poseidon-constants.json` for JS + Rust to share.
 //
-// Constants come from circomlib's `poseidon_constants.json` (BN254
-// generation parameters). Those hex constants happen to be < 254 bits
-// so their canonical representation in BLS12-381 Fr matches the raw
-// value — same permutation, different modulus. The Rust port in
-// `contracts/borrow-pool/src/poseidon.rs` reads the same JSON at
-// build time so both sides stay in lockstep.
-//
-// Round schedule:
-//   R_F = 8 (full rounds, split 4 + 4)
-//   R_P per t (56, 57, 60, 63 for t = 2, 3, 5, 7)
-//   S-box: x^5
+// Under `-p bls12381` the field is BLS12-381 Fr (not BN254 as circomlib
+// defaults to). All arithmetic here mirrors that. Any drift between
+// this file, `poseidon-constants.json`, the Rust port in
+// `contracts/borrow-pool/src/poseidon.rs`, and the circom circuit
+// breaks every proof.
 
 import poseidonConstants from "./poseidon-constants.json"
 
@@ -24,13 +20,15 @@ import poseidonConstants from "./poseidon-constants.json"
 export const FR_ORDER =
   0x73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001n
 
-// Round-count schedule matches circomlib. Indexed by t.
-const R_P: Record<number, number> = { 3: 57, 5: 60, 7: 63 }
 const R_F = 8
+// Partial round counts (indexed by t).
+const R_P: Record<number, number> = { 3: 57, 5: 60, 7: 63 }
 
 type ParsedConstants = {
   C: Record<number, bigint[]>
   M: Record<number, bigint[][]>
+  P: Record<number, bigint[][]>
+  S: Record<number, bigint[]>
 }
 
 let parsed: ParsedConstants | null = null
@@ -40,16 +38,31 @@ function parseConstants(): ParsedConstants {
   const raw = poseidonConstants as {
     C: Record<string, string[]>
     M: Record<string, string[][]>
+    P: Record<string, string[][]>
+    S: Record<string, string[]>
   }
   const C: Record<number, bigint[]> = {}
   const M: Record<number, bigint[][]> = {}
+  const P: Record<number, bigint[][]> = {}
+  const S: Record<number, bigint[]> = {}
   for (const t of Object.keys(raw.C)) {
     const key = Number(t)
-    C[key] = raw.C[t].map((hex) => BigInt(hex) % FR_ORDER)
-    M[key] = raw.M[t].map((row) => row.map((cell) => BigInt(cell) % FR_ORDER))
+    C[key] = raw.C[t].map(hexToField)
+    M[key] = raw.M[t].map((row) => row.map(hexToField))
+    P[key] = raw.P[t].map((row) => row.map(hexToField))
+    S[key] = raw.S[t].map(hexToField)
   }
-  parsed = { C, M }
+  parsed = { C, M, P, S }
   return parsed
+}
+
+function hexToField(hex: string): bigint {
+  return reduce(BigInt(hex))
+}
+
+function reduce(value: bigint): bigint {
+  const v = value % FR_ORDER
+  return v < 0n ? v + FR_ORDER : v
 }
 
 function addMod(a: bigint, b: bigint): bigint {
@@ -68,6 +81,22 @@ function pow5(value: bigint): bigint {
 }
 
 /**
+ * Multiply state vector by matrix `mat`: `out[i] = sum_j mat[j][i] * in[j]`.
+ * Matches circomlib's `Mix` template (out uses column j of row-major mat).
+ */
+function mixVec(mat: bigint[][], state: bigint[], t: number): bigint[] {
+  const next = new Array<bigint>(t).fill(0n)
+  for (let i = 0; i < t; i++) {
+    let acc = 0n
+    for (let j = 0; j < t; j++) {
+      acc = addMod(acc, mulMod(mat[j][i], state[j]))
+    }
+    next[i] = acc
+  }
+  return next
+}
+
+/**
  * Poseidon(inputs). t = inputs.length + 1. Supported input widths:
  * 2 (t=3), 4 (t=5), 6 (t=7) — matches every arity our circuits need.
  */
@@ -78,40 +107,69 @@ export function poseidon(inputs: bigint[]): bigint {
       `Poseidon: unsupported width t=${t} (input length ${inputs.length})`
     )
   }
-  const { C, M } = parseConstants()
-  const constants = C[t]
-  const matrix = M[t]
-  const partial = R_P[t]
+  const { C, M, P, S } = parseConstants()
+  const c = C[t]
+  const m = M[t]
+  const p = P[t]
+  const s = S[t]
+  const nRoundsP = R_P[t]
 
-  let state: bigint[] = [0n, ...inputs.map((input) => input % FR_ORDER)]
-  const totalRounds = R_F + partial
+  // Initial state: [0, ...inputs]. Inputs are reduced mod FR_ORDER.
+  let state: bigint[] = [0n, ...inputs.map(reduce)]
 
-  for (let round = 0; round < totalRounds; round++) {
-    // Add round constants.
-    for (let i = 0; i < t; i++) {
-      state[i] = addMod(state[i], constants[round * t + i])
-    }
+  // ark[0]
+  for (let j = 0; j < t; j++) state[j] = addMod(state[j], c[j])
 
-    // S-box. Full rounds hit every state element; partial rounds
-    // apply only to state[0].
-    const isFull = round < R_F / 2 || round >= R_F / 2 + partial
-    if (isFull) {
-      for (let i = 0; i < t; i++) state[i] = pow5(state[i])
-    } else {
-      state[0] = pow5(state[0])
-    }
-
-    // MDS matrix multiplication.
-    const next = new Array<bigint>(t).fill(0n)
-    for (let i = 0; i < t; i++) {
-      let acc = 0n
-      for (let j = 0; j < t; j++) {
-        acc = addMod(acc, mulMod(matrix[i][j], state[j]))
-      }
-      next[i] = acc
-    }
-    state = next
+  // First half full rounds: 3 iterations (R_F/2 - 1 = 3).
+  for (let r = 0; r < R_F / 2 - 1; r++) {
+    // sigmaF (all elems)
+    for (let j = 0; j < t; j++) state[j] = pow5(state[j])
+    // ark[r+1]
+    const off = (r + 1) * t
+    for (let j = 0; j < t; j++) state[j] = addMod(state[j], c[off + j])
+    // mix with M
+    state = mixVec(m, state, t)
   }
 
-  return state[0]
+  // Transition: full sigma + ark + mix with P.
+  for (let j = 0; j < t; j++) state[j] = pow5(state[j])
+  {
+    const off = (R_F / 2) * t
+    for (let j = 0; j < t; j++) state[j] = addMod(state[j], c[off + j])
+  }
+  state = mixVec(p, state, t)
+
+  // Partial rounds.
+  const stride = t * 2 - 1
+  for (let r = 0; r < nRoundsP; r++) {
+    state[0] = pow5(state[0])
+    state[0] = addMod(state[0], c[(R_F / 2 + 1) * t + r])
+    const s0 = state[0]
+    const newState = new Array<bigint>(t).fill(0n)
+    let acc = 0n
+    for (let j = 0; j < t; j++) {
+      acc = addMod(acc, mulMod(s[r * stride + j], state[j]))
+    }
+    newState[0] = acc
+    for (let i = 1; i < t; i++) {
+      newState[i] = addMod(state[i], mulMod(s0, s[r * stride + t + i - 1]))
+    }
+    state = newState
+  }
+
+  // Second half full rounds: 3 iterations.
+  for (let r = 0; r < R_F / 2 - 1; r++) {
+    for (let j = 0; j < t; j++) state[j] = pow5(state[j])
+    const off = (R_F / 2 + 1) * t + nRoundsP + r * t
+    for (let j = 0; j < t; j++) state[j] = addMod(state[j], c[off + j])
+    state = mixVec(m, state, t)
+  }
+
+  // Final sigma + MixLast column 0: out = sum_j M[j][0] * state[j].
+  for (let j = 0; j < t; j++) state[j] = pow5(state[j])
+  let out = 0n
+  for (let j = 0; j < t; j++) {
+    out = addMod(out, mulMod(m[j][0], state[j]))
+  }
+  return out
 }
