@@ -16,6 +16,7 @@
 
 import {
   assetTag,
+  COLLATERAL_NOTES_PER_BORROW,
   computeCommitment,
   computeNullifier,
   DENOMINATION,
@@ -71,8 +72,10 @@ export async function proveBorrow(
   inputs: BorrowProofInputs,
   options: { wasmUrl?: string; zkeyUrl?: string } = {}
 ): Promise<BorrowProofResult> {
-  if (inputs.collateralNotes.length !== 4) {
-    throw new Error("borrow prover: exactly 4 collateral notes required")
+  if (inputs.collateralNotes.length !== COLLATERAL_NOTES_PER_BORROW) {
+    throw new Error(
+      `borrow prover: exactly ${COLLATERAL_NOTES_PER_BORROW} collateral notes required`
+    )
   }
 
   // Aggregate collateral value + derive borrow amount from LTV band.
@@ -190,8 +193,10 @@ export function validateCollateralNotes(
   notes: ShieldedNote[],
   asset: ShieldedAsset
 ): void {
-  if (notes.length !== 4) {
-    throw new Error("borrow requires exactly 4 collateral notes")
+  if (notes.length !== COLLATERAL_NOTES_PER_BORROW) {
+    throw new Error(
+      `borrow requires exactly ${COLLATERAL_NOTES_PER_BORROW} collateral notes`
+    )
   }
   for (const note of notes) {
     if (note.asset !== asset) {

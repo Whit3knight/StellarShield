@@ -259,6 +259,13 @@ export async function scanShieldedNotes(
         typeof plaintext.amount === "string" && plaintext.amount.length > 0
           ? BigInt(plaintext.amount)
           : DENOMINATION[asset]
+      const bondCollateralAsset =
+        typeof plaintext.bond?.collateralAsset === "string" &&
+        (SUPPORTED_ASSETS as readonly string[]).includes(
+          plaintext.bond.collateralAsset
+        )
+          ? (plaintext.bond.collateralAsset as ShieldedAsset)
+          : undefined
       const bond = plaintext.bond
         ? {
             saltAmount: BigInt(plaintext.bond.saltAmount),
@@ -266,6 +273,7 @@ export async function scanShieldedNotes(
             saltPrice: BigInt(plaintext.bond.saltPrice),
             collateralValue: BigInt(plaintext.bond.collateralValue),
             borrowPrice: BigInt(plaintext.bond.oraclePrice),
+            collateralAsset: bondCollateralAsset,
           }
         : undefined
       notes.push({

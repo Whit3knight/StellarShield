@@ -89,12 +89,14 @@ function SessionDrawers({
   const { activityDrawer, positionsDrawer, proofsDrawer, shieldedDrawer } =
     useNavMenus()
   const { proofs } = useBorrowSession()
-  const chainReadEnabled = positionsDrawer.open || activityDrawer.open
-  const {
-    isLoading: chainLoading,
-    receipts: chainPositions,
-    refresh: refreshChainPositions,
-  } = useChainPositions(account, chainReadEnabled)
+  // Positions drawer reads from `useNotes()` now, but the activity
+  // drawer still merges legacy chain receipts with client-side proof
+  // history, so the chain read stays gated on the activity drawer.
+  const chainReadEnabled = activityDrawer.open
+  const { receipts: chainPositions } = useChainPositions(
+    account,
+    chainReadEnabled
+  )
   const activities = useMergedActivities({
     chainReceipts: chainPositions,
     proofs,
@@ -108,11 +110,7 @@ function SessionDrawers({
         open={activityDrawer.open}
       />
       <PositionsDrawer
-        account={account}
-        chainLoading={chainLoading}
-        chainPositions={chainPositions}
         onOpenChange={positionsDrawer.setOpen}
-        onRepaid={refreshChainPositions}
         open={positionsDrawer.open}
       />
       <ProofsDrawer

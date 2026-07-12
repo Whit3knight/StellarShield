@@ -29,6 +29,7 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty"
 import {
+  COLLATERAL_NOTES_PER_BORROW,
   DENOMINATION,
   SUPPORTED_ASSETS,
   backupBundleToDownload,
@@ -177,7 +178,7 @@ function BorrowPanel({
     borrowStatus === "proving" ||
     borrowStatus === "signing"
   const eligible = SUPPORTED_ASSETS.filter(
-    (asset) => availableCollateral[asset] >= 4
+    (asset) => availableCollateral[asset] >= COLLATERAL_NOTES_PER_BORROW
   )
   if (eligible.length === 0) return null
 
@@ -187,7 +188,7 @@ function BorrowPanel({
         <div>
           <div className="font-medium">Borrow shielded</div>
           <p className="text-xs text-muted-foreground flex items-center gap-1">
-            4 collateral notes
+            {COLLATERAL_NOTES_PER_BORROW} collateral notes
             <ArrowRightIcon aria-hidden="true" className="size-3" />
             1 loan note, amounts + wallet hidden.
           </p>
@@ -365,7 +366,7 @@ function BalanceGrid({
         >
           <div className="flex items-center justify-between">
             <span className="text-xs text-muted-foreground">{asset}</span>
-            <Badge variant="outline">{DENOMINATION[asset].toString()}/note</Badge>
+            <Badge variant="outline">{DENOMINATION[asset].toString()} {asset}/note</Badge>
           </div>
           <div className="flex items-baseline gap-1">
             <span className="text-lg font-semibold">
@@ -421,7 +422,7 @@ function NoteList({
     return (
       <EmptyPanel
         title="Scanning"
-        description="Reading deposit events + decrypting memos."
+        description="Replaying deposit, loan, and repay events + decrypting memos."
       />
     )
   }
@@ -466,7 +467,7 @@ function NoteList({
               <Badge variant="outline">{note.asset}</Badge>
               <span className="font-mono">#{note.index}</span>
               <PrivateValue className="truncate font-mono text-muted-foreground">
-                {`${note.amount.toString()} ${note.asset}`}
+                {formatNoteAmount(note)}
               </PrivateValue>
               {note.tree === "loan" && note.openedAt ? (
                 <LoanAgeBadge openedAt={note.openedAt} />
@@ -559,7 +560,13 @@ function isUnderwater({
   prices: Record<ShieldedAsset, number>
   thresholdBps: number
 }): boolean {
-  const priceNow = prices[loanAsset]
+  // `bond.borrowPrice` is the collateral asset's Reflector price at
+  // borrow time; the ratio in this HF check is `priceNow /
+  // priceAtBorrow` for the SAME asset feed. Falling back to `loanAsset`
+  // for legacy notes without a memoised `collateralAsset` is only
+  // correct when collateral and loan share an asset.
+  const priceAsset = bond.collateralAsset ?? loanAsset
+  const priceNow = prices[priceAsset]
   if (!priceNow || priceNow <= 0) return false
   const currentScaled = BigInt(Math.floor(priceNow * 1_000_000))
   const borrowScaled = bond.borrowPrice
@@ -591,11 +598,14 @@ function LoanHealthBadge({
   prices: Record<ShieldedAsset, number>
   thresholdBps: number
 }): React.ReactElement | null {
-  const priceNow = prices[loanAsset]
+  // `bond.borrowPrice` is the collateral asset's Reflector price at
+  // borrow time, so the ratio in this HF check is `priceNow /
+  // priceAtBorrow` for the SAME asset feed. Falling back to `loanAsset`
+  // for legacy notes without a memoised `collateralAsset` is only
+  // correct when collateral and loan share an asset.
+  const priceAsset = bond.collateralAsset ?? loanAsset
+  const priceNow = prices[priceAsset]
   if (!priceNow || priceNow <= 0) return null
-  // Bond stored the collateral asset's Reflector price at borrow; use
-  // the same source now. Since both are the same asset feed, ratio is
-  // dimensionless.
   const currentScaled = BigInt(Math.floor(priceNow * 1_000_000))
   const borrowScaled = bond.borrowPrice
   if (borrowScaled <= 0n || loanAmount <= 0n) return null
@@ -648,6 +658,36 @@ function formatAge(seconds: number): string {
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m`
   if (seconds < 86_400) return `${Math.floor(seconds / 3600)}h`
   return `${Math.floor(seconds / 86_400)}d`
+}
+
+// Reflector Pulse quotes prices at 14-decimal precision, and the
+// shielded-borrow circuit multiplies the raw oracle price into
+// `borrow_amount` — so a Reflector-priced loan note ends up storing an
+// amount scaled by 10^14 that the withdraw circuit reads back verbatim.
+// Loan notes therefore land in the tree with a bigint two orders of
+// magnitude away from a token unit, and printing the raw number reads
+// as noise. Deposit notes are still whole-denomination bigints.
+//
+// ponytail: presentation-only normalisation. The underlying scale
+// mismatch between the oracle input and the token transfer is a
+// circuit-level issue that needs a proper reconciliation
+// (see `features/shielded-pool/borrow-prover.ts` — oraclePrice is fed
+// raw). Until that lands, this heuristic keeps the drawer readable
+// without lying about which value the contract actually enforces.
+const ORACLE_DECIMALS = 14n
+const ORACLE_SCALE = 10n ** ORACLE_DECIMALS
+const RAW_ORACLE_HEURISTIC = 10n ** 10n
+
+function formatNoteAmount(note: ShieldedNote): string {
+  if (note.tree === "loan" && note.amount >= RAW_ORACLE_HEURISTIC) {
+    // Value is oracle-scaled (14 decimals). Show whole-unit approximation.
+    const whole = note.amount / ORACLE_SCALE
+    const remainder = note.amount % ORACLE_SCALE
+    const cents = (remainder * 100n) / ORACLE_SCALE
+    const fractional = cents.toString().padStart(2, "0")
+    return `~${whole.toString()}.${fractional} ${note.asset}`
+  }
+  return `${note.amount.toString()} ${note.asset}`
 }
 
 /**

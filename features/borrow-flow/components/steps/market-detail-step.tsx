@@ -10,7 +10,6 @@ import {
   deriveMarketMetrics,
   formatPercent,
   formatUsdCompact,
-  getMarketPair,
   normalizeChart,
   useMarketStats,
   type MarketCardData,
@@ -35,7 +34,7 @@ export function MarketDetailStep({
   )
 
   const { stats } = useMarketStats()
-  const metrics = deriveMarketMetrics(stats[getMarketPair(market)])
+  const metrics = deriveMarketMetrics(stats[market.symbol], market.symbol)
   const chartPoints = normalizeChart(metrics.chart)
 
   return (

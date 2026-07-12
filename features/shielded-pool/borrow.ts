@@ -175,6 +175,7 @@ export async function prepareBorrow(
       saltPrice: bondSaltPrice.toString(),
       collateralValue: (totalCollateral * oraclePrice).toString(),
       oraclePrice: oraclePrice.toString(),
+      collateralAsset: params.collateralAsset,
     },
   }
 

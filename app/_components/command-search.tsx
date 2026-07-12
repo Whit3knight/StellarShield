@@ -164,7 +164,7 @@ export function CommandSearch(): React.ReactElement {
           positionsDrawer.setOpen(true)
           setOpen(false)
         },
-        value: "open positions",
+        value: "open positions loans",
       },
       {
         icon: ShieldCheckIcon,
@@ -336,7 +336,7 @@ function MarketBadges({
   market: MarketCardData
 }): React.ReactElement {
   const { stats } = useMarketStats()
-  const metrics = deriveMarketMetrics(stats[getMarketPair(market)])
+  const metrics = deriveMarketMetrics(stats[market.symbol], market.symbol)
   const risk = pickRisk(metrics.utilization)
   return (
     <span className="ms-auto flex items-center gap-1.5 text-xs text-muted-foreground">

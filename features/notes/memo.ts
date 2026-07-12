@@ -36,6 +36,13 @@ export type MemoPlaintext = {
     saltPrice: string
     collateralValue: string
     oraclePrice: string
+    /**
+     * Collateral asset symbol at the moment of borrow. Optional for
+     * pre-fix memos; consumers fall back to the loan asset when
+     * absent, which is only correct when collateral and loan share an
+     * asset.
+     */
+    collateralAsset?: string
   }
 }
 

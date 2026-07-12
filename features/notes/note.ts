@@ -23,6 +23,14 @@ export const DENOMINATION: Record<ShieldedAsset, bigint> = {
   XLM: 100n,
 }
 
+/**
+ * Fixed by the shielded-borrow circuit (compiled with 4 collateral
+ * inputs). Changing this value requires a new circuit + trusted setup,
+ * so callers import the constant instead of hardcoding 4 in string
+ * templates or eligibility filters that would drift silently.
+ */
+export const COLLATERAL_NOTES_PER_BORROW = 4
+
 export type NoteTree = "deposit" | "loan"
 
 export type ShieldedNote = {
@@ -45,7 +53,19 @@ export type ShieldedNote = {
     saltValue: bigint
     saltPrice: bigint
     collateralValue: bigint
+    /**
+     * Reflector price of `collateralAsset` at the moment of borrow,
+     * scaled to the oracle's native precision. Field name is legacy —
+     * it is the collateral asset's price, not the borrow asset's.
+     */
     borrowPrice: bigint
+    /**
+     * Asset the collateral notes are denominated in. Optional for
+     * legacy loan notes minted before this field was memoised; the HF
+     * badge falls back to the loan asset in that case, which is only
+     * correct when collateral and loan share an asset.
+     */
+    collateralAsset?: ShieldedAsset
   }
   /**
    * Merkle inclusion witness cached at deposit-time. Populated by

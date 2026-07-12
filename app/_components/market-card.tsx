@@ -33,8 +33,11 @@ export function MarketCard({
   const borrowPrice = getAssetPriceUsd(market.symbol)
 
   const { isLoading, stats } = useMarketStats()
-  const marketStat = stats[marketPair]
-  const metrics = deriveMarketMetrics(marketStat)
+  // Contract views are keyed by borrow asset (`market.symbol`).
+  // Utilisation and liquidity are properties of the asset pool, not of
+  // a specific borrow/collateral pair.
+  const marketStat = stats[market.symbol]
+  const metrics = deriveMarketMetrics(marketStat, market.symbol)
 
   const risk = pickRisk(metrics.utilization)
   const chartPoints = normalizeChart(metrics.chart)

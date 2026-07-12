@@ -69,7 +69,7 @@ export function BorrowTermsStep({
   )
   const marketPair = getMarketPair(market)
   const { stats } = useMarketStats()
-  const derived = deriveMarketMetrics(stats[marketPair])
+  const derived = deriveMarketMetrics(stats[market.symbol], market.symbol)
   const liveBorrowApr = formatPercent(derived.borrowApr * 100)
   const minimumCollateralAmount =
     MIN_COLLATERAL_VALUE / getAssetPriceUsd(market.collateral)

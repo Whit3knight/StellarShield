@@ -4,6 +4,7 @@ import * as React from "react"
 
 import { toastManager } from "@/components/ui/toast"
 import {
+  COLLATERAL_NOTES_PER_BORROW,
   upsertNote,
   useNotes,
   type ShieldedAsset,
@@ -92,9 +93,9 @@ export function useBorrow(
 
       const collateralNotes = availableCollateral
         .filter((note) => note.asset === collateralAsset)
-        .slice(0, 4)
-      if (collateralNotes.length < 4) {
-        const detail = `Need 4 ${collateralAsset} deposit notes; only ${collateralNotes.length} available.`
+        .slice(0, COLLATERAL_NOTES_PER_BORROW)
+      if (collateralNotes.length < COLLATERAL_NOTES_PER_BORROW) {
+        const detail = `Need ${COLLATERAL_NOTES_PER_BORROW} ${collateralAsset} deposit notes; only ${collateralNotes.length} available.`
         setStatus("failed")
         setMessage(detail)
         toastManager.add({
