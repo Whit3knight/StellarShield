@@ -43,4 +43,9 @@ export {
   type LiquidateProofInputs,
   type LiquidateProofResult,
 } from "./liquidate-prover"
+export {
+  proveLiquidateV2,
+  type LiquidateV2ProofInputs,
+  type LiquidateV2ProofResult,
+} from "./liquidate-v2-prover"
 export { useLiquidate } from "./use-liquidate"

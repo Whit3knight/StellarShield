@@ -24,6 +24,7 @@ import {
 } from "@/features/wallet/network"
 
 import { proveLiquidate } from "./liquidate-prover"
+import { proveLiquidateV2 } from "./liquidate-v2-prover"
 
 type Status =
   | "idle"
@@ -111,38 +112,14 @@ export function useLiquidate(
 
         const risk = await getRiskParams()
 
-        const proveToast = toastManager.add({
-          title: "Generating liquidate proof",
-          description: "3 bond commits + underwater range check…",
-          type: "loading",
-        })
-        setStatus("proving")
-        const proof = await proveLiquidate({
-          loanAsset: loanNote.asset,
-          loanAmount: loanNote.amount,
-          loanSalt: loanNote.salt,
-          loanIndex: loanNote.index,
+        const loanCommitment = computeCommitment({
+          amount: loanNote.amount,
+          asset: loanNote.asset,
+          salt: loanNote.salt,
           sk: loanNote.sk,
-          bondSaltAmount: loanNote.bond.saltAmount,
-          bondSaltValue: loanNote.bond.saltValue,
-          bondSaltPrice: loanNote.bond.saltPrice,
-          collateralNotional: loanNote.bond.collateralValue,
-          borrowPrice: loanNote.bond.borrowPrice,
-          currentPrice: priceRecord.price,
-          thresholdBps: risk.liquidationThresholdBps,
         })
-        try {
-          toastManager.close(proveToast)
-        } catch {
-          // already closed
-        }
+        const loanCommitmentBytes = bigintTo32Bytes(loanCommitment)
 
-        const signToast = toastManager.add({
-          title: "Sign in wallet",
-          description: "Approve liquidate_shielded in Freighter.",
-          type: "loading",
-        })
-        setStatus("signing")
         const bindings = await import("@/features/protocol/bindings/borrow-pool")
         const client = new bindings.Client({
           contractId,
@@ -151,23 +128,19 @@ export function useLiquidate(
           publicKey: account,
         })
 
-        const nowSecs = BigInt(Math.floor(Date.now() / 1000))
-        const proofBuffers = {
-          a: Buffer.from(proof.a),
-          b: Buffer.from(proof.b),
-          c: Buffer.from(proof.c),
-          oracle_epoch: nowSecs,
-          public_signals: proof.publicSignals.map((bytes) =>
-            bigintFromBytes(bytes)
-          ),
-        }
-
         // Look up the bond so we know which collateral asset this
         // loan was opened against — the bounty leaf lands on that
-        // asset's deposit tree.
-        const bondFetch = await client.liquidation_bond({
-          loan_commitment: Buffer.from(bigintTo32Bytes(proof.loanCommitment)),
-        })
+        // asset's deposit tree. Also fetch the LoanNullifier
+        // sidecar; presence = post-Track-A bond → v2 path, absence
+        // = grandfathered → v1 fallback.
+        const [bondFetch, nullifierFetch] = await Promise.all([
+          client.liquidation_bond({
+            loan_commitment: Buffer.from(loanCommitmentBytes),
+          }),
+          client.loan_nullifier({
+            loan_commitment: Buffer.from(loanCommitmentBytes),
+          }),
+        ])
         const bondOnChain = bondFetch.result
         if (!bondOnChain) {
           throw new Error("No liquidation bond found for this loan.")
@@ -180,6 +153,76 @@ export function useLiquidate(
             `Unknown collateral asset tag ${bondOnChain.collateral_asset_tag.toString()}`
           )
         }
+        const sidecarNullifier = nullifierFetch.result
+        const useV2 = sidecarNullifier !== undefined && sidecarNullifier !== null
+
+        const proveToast = toastManager.add({
+          title: `Generating liquidate ${useV2 ? "v2" : "v1"} proof`,
+          description: "3 bond commits + underwater range check…",
+          type: "loading",
+        })
+        setStatus("proving")
+
+        const nowSecs = BigInt(Math.floor(Date.now() / 1000))
+        let proofBuffers
+        if (useV2) {
+          const proof = await proveLiquidateV2({
+            loanAmount: loanNote.amount,
+            bondSaltAmount: loanNote.bond.saltAmount,
+            collateralNotional: loanNote.bond.collateralValue,
+            bondSaltValue: loanNote.bond.saltValue,
+            borrowPrice: loanNote.bond.borrowPrice,
+            bondSaltPrice: loanNote.bond.saltPrice,
+            currentPrice: priceRecord.price,
+            thresholdBps: risk.liquidationThresholdBps,
+          })
+          proofBuffers = {
+            a: Buffer.from(proof.a),
+            b: Buffer.from(proof.b),
+            c: Buffer.from(proof.c),
+            oracle_epoch: nowSecs,
+            public_signals: proof.publicSignals.map((bytes) =>
+              bigintFromBytes(bytes)
+            ),
+          }
+        } else {
+          const proof = await proveLiquidate({
+            loanAsset: loanNote.asset,
+            loanAmount: loanNote.amount,
+            loanSalt: loanNote.salt,
+            loanIndex: loanNote.index,
+            sk: loanNote.sk,
+            bondSaltAmount: loanNote.bond.saltAmount,
+            bondSaltValue: loanNote.bond.saltValue,
+            bondSaltPrice: loanNote.bond.saltPrice,
+            collateralNotional: loanNote.bond.collateralValue,
+            borrowPrice: loanNote.bond.borrowPrice,
+            currentPrice: priceRecord.price,
+            thresholdBps: risk.liquidationThresholdBps,
+          })
+          proofBuffers = {
+            a: Buffer.from(proof.a),
+            b: Buffer.from(proof.b),
+            c: Buffer.from(proof.c),
+            oracle_epoch: nowSecs,
+            public_signals: proof.publicSignals.map((bytes) =>
+              bigintFromBytes(bytes)
+            ),
+          }
+        }
+
+        try {
+          toastManager.close(proveToast)
+        } catch {
+          // already closed
+        }
+
+        const signToast = toastManager.add({
+          title: "Sign in wallet",
+          description: `Approve liquidate_shielded${useV2 ? "_v2" : ""} in Freighter.`,
+          type: "loading",
+        })
+        setStatus("signing")
 
         // Generate a fresh liquidator note (Poseidon(denom, asset_tag,
         // sk, salt)). Fresh salt every time so bounties are
@@ -209,14 +252,25 @@ export function useLiquidate(
           })
         )
 
-        const assembled = await client.liquidate_shielded({
-          liquidator: account,
-          borrow_asset: loanNote.asset,
-          collateral_asset: collateralAsset,
-          proof: proofBuffers,
-          bounty_commit: Buffer.from(bigintTo32Bytes(bountyCommitment)),
-          bounty_memo: Buffer.from(bountyMemo),
-        })
+        const assembled = useV2
+          ? await client.liquidate_shielded_v2({
+              liquidator: account,
+              borrow_asset: loanNote.asset,
+              collateral_asset: collateralAsset,
+              loan_commitment: Buffer.from(loanCommitmentBytes),
+              loan_nullifier: Buffer.from(sidecarNullifier as Uint8Array),
+              proof: proofBuffers,
+              bounty_commit: Buffer.from(bigintTo32Bytes(bountyCommitment)),
+              bounty_memo: Buffer.from(bountyMemo),
+            })
+          : await client.liquidate_shielded({
+              liquidator: account,
+              borrow_asset: loanNote.asset,
+              collateral_asset: collateralAsset,
+              proof: proofBuffers,
+              bounty_commit: Buffer.from(bigintTo32Bytes(bountyCommitment)),
+              bounty_memo: Buffer.from(bountyMemo),
+            })
 
         const { signTransaction: freighter } = await import(
           "@stellar/freighter-api"
