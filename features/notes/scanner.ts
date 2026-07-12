@@ -416,13 +416,25 @@ async function hydrateSpentFromChain(
     const nulBuffers = nullifiers.map((n) => Buffer.from(bigintTo32BytesBE(n)))
     const tx = await client.nullifiers_used({ nullifiers: nulBuffers })
     const flags = (tx.result ?? []) as boolean[]
+    let flagged = 0
     for (let i = 0; i < flags.length; i++) {
-      if (flags[i]) spentNullifiers.add(nullifiers[i])
+      if (flags[i]) {
+        spentNullifiers.add(nullifiers[i])
+        flagged++
+      }
     }
-  } catch {
-    // best-effort — a scan without this hydration still runs, just
-    // with the risk that pre-upgrade borrow events leave stale live
-    // notes in the drawer.
+    console.log("[scanner] hydrate", {
+      queried: candidates.length,
+      flaggedSpent: flagged,
+    })
+  } catch (cause) {
+    // Surface the failure loudly so a UI regression doesn't silently
+    // treat spent notes as spendable. The scan itself still returns;
+    // only the pre-upgrade fallback path is unavailable this round.
+    console.error(
+      "[scanner] hydrate failed",
+      cause instanceof Error ? cause.message : cause
+    )
   }
 }
 

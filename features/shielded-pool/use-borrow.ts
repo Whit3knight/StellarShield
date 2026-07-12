@@ -5,6 +5,7 @@ import * as React from "react"
 import { toastManager } from "@/components/ui/toast"
 import {
   COLLATERAL_NOTES_PER_BORROW,
+  computeNullifier,
   upsertNote,
   useNotes,
   type ShieldedAsset,
@@ -97,18 +98,74 @@ export function useBorrow(
         return null
       }
 
-      const collateralNotes = availableCollateral
-        .filter((note) => note.asset === collateralAsset)
-        .slice(0, COLLATERAL_NOTES_PER_BORROW)
+      // Fresh cache view — filter by asset + `amount > 0n` (tombstones
+      // land at zero after a successful borrow) and hand off the top
+      // `COLLATERAL_NOTES_PER_BORROW`.
+      const assetPool = availableCollateral.filter(
+        (note) => note.asset === collateralAsset
+      )
+      let collateralNotes = assetPool.slice(0, COLLATERAL_NOTES_PER_BORROW)
+
+      // Pre-flight nullifier check against the contract. Scanner runs
+      // this too during rescans, but a mid-flow `useBorrow` invocation
+      // may be reading from a cache that hasn't rehydrated yet — a
+      // stale note that made it into `collateralNotes` here would trip
+      // Error(#2) ProofReplayed at simulation. Query the chain now,
+      // drop any that come back spent, and try to backfill from the
+      // rest of the asset pool.
+      try {
+        const bindings = await import(
+          "@/features/protocol/bindings/borrow-pool"
+        )
+        const client = new bindings.Client({
+          contractId,
+          networkPassphrase: getConfiguredNetworkPassphrase(),
+          rpcUrl: getConfiguredSorobanRpcUrl(),
+          publicKey: account,
+        })
+        const nullifiers = collateralNotes.map((n) =>
+          computeNullifier(n.sk, n.index)
+        )
+        const buffers = nullifiers.map((n) => Buffer.from(bigintToBytes32(n)))
+        const preflight = await client.nullifiers_used({
+          nullifiers: buffers,
+        })
+        const spentFlags = (preflight.result ?? []) as boolean[]
+        const stillLive: ShieldedNote[] = []
+        for (let i = 0; i < collateralNotes.length; i++) {
+          if (!spentFlags[i]) {
+            stillLive.push(collateralNotes[i])
+          }
+        }
+        if (stillLive.length < collateralNotes.length) {
+          // Try to backfill with the next slice of the asset pool.
+          const dropped = new Set(
+            collateralNotes.filter((_, i) => spentFlags[i]).map((n) => n.index)
+          )
+          for (const cand of assetPool) {
+            if (stillLive.length >= COLLATERAL_NOTES_PER_BORROW) break
+            if (dropped.has(cand.index)) continue
+            if (stillLive.some((s) => s.index === cand.index)) continue
+            stillLive.push(cand)
+          }
+          collateralNotes = stillLive
+        }
+      } catch (cause) {
+        console.error(
+          "[borrow] preflight nullifier check failed",
+          cause instanceof Error ? cause.message : cause
+        )
+      }
+
       if (collateralNotes.length < COLLATERAL_NOTES_PER_BORROW) {
-        const detail = `Need ${COLLATERAL_NOTES_PER_BORROW} ${collateralAsset} deposit notes; only ${collateralNotes.length} available.`
+        const detail = `Need ${COLLATERAL_NOTES_PER_BORROW} unspent ${collateralAsset} deposit notes; only ${collateralNotes.length} available. Deposit fresh collateral and retry.`
         setStatus("failed")
         setMessage(detail)
         toastManager.add({
           title: "Not enough collateral",
           description: detail,
           type: "error",
-          timeout: 5_000,
+          timeout: 6_000,
         })
         return null
       }
@@ -263,6 +320,16 @@ export function useBorrow(
   )
 
   return { availableCollateral, borrow, message, reset, status }
+}
+
+function bigintToBytes32(value: bigint): Uint8Array {
+  const out = new Uint8Array(32)
+  let v = value
+  for (let i = 31; i >= 0; i--) {
+    out[i] = Number(v & 0xffn)
+    v >>= 8n
+  }
+  return out
 }
 
 function bigintFromBytes(bytes: Uint8Array): bigint {
