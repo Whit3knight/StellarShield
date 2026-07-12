@@ -11,7 +11,7 @@
 // Later ops will add ("borrow", …) and ("repay", …) with the same
 // memo-attached shape so a single scanner covers every tree.
 
-import { tryDecryptAnyMemo } from "./memo"
+import { deriveShieldedIdentity, tryDecryptAnyMemo } from "./memo"
 import {
   DENOMINATION,
   SUPPORTED_ASSETS,
@@ -141,6 +141,16 @@ export async function scanShieldedNotes(
   const notes: ShieldedNote[] = []
   const spentNullifiers = new Set<bigint>()
 
+  // Legacy compatibility: notes deposited before commit `2f789df`
+  // were encrypted to a double-derived identity
+  // (`deriveShieldedIdentity(identity.secretKey)`). Try the current
+  // identity first; if that fails, try the legacy derivation. Old
+  // notes materialise with their legacy `sk` so subsequent spend
+  // paths (withdraw / repay) reproduce the same nullifier the
+  // original circuit did.
+  const legacyIdentity = deriveShieldedIdentity(identity.secretKey)
+  const legacySkField = uintToBigint(legacyIdentity.secretKey)
+
   for (const event of events) {
     const topic = decodeTopicSymbol(sdk, event)
     if (topic === "withdraw") {
@@ -164,10 +174,18 @@ export async function scanShieldedNotes(
     const decoded = decodeIndexedEvent(sdk, event)
     if (!decoded) continue
 
-    const plaintext = tryDecryptAnyMemo({
+    let plaintext = tryDecryptAnyMemo({
       raw: decoded.memo,
       recipientSk: identity.secretKey,
     })
+    let skForNote = identity.skField
+    if (!plaintext) {
+      plaintext = tryDecryptAnyMemo({
+        raw: decoded.memo,
+        recipientSk: legacyIdentity.secretKey,
+      })
+      if (plaintext) skForNote = legacySkField
+    }
     if (!plaintext) continue
 
     const asset = plaintext.asset as ShieldedAsset
@@ -181,7 +199,7 @@ export async function scanShieldedNotes(
         index: decoded.index,
         openedAt,
         salt: BigInt(plaintext.salt),
-        sk: identity.skField,
+        sk: skForNote,
         tree: "deposit",
       })
     } else {
@@ -208,7 +226,7 @@ export async function scanShieldedNotes(
         index: decoded.index,
         openedAt,
         salt: BigInt(plaintext.salt),
-        sk: identity.skField,
+        sk: skForNote,
         tree: "loan",
       })
     }
