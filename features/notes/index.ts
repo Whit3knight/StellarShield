@@ -33,6 +33,13 @@ export {
 export { useNotes } from "./use-notes"
 export { scanShieldedNotes, type ScanIdentity } from "./scanner"
 export {
+  backupBundleToDownload,
+  decodeNotesBackup,
+  encodeNotesBackup,
+  parseBackupJson,
+  restoreNotesBackup,
+} from "./backup"
+export {
   shieldedIdentityFromAddress,
   useShieldedIdentity,
 } from "./use-shielded-identity"

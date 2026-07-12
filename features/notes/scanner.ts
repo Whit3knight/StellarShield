@@ -82,12 +82,10 @@ export async function scanShieldedNotes(
 
   const contractId = getConfiguredContractId()
   if (!contractId) {
-    // eslint-disable-next-line no-console
     console.warn("[scanner] no contract id configured — skipping scan")
     replaceNotes([])
     return []
   }
-  // eslint-disable-next-line no-console
   console.log(
     "[scanner] starting",
     JSON.stringify({
@@ -161,7 +159,6 @@ export async function scanShieldedNotes(
 
   let response: unknown
   try {
-    // eslint-disable-next-line no-console
     console.log(
       "[scanner] getEvents startLedger=",
       startLedger,
@@ -172,7 +169,6 @@ export async function scanShieldedNotes(
       server.getEvents({ filters: filtersA, startLedger, limit: 500 }),
       server.getEvents({ filters: filtersB, startLedger, limit: 500 }),
     ])
-    // eslint-disable-next-line no-console
     console.log(
       "[scanner] fetch A=",
       ((respA as { events?: unknown[] }).events ?? []).length,
@@ -183,7 +179,6 @@ export async function scanShieldedNotes(
     const eventsB = (respB as { events?: unknown[] }).events ?? []
     response = { events: [...eventsA, ...eventsB] }
   } catch (err) {
-    // eslint-disable-next-line no-console
     console.error("[scanner] getEvents threw", err)
     replaceNotes([])
     return []
@@ -191,7 +186,6 @@ export async function scanShieldedNotes(
   if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
 
   const events = extractEvents(response)
-  // eslint-disable-next-line no-console
   console.log("[scanner] events fetched:", events.length)
   const notes: ShieldedNote[] = []
   const spentNullifiers = new Set<bigint>()
@@ -290,7 +284,6 @@ export async function scanShieldedNotes(
   const deduped = dedupeNotes(notes)
   const live = filterSpentNotes(deduped, spentNullifiers)
   live.sort((a, b) => b.index - a.index)
-  // eslint-disable-next-line no-console
   console.log(
     "[scanner] done",
     JSON.stringify({

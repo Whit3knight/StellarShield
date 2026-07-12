@@ -1,9 +1,10 @@
 "use client"
 
-import { LockIcon, Loader2Icon } from "lucide-react"
+import { DownloadIcon, LockIcon, Loader2Icon, UploadIcon } from "lucide-react"
 import * as React from "react"
 
 import { PrivateValue } from "@/components/atoms/private-value"
+import { toastManager } from "@/components/ui/toast"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -24,6 +25,12 @@ import {
 import {
   DENOMINATION,
   SUPPORTED_ASSETS,
+  backupBundleToDownload,
+  decodeNotesBackup,
+  encodeNotesBackup,
+  parseBackupJson,
+  restoreNotesBackup,
+  snapshotNotes,
   useNotes,
   type ShieldedAsset,
   type ShieldedNote,
@@ -113,6 +120,7 @@ export function ShieldedDrawer({
                   await borrow({ borrowAsset, collateralAsset })
                 }}
               />
+              <BackupControls identity={identity} />
               <NoteList
                 liquidatingIndex={
                   liquidateStatus === "idle" ||
@@ -203,6 +211,126 @@ function BorrowPanel({
           )
         )}
       </div>
+    </div>
+  )
+}
+
+/**
+ * Encrypted backup export/import. The bundle body is only decryptable
+ * with the exact same wallet-derived shielded identity, so users can
+ * paste the file around freely — the JSON is opaque to anyone else.
+ *
+ * Purpose: cross-device recovery without an indexer. Soroban public
+ * RPCs drop event history past ~24h; the on-chain commitments live
+ * forever but the memo openings needed to spend them do not. A
+ * user's backup captures the openings that would otherwise be lost.
+ */
+function BackupControls({
+  identity,
+}: {
+  identity: ReturnType<typeof useShieldedPool>["identity"]
+}): React.ReactElement | null {
+  const inputRef = React.useRef<HTMLInputElement | null>(null)
+
+  if (!identity) return null
+
+  const handleExport = () => {
+    try {
+      const notes = snapshotNotes()
+      if (notes.length === 0) {
+        toastManager.add({
+          title: "Nothing to back up",
+          description: "No shielded notes in local inventory yet.",
+          type: "info",
+          timeout: 4_000,
+        })
+        return
+      }
+      const bundle = encodeNotesBackup(
+        notes,
+        identity,
+        Math.floor(Date.now() / 1000)
+      )
+      const download = backupBundleToDownload(bundle)
+      const blob = new Blob([download.body], { type: download.mime })
+      const url = URL.createObjectURL(blob)
+      const anchor = document.createElement("a")
+      anchor.href = url
+      anchor.download = download.filename
+      anchor.click()
+      URL.revokeObjectURL(url)
+      toastManager.add({
+        title: "Backup exported",
+        description: `${notes.length} note${notes.length === 1 ? "" : "s"} sealed to ${download.filename}.`,
+        type: "success",
+        timeout: 5_000,
+      })
+    } catch (cause) {
+      toastManager.add({
+        title: "Backup export failed",
+        description: cause instanceof Error ? cause.message : "Unknown error.",
+        type: "error",
+        timeout: 6_000,
+      })
+    }
+  }
+
+  const handleImport = async (file: File) => {
+    try {
+      const raw = await file.text()
+      const bundle = parseBackupJson(raw)
+      const restored = decodeNotesBackup(bundle, identity)
+      restoreNotesBackup(restored)
+      toastManager.add({
+        title: "Backup imported",
+        description: `${restored.length} note${restored.length === 1 ? "" : "s"} merged into inventory.`,
+        type: "success",
+        timeout: 5_000,
+      })
+    } catch (cause) {
+      toastManager.add({
+        title: "Backup import failed",
+        description:
+          cause instanceof Error
+            ? cause.message
+            : "File is not a valid backup.",
+        type: "error",
+        timeout: 6_000,
+      })
+    }
+  }
+
+  return (
+    <div className="flex items-center justify-end gap-1.5 text-xs">
+      <input
+        accept="application/json"
+        className="hidden"
+        onChange={(event) => {
+          const file = event.target.files?.[0]
+          if (file) void handleImport(file)
+          event.target.value = ""
+        }}
+        ref={inputRef}
+        type="file"
+      />
+      <Button
+        onClick={() => inputRef.current?.click()}
+        size="sm"
+        type="button"
+        variant="outline"
+      >
+        <UploadIcon aria-hidden="true" className="size-3.5" />
+        Import
+      </Button>
+      <Button
+        onClick={handleExport}
+        size="sm"
+        type="button"
+        variant="outline"
+      >
+        <DownloadIcon aria-hidden="true" className="size-3.5" />
+        Export
+      </Button>
     </div>
   )
 }
