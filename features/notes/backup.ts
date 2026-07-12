@@ -36,6 +36,11 @@ type SerializedNote = {
     collateralValue: string
     borrowPrice: string
   }
+  witness?: {
+    pathElements: string[]
+    pathBits: number[]
+    root: string
+  }
 }
 
 type BackupPayload = {
@@ -83,6 +88,13 @@ function serializeNote(note: ShieldedNote): SerializedNote {
           borrowPrice: note.bond.borrowPrice.toString(),
         }
       : undefined,
+    witness: note.witness
+      ? {
+          pathElements: note.witness.pathElements.map((v) => v.toString()),
+          pathBits: note.witness.pathBits,
+          root: note.witness.root.toString(),
+        }
+      : undefined,
   }
 }
 
@@ -109,6 +121,13 @@ function deserializeNote(row: SerializedNote): ShieldedNote {
           saltPrice: BigInt(row.bond.saltPrice),
           collateralValue: BigInt(row.bond.collateralValue),
           borrowPrice: BigInt(row.bond.borrowPrice),
+        }
+      : undefined,
+    witness: row.witness
+      ? {
+          pathElements: row.witness.pathElements.map((v) => BigInt(v)),
+          pathBits: row.witness.pathBits,
+          root: BigInt(row.witness.root),
         }
       : undefined,
   }

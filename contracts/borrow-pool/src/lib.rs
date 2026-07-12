@@ -319,6 +319,19 @@ impl BorrowPool {
         state::loan_next_index(&env, &asset)
     }
 
+    /// Merkle frontier for the deposit tree — the DEPTH-sized array of
+    /// rightmost per-level hashes needed to compute a leaf's
+    /// inclusion witness client-side. Exposed so clients can cache
+    /// the witness at deposit time without depending on Soroban RPC
+    /// event retention (which drops after ~24h).
+    pub fn deposit_frontier(env: Env, asset: Symbol) -> Vec<BytesN<32>> {
+        state::deposit_frontier(&env, &asset)
+    }
+
+    pub fn loan_frontier(env: Env, asset: Symbol) -> Vec<BytesN<32>> {
+        state::loan_frontier(&env, &asset)
+    }
+
     pub fn total_deposit(env: Env, asset: Symbol) -> u128 {
         state::total_deposit(&env, &asset)
     }

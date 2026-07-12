@@ -276,6 +276,11 @@ export interface Client {
   total_borrow: ({asset}: {asset: string}, options?: MethodOptions) => Promise<AssembledTransaction<u128>>
 
   /**
+   * Construct and simulate a loan_frontier transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   */
+  loan_frontier: ({asset}: {asset: string}, options?: MethodOptions) => Promise<AssembledTransaction<Array<Buffer>>>
+
+  /**
    * Construct and simulate a total_deposit transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    */
   total_deposit: ({asset}: {asset: string}, options?: MethodOptions) => Promise<AssembledTransaction<u128>>
@@ -364,6 +369,16 @@ export interface Client {
   set_risk_params: ({params}: {params: RiskParams}, options?: MethodOptions) => Promise<AssembledTransaction<Result<void>>>
 
   /**
+   * Construct and simulate a deposit_frontier transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   * Merkle frontier for the deposit tree — the DEPTH-sized array of
+   * rightmost per-level hashes needed to compute a leaf's
+   * inclusion witness client-side. Exposed so clients can cache
+   * the witness at deposit time without depending on Soroban RPC
+   * event retention (which drops after ~24h).
+   */
+  deposit_frontier: ({asset}: {asset: string}, options?: MethodOptions) => Promise<AssembledTransaction<Array<Buffer>>>
+
+  /**
    * Construct and simulate a deposit_shielded transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    */
   deposit_shielded: ({from, asset, proof, memo}: {from: string, asset: string, proof: BorrowProof, memo: Buffer}, options?: MethodOptions) => Promise<AssembledTransaction<Result<u64>>>
@@ -392,12 +407,17 @@ export interface Client {
 
   /**
    * Construct and simulate a liquidate_shielded transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
-   * Shielded liquidation. Permissionless — any caller who holds the
-   * memo openings for an underwater loan can burn its nullifier.
-   * Contract cross-checks the 3 bond commitments in the proof match
-   * the stored `LiquidationBond` and enforces the risk-params
-   * threshold. No bounty payout in v1: pool simply retains the
-   * unclaimed collateral. See docs/liquidation-design.md.
+   * Shielded liquidation (v1). Permissionless — any caller who
+   * holds the memo openings for an underwater loan can burn its
+   * nullifier via the sk-binding liquidate circuit. Contract
+   * cross-checks the 3 bond commitments in the proof match the
+   * stored `LiquidationBond` and enforces the risk-params
+   * threshold. Bounty payout (Track C-simple) mints a fresh
+   * denomination note to the liquidator via the caller-supplied
+   * commitment; see the append + DEPOSIT_EVENT below.
+   * Post-Track-A bonds route through `liquidate_shielded_v2`
+   * (no sk in the circuit); this fn stays as the grandfathered
+   * path for pre-A loans. See docs/liquidation-design.md.
    * 
    * Public signals:
    * [0] loan_commitment
@@ -519,6 +539,7 @@ export class Client extends ContractClient {
         "AAAAAAAAAAAAAAAMbGlzdF9tYXJrZXRzAAAAAAAAAAEAAAPqAAAH0AAAAApNYXJrZXRNZXRhAAA=",
         "AAAAAAAAAAAAAAAMdG90YWxfYm9ycm93AAAAAQAAAAAAAAAFYXNzZXQAAAAAAAARAAAAAQAAAAo=",
         "AAAAAQAAALJTdGF0aWMgbWV0YWRhdGEgZm9yIGEgbWFya2V0IHBhaXIuIFJlZ2lzdGVyZWQgYnkgdGhlIGFkbWluIGF0CmRlcGxveSB0aW1lIG9yIHZpYSBgcmVnaXN0ZXJfbWFya2V0YC4gQW1vdW50IHRocmVzaG9sZHMgYW5kIHJhdGUKY3VydmVzIHN0YXkgb2ZmLWNoYWluIHVudGlsIGludGVyZXN0IGFjY3J1YWwgbGFuZHMuAAAAAAAAAAAACk1hcmtldE1ldGEAAAAAAAMAAAAAAAAADWJvcnJvd19zeW1ib2wAAAAAAAARAAAAAAAAABFjb2xsYXRlcmFsX3N5bWJvbAAAAAAAABEAAAAAAAAAA2tleQAAAAAR",
+        "AAAAAAAAAAAAAAANbG9hbl9mcm9udGllcgAAAAAAAAEAAAAAAAAABWFzc2V0AAAAAAAAEQAAAAEAAAPqAAAD7gAAACA=",
         "AAAAAAAAAAAAAAANdG90YWxfZGVwb3NpdAAAAAAAAAEAAAAAAAAABWFzc2V0AAAAAAAAEQAAAAEAAAAK",
         "AAAAAQAAAAAAAAAAAAAAC0JvcnJvd1Byb29mAAAAAAUAAAA3R3JvdGgxNiBwcm9vZiBvdmVyIEJMUzEyLTM4MTogQSAoRzEpICsgQiAoRzIpICsgQyAoRzEpLgAAAAABYQAAAAAAA+4AAABgAAAAAAAAAAFiAAAAAAAD7gAAAMAAAAAAAAAAAWMAAAAAAAPuAAAAYAAAAG1PcmFjbGUgZXBvY2ggdGhlIHByb29mIHdhcyBnZW5lcmF0ZWQgYWdhaW5zdC4gQ3Jvc3MtY2hlY2sgYWdhaW5zdAp0aGUgY3VycmVudCBsZWRnZXIgdGltZXN0YW1wIGZvciBmcmVzaG5lc3MuAAAAAAAADG9yYWNsZV9lcG9jaAAAAAYAAAB7UHVibGljIHNpZ25hbHMgaW4gY2lyY3VpdC1kZWNsYXJhdGlvbiBvcmRlciBmb2xsb3dlZCBieSB0aGUKcHVibGljIG91dHB1dCAoYG9yYWNsZV9wcmljZV9jb21taXRtZW50YCkg4oCUIHRvdGFsIDExIGVudHJpZXMuAAAAAA5wdWJsaWNfc2lnbmFscwAAAAAD6gAAAAw=",
         "AAAAAAAAAFpBZG1pbi1nYXRlZCBvd25lcnNoaXAgdHJhbnNmZXIuIE5ldyBhZG1pbiB0YWtlcyBvdmVyCmByZWdpc3Rlcl9tYXJrZXRgICsgYHVwZ3JhZGVgIHJpZ2h0cy4AAAAAAA5hZG1pbl90cmFuc2ZlcgAAAAAAAQAAAAAAAAAJbmV3X2FkbWluAAAAAAAAEwAAAAEAAAPpAAAD7QAAAAAAAAAD",
@@ -532,11 +553,12 @@ export class Client extends ContractClient {
         "AAAAAAAAAAAAAAAPc2V0X3JhdGVfcGFyYW1zAAAAAAEAAAAAAAAABnBhcmFtcwAAAAAH0AAAAApSYXRlUGFyYW1zAAAAAAABAAAD6QAAA+0AAAAAAAAAAw==",
         "AAAAAAAAAAAAAAAPc2V0X3Jpc2tfcGFyYW1zAAAAAAEAAAAAAAAABnBhcmFtcwAAAAAH0AAAAApSaXNrUGFyYW1zAAAAAAABAAAD6QAAA+0AAAAAAAAAAw==",
         "AAAAAQAAAK9Bbm9ueW1pemVkIHJlY2VpcHQ6IG5vIGJvcnJvdyAvIGNvbGxhdGVyYWwgYW1vdW50cy4gVXNlcnMgc3RvcmUKdGhlaXIgb3duIG51bWJlcnMgY2xpZW50LXNpZGUgKHNlc3Npb24gc3RvcmUpLiBDaGFpbiByZWNvcmRzIG9ubHkKdGhlIGZhY3QgdGhhdCBhIHByb29mLWJhY2tlZCBwb3NpdGlvbiBleGlzdHMuAAAAAAAAAAANQm9ycm93UmVjZWlwdAAAAAAAAAYAAAAAAAAAB2FjY291bnQAAAAAEwAAAAAAAAANYm9ycm93X3N5bWJvbAAAAAAAABEAAAAAAAAAEWNvbGxhdGVyYWxfc3ltYm9sAAAAAAAAEQAAAAAAAAAMY29uZmlybWVkX2F0AAAABgAAAAAAAAAGbWFya2V0AAAAAAARAAAAAAAAAAhwcm9vZl9pZAAAA+4AAAAg",
+        "AAAAAAAAARpNZXJrbGUgZnJvbnRpZXIgZm9yIHRoZSBkZXBvc2l0IHRyZWUg4oCUIHRoZSBERVBUSC1zaXplZCBhcnJheSBvZgpyaWdodG1vc3QgcGVyLWxldmVsIGhhc2hlcyBuZWVkZWQgdG8gY29tcHV0ZSBhIGxlYWYncwppbmNsdXNpb24gd2l0bmVzcyBjbGllbnQtc2lkZS4gRXhwb3NlZCBzbyBjbGllbnRzIGNhbiBjYWNoZQp0aGUgd2l0bmVzcyBhdCBkZXBvc2l0IHRpbWUgd2l0aG91dCBkZXBlbmRpbmcgb24gU29yb2JhbiBSUEMKZXZlbnQgcmV0ZW50aW9uICh3aGljaCBkcm9wcyBhZnRlciB+MjRoKS4AAAAAABBkZXBvc2l0X2Zyb250aWVyAAAAAQAAAAAAAAAFYXNzZXQAAAAAAAARAAAAAQAAA+oAAAPuAAAAIA==",
         "AAAAAAAAAAAAAAAQZGVwb3NpdF9zaGllbGRlZAAAAAQAAAAAAAAABGZyb20AAAATAAAAAAAAAAVhc3NldAAAAAAAABEAAAAAAAAABXByb29mAAAAAAAH0AAAAAtCb3Jyb3dQcm9vZgAAAAAAAAAABG1lbW8AAAAOAAAAAQAAA+kAAAAGAAAAAw==",
         "AAAAAAAAAAAAAAAQbGlxdWlkYXRpb25fYm9uZAAAAAEAAAAAAAAAD2xvYW5fY29tbWl0bWVudAAAAAPuAAAAIAAAAAEAAAPoAAAH0AAAAA9MaXF1aWRhdGlvbkJvbmQA",
         "AAAAAAAAAQhCdXJuIG9uZSBkZXBvc2l0IG5vdGUgdmlhIHprIHByb29mLCByZWxlYXNlIHRoZSBmaXhlZApkZW5vbWluYXRpb24gdG8gYHRvYC4gUHJvdmVyIHNob3dzIE1lcmtsZSBpbmNsdXNpb24gYXQgdGhlCmN1cnJlbnQgZGVwb3NpdF9yb290IHBsdXMgYSB2YWxpZCBudWxsaWZpZXIgc28gdGhlIGNvbnRyYWN0CmNhbiBibG9jayByZXVzZS4KClB1YmxpYyBzaWduYWxzIG9yZGVyOiBbYXNzZXRfdGFnLCBkZW5vbWluYXRpb24sIGRlcG9zaXRfcm9vdCwKbnVsbGlmaWVyXS4AAAARd2l0aGRyYXdfc2hpZWxkZWQAAAAAAAADAAAAAAAAAAJ0bwAAAAAAEwAAAAAAAAAFYXNzZXQAAAAAAAARAAAAAAAAAAVwcm9vZgAAAAAAB9AAAAALQm9ycm93UHJvb2YAAAAAAQAAA+kAAAPtAAAAAAAAAAM=",
         "AAAAAAAAAAAAAAASZGVwb3NpdF9uZXh0X2luZGV4AAAAAAABAAAAAAAAAAVhc3NldAAAAAAAABEAAAABAAAABg==",
-        "AAAAAAAAAhJTaGllbGRlZCBsaXF1aWRhdGlvbi4gUGVybWlzc2lvbmxlc3Mg4oCUIGFueSBjYWxsZXIgd2hvIGhvbGRzIHRoZQptZW1vIG9wZW5pbmdzIGZvciBhbiB1bmRlcndhdGVyIGxvYW4gY2FuIGJ1cm4gaXRzIG51bGxpZmllci4KQ29udHJhY3QgY3Jvc3MtY2hlY2tzIHRoZSAzIGJvbmQgY29tbWl0bWVudHMgaW4gdGhlIHByb29mIG1hdGNoCnRoZSBzdG9yZWQgYExpcXVpZGF0aW9uQm9uZGAgYW5kIGVuZm9yY2VzIHRoZSByaXNrLXBhcmFtcwp0aHJlc2hvbGQuIE5vIGJvdW50eSBwYXlvdXQgaW4gdjE6IHBvb2wgc2ltcGx5IHJldGFpbnMgdGhlCnVuY2xhaW1lZCBjb2xsYXRlcmFsLiBTZWUgZG9jcy9saXF1aWRhdGlvbi1kZXNpZ24ubWQuCgpQdWJsaWMgc2lnbmFsczoKWzBdIGxvYW5fY29tbWl0bWVudApbMV0gYm9ycm93X2Ftb3VudF9jb21taXQKWzJdIGNvbGxhdGVyYWxfdmFsdWVfY29tbWl0ClszXSBib3Jyb3dfcHJpY2VfY29tbWl0Cls0XSBjdXJyZW50X3ByaWNlCls1XSB0aHJlc2hvbGRfYnBzCls2XSBsb2FuX251bGxpZmllcgAAAAAAEmxpcXVpZGF0ZV9zaGllbGRlZAAAAAAABgAAAAAAAAAKbGlxdWlkYXRvcgAAAAAAEwAAAAAAAAAMYm9ycm93X2Fzc2V0AAAAEQAAAAAAAAAQY29sbGF0ZXJhbF9hc3NldAAAABEAAAAAAAAABXByb29mAAAAAAAH0AAAAAtCb3Jyb3dQcm9vZgAAAAAAAAAADWJvdW50eV9jb21taXQAAAAAAAPuAAAAIAAAAAAAAAALYm91bnR5X21lbW8AAAAADgAAAAEAAAPpAAAD7QAAAAAAAAAD",
+        "AAAAAAAAAxtTaGllbGRlZCBsaXF1aWRhdGlvbiAodjEpLiBQZXJtaXNzaW9ubGVzcyDigJQgYW55IGNhbGxlciB3aG8KaG9sZHMgdGhlIG1lbW8gb3BlbmluZ3MgZm9yIGFuIHVuZGVyd2F0ZXIgbG9hbiBjYW4gYnVybiBpdHMKbnVsbGlmaWVyIHZpYSB0aGUgc2stYmluZGluZyBsaXF1aWRhdGUgY2lyY3VpdC4gQ29udHJhY3QKY3Jvc3MtY2hlY2tzIHRoZSAzIGJvbmQgY29tbWl0bWVudHMgaW4gdGhlIHByb29mIG1hdGNoIHRoZQpzdG9yZWQgYExpcXVpZGF0aW9uQm9uZGAgYW5kIGVuZm9yY2VzIHRoZSByaXNrLXBhcmFtcwp0aHJlc2hvbGQuIEJvdW50eSBwYXlvdXQgKFRyYWNrIEMtc2ltcGxlKSBtaW50cyBhIGZyZXNoCmRlbm9taW5hdGlvbiBub3RlIHRvIHRoZSBsaXF1aWRhdG9yIHZpYSB0aGUgY2FsbGVyLXN1cHBsaWVkCmNvbW1pdG1lbnQ7IHNlZSB0aGUgYXBwZW5kICsgREVQT1NJVF9FVkVOVCBiZWxvdy4KUG9zdC1UcmFjay1BIGJvbmRzIHJvdXRlIHRocm91Z2ggYGxpcXVpZGF0ZV9zaGllbGRlZF92MmAKKG5vIHNrIGluIHRoZSBjaXJjdWl0KTsgdGhpcyBmbiBzdGF5cyBhcyB0aGUgZ3JhbmRmYXRoZXJlZApwYXRoIGZvciBwcmUtQSBsb2Fucy4gU2VlIGRvY3MvbGlxdWlkYXRpb24tZGVzaWduLm1kLgoKUHVibGljIHNpZ25hbHM6ClswXSBsb2FuX2NvbW1pdG1lbnQKWzFdIGJvcnJvd19hbW91bnRfY29tbWl0ClsyXSBjb2xsYXRlcmFsX3ZhbHVlX2NvbW1pdApbM10gYm9ycm93X3ByaWNlX2NvbW1pdApbNF0gY3VycmVudF9wcmljZQpbNV0gdGhyZXNob2xkX2JwcwpbNl0gbG9hbl9udWxsaWZpZXIAAAAAEmxpcXVpZGF0ZV9zaGllbGRlZAAAAAAABgAAAAAAAAAKbGlxdWlkYXRvcgAAAAAAEwAAAAAAAAAMYm9ycm93X2Fzc2V0AAAAEQAAAAAAAAAQY29sbGF0ZXJhbF9hc3NldAAAABEAAAAAAAAABXByb29mAAAAAAAH0AAAAAtCb3Jyb3dQcm9vZgAAAAAAAAAADWJvdW50eV9jb21taXQAAAAAAAPuAAAAIAAAAAAAAAALYm91bnR5X21lbW8AAAAADgAAAAEAAAPpAAAD7QAAAAAAAAAD",
         "AAAAAAAAAAAAAAAScmVmbGVjdG9yX2NvbnRyYWN0AAAAAAAAAAAAAQAAA+gAAAAT",
         "AAAAAAAAAAAAAAATaW5pdGlhbGl6ZV9zaGllbGRlZAAAAAADAAAAAAAAAAlyZWZsZWN0b3IAAAAAAAATAAAAAAAAAARyYXRlAAAH0AAAAApSYXRlUGFyYW1zAAAAAAAAAAAABHJpc2sAAAfQAAAAClJpc2tQYXJhbXMAAAAAAAEAAAPpAAAD7QAAAAAAAAAD",
         "AAAAAAAAAAAAAAAUYm9ycm93X2luZGV4X2F0X29wZW4AAAABAAAAAAAAAA9sb2FuX2NvbW1pdG1lbnQAAAAD7gAAACAAAAABAAAD6AAAAAo=",
@@ -571,6 +593,7 @@ export class Client extends ContractClient {
         deposit_root: this.txFromJSON<Option<Buffer>>,
         list_markets: this.txFromJSON<Array<MarketMeta>>,
         total_borrow: this.txFromJSON<u128>,
+        loan_frontier: this.txFromJSON<Array<Buffer>>,
         total_deposit: this.txFromJSON<u128>,
         admin_transfer: this.txFromJSON<Result<void>>,
         loan_nullifier: this.txFromJSON<Option<Buffer>>,
@@ -581,6 +604,7 @@ export class Client extends ContractClient {
         register_market: this.txFromJSON<Result<void>>,
         set_rate_params: this.txFromJSON<Result<void>>,
         set_risk_params: this.txFromJSON<Result<void>>,
+        deposit_frontier: this.txFromJSON<Array<Buffer>>,
         deposit_shielded: this.txFromJSON<Result<u64>>,
         liquidation_bond: this.txFromJSON<Option<LiquidationBond>>,
         withdraw_shielded: this.txFromJSON<Result<void>>,

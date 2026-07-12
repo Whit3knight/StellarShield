@@ -47,6 +47,19 @@ export type ShieldedNote = {
     collateralValue: bigint
     borrowPrice: bigint
   }
+  /**
+   * Merkle inclusion witness cached at deposit-time. Populated by
+   * `prepareDeposit` after it fetches the pre-tx `deposit_frontier`
+   * from the contract. Downstream spend paths (borrow / withdraw /
+   * repay) prefer this over the event-replay fallback in
+   * `fetchDepositWitnesses`, which silently fails once the
+   * enabling deposit event ages past Soroban's ~24h retention.
+   */
+  witness?: {
+    pathElements: bigint[]
+    pathBits: number[]
+    root: bigint
+  }
 }
 
 /**

@@ -77,19 +77,40 @@ export function useWithdraw(account: string | null): UseWithdrawResult {
 
       try {
         setStatus("reconstructing")
-        const witnesses =
-          note.tree === "loan"
-            ? await fetchLoanWitnesses(note.asset)
-            : await fetchDepositWitnesses(note.asset)
-        const commitment = computeCommitment(note)
-        const witness = witnesses.find(
-          (candidate) =>
-            candidate.leafIndex === note.index && candidate.leaf === commitment
-        )
-        if (!witness) {
-          throw new Error(
-            `No matching ${note.tree} event found for note #${note.index}. Tree may have advanced beyond RPC retention.`
+        let witness:
+          | {
+              leaf: bigint
+              leafIndex: number
+              pathBits: number[]
+              pathElements: bigint[]
+              root: bigint
+            }
+          | undefined
+        if (note.witness) {
+          // Cache path from deposit-time bypasses event replay + its
+          // ~24h retention cliff.
+          witness = {
+            leaf: computeCommitment(note),
+            leafIndex: note.index,
+            pathBits: note.witness.pathBits,
+            pathElements: note.witness.pathElements,
+            root: note.witness.root,
+          }
+        } else {
+          const witnesses =
+            note.tree === "loan"
+              ? await fetchLoanWitnesses(note.asset)
+              : await fetchDepositWitnesses(note.asset)
+          const commitment = computeCommitment(note)
+          witness = witnesses.find(
+            (candidate) =>
+              candidate.leafIndex === note.index && candidate.leaf === commitment
           )
+          if (!witness) {
+            throw new Error(
+              `No matching ${note.tree} event found for note #${note.index}. Tree may have advanced beyond RPC retention.`
+            )
+          }
         }
         toast.set(
           toastManager.add({

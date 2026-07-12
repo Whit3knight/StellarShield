@@ -32,7 +32,7 @@ import {
 // past the actual on-disk window (empirical: ~8k on the SDF testnet
 // endpoint). Cap safely under that so scans never come back empty
 // just because we overshot the retention edge.
-const LEDGER_LOOKBACK = 8_000
+const LEDGER_LOOKBACK = 10_000
 
 type RpcEvent = {
   contractId?: string

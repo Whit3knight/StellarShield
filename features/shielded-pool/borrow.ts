@@ -62,16 +62,38 @@ export async function prepareBorrow(
 
   const sk = params.identity.skField
 
-  // Fetch inclusion witnesses for all 4 collateral notes.
-  const witnesses = await fetchDepositWitnesses(params.collateralAsset)
+  // Prefer per-note cached witness (populated at deposit-time by
+  // `prepareDeposit`). Fall back to event-replay only if the note
+  // predates the cache. The replay path silently truncates once the
+  // enabling deposit event ages past Soroban's ~24h retention.
+  const notesMissingWitness = params.collateralNotes.some(
+    (note) => !note.witness
+  )
+  const fallbackWitnesses = notesMissingWitness
+    ? await fetchDepositWitnesses(params.collateralAsset)
+    : []
   const matched = params.collateralNotes.map((note) => {
+    if (note.witness) {
+      return {
+        leaf: computeCommitment({
+          amount: note.amount,
+          asset: note.asset,
+          salt: note.salt,
+          sk: note.sk,
+        }),
+        leafIndex: note.index,
+        pathBits: note.witness.pathBits,
+        pathElements: note.witness.pathElements,
+        root: note.witness.root,
+      }
+    }
     const commitment = computeCommitment({
       amount: note.amount,
       asset: note.asset,
       salt: note.salt,
       sk: note.sk,
     })
-    const witness = witnesses.find(
+    const witness = fallbackWitnesses.find(
       (candidate) =>
         candidate.leafIndex === note.index && candidate.leaf === commitment
     )
