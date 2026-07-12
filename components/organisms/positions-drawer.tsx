@@ -4,6 +4,7 @@ import { LayersIcon, Loader2Icon } from "lucide-react"
 import * as React from "react"
 
 import { PrivateValue } from "@/components/atoms/private-value"
+import { PositionCard } from "@/components/molecules/position-card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -38,16 +39,11 @@ type PositionsDrawerProps = {
 }
 
 /**
- * The single "manage my shielded notes" surface. Both deposit
- * (collateral) and loan notes render here with the burn actions
- * lifted out of the retiring shielded drawer:
- *   - deposit note → Withdraw (burn note, receive DENOMINATION out)
- *   - loan note → Claim (burn note, receive borrow amount out)
- *   - loan note → Repay (burn with a matching deposit note)
- *   - loan note → Liquidate (public trigger when underwater)
- *
- * All state derives from `useNotes()` decrypted memos — no wallet
- * address ever leaves the browser to render this list.
+ * Positions drawer groups all shielded notes by asset so the user
+ * sees a per-asset summary card first, then a nested list of the
+ * individual notes with per-note actions (Withdraw / Claim / Repay /
+ * Liquidate). Reads directly from `useNotes()`; no wallet address is
+ * queried or shown.
  */
 export function PositionsDrawer({
   onOpenChange,
@@ -80,6 +76,14 @@ export function PositionsDrawer({
   const showRepayBusy = repayStatus !== "idle" && repayStatus !== "success"
   const showLiquidateBusy =
     liquidateStatus !== "idle" && liquidateStatus !== "success"
+  const busyWithdrawIndex = showWithdrawBusy ? withdrawingIndex : null
+  const busyRepayIndex = showRepayBusy ? repayingIndex : null
+  const busyLiquidateIndex = showLiquidateBusy ? liquidatingIndex : null
+
+  const groups = React.useMemo(
+    () => groupByAsset(notes),
+    [notes]
+  )
 
   return (
     <Drawer
@@ -91,11 +95,11 @@ export function PositionsDrawer({
         <DrawerHeader>
           <DrawerTitle>Positions</DrawerTitle>
           <DrawerDescription className="mt-2">
-            Deposit + loan notes decrypted locally. Amount + wallet
-            address never leave the browser to render this list.
+            Shielded notes grouped by asset. Amount + wallet stay
+            local; everything renders from decrypted memos.
           </DrawerDescription>
         </DrawerHeader>
-        <DrawerPanel className="flex flex-col gap-1.5" hideScrollbar>
+        <DrawerPanel className="flex flex-col gap-2" hideScrollbar>
           {!account ? (
             <EmptyState
               description="Connect a wallet to derive the shielded identity that unlocks your notes."
@@ -112,22 +116,57 @@ export function PositionsDrawer({
               title="No notes yet"
             />
           ) : (
-            <NoteRows
-              liquidatingIndex={showLiquidateBusy ? liquidatingIndex : null}
-              liquidationThresholdBps={risk.liquidationThresholdBps}
-              notes={notes}
-              onLiquidate={(loan) => void liquidate(loan)}
-              onRepay={(loan, deposit) => void repay(loan, deposit)}
-              onWithdraw={(note) => void withdraw(note)}
-              prices={prices}
-              repayingIndex={showRepayBusy ? repayingIndex : null}
-              withdrawingIndex={showWithdrawBusy ? withdrawingIndex : null}
-            />
+            groups.map((group) => (
+              <AssetGroupCard
+                busyLiquidateIndex={busyLiquidateIndex}
+                busyRepayIndex={busyRepayIndex}
+                busyWithdrawIndex={busyWithdrawIndex}
+                group={group}
+                key={group.asset}
+                liquidationThresholdBps={risk.liquidationThresholdBps}
+                notes={notes}
+                onLiquidate={(loan) => void liquidate(loan)}
+                onRepay={(loan, deposit) => void repay(loan, deposit)}
+                onWithdraw={(note) => void withdraw(note)}
+                prices={prices}
+              />
+            ))
           )}
         </DrawerPanel>
       </DrawerPopup>
     </Drawer>
   )
+}
+
+type AssetGroup = {
+  asset: ShieldedAsset
+  deposits: ShieldedNote[]
+  loans: ShieldedNote[]
+}
+
+function groupByAsset(notes: ShieldedNote[]): AssetGroup[] {
+  const byAsset = new Map<ShieldedAsset, AssetGroup>()
+  for (const note of notes) {
+    const bucket =
+      byAsset.get(note.asset) ??
+      ({
+        asset: note.asset,
+        deposits: [],
+        loans: [],
+      } satisfies AssetGroup)
+    if (note.tree === "loan") bucket.loans.push(note)
+    else bucket.deposits.push(note)
+    byAsset.set(note.asset, bucket)
+  }
+  return Array.from(byAsset.values())
+    .map((group) => ({
+      ...group,
+      loans: group.loans.sort(
+        (a, b) => (b.openedAt ?? 0) - (a.openedAt ?? 0)
+      ),
+      deposits: group.deposits.sort((a, b) => b.index - a.index),
+    }))
+    .sort((a, b) => a.asset.localeCompare(b.asset))
 }
 
 function EmptyState({
@@ -150,127 +189,233 @@ function EmptyState({
   )
 }
 
-function NoteRows({
-  liquidatingIndex,
+function AssetGroupCard({
+  busyLiquidateIndex,
+  busyRepayIndex,
+  busyWithdrawIndex,
+  group,
   liquidationThresholdBps,
   notes,
   onLiquidate,
   onRepay,
   onWithdraw,
   prices,
-  repayingIndex,
-  withdrawingIndex,
 }: {
-  liquidatingIndex: number | null
+  busyLiquidateIndex: number | null
+  busyRepayIndex: number | null
+  busyWithdrawIndex: number | null
+  group: AssetGroup
   liquidationThresholdBps: number
   notes: ShieldedNote[]
   onLiquidate: (loan: ShieldedNote) => void
   onRepay: (loan: ShieldedNote, deposit: ShieldedNote) => void
   onWithdraw: (note: ShieldedNote) => void
   prices: Record<ShieldedAsset, number>
-  repayingIndex: number | null
-  withdrawingIndex: number | null
+}): React.ReactElement {
+  const underwaterCount = group.loans.reduce((count, loan) => {
+    if (!loan.bond) return count
+    return isUnderwater({
+      bond: loan.bond,
+      loanAmount: loan.amount,
+      loanAsset: loan.asset,
+      prices,
+      thresholdBps: liquidationThresholdBps,
+    })
+      ? count + 1
+      : count
+  }, 0)
+  const latestOpenedAt = group.loans.reduce(
+    (max, loan) => Math.max(max, loan.openedAt ?? 0),
+    0
+  )
+
+  const badge = (
+    <div className="flex items-center gap-1">
+      {group.loans.length > 0 ? (
+        <Badge variant={underwaterCount > 0 ? "destructive" : "success"}>
+          {underwaterCount > 0
+            ? `${underwaterCount} at risk`
+            : "Healthy"}
+        </Badge>
+      ) : null}
+      {group.deposits.length > 0 ? (
+        <Badge variant="outline">
+          {group.deposits.length} deposit
+          {group.deposits.length === 1 ? "" : "s"}
+        </Badge>
+      ) : null}
+      {group.loans.length > 0 ? (
+        <Badge variant="outline">
+          {group.loans.length} loan{group.loans.length === 1 ? "" : "s"}
+        </Badge>
+      ) : null}
+    </div>
+  )
+
+  return (
+    <PositionCard
+      badge={badge}
+      fields={[
+        {
+          label: "Amounts",
+          value: (
+            <PrivateValue className="italic text-muted-foreground">
+              Hidden (private note)
+            </PrivateValue>
+          ),
+        },
+        {
+          label: "Latest opened",
+          value: latestOpenedAt ? formatOpenedAt(latestOpenedAt) : "—",
+        },
+      ]}
+      footer={
+        <NoteList
+          busyLiquidateIndex={busyLiquidateIndex}
+          busyRepayIndex={busyRepayIndex}
+          busyWithdrawIndex={busyWithdrawIndex}
+          liquidationThresholdBps={liquidationThresholdBps}
+          notes={notes}
+          onLiquidate={onLiquidate}
+          onRepay={onRepay}
+          onWithdraw={onWithdraw}
+          prices={prices}
+          rows={[...group.deposits, ...group.loans]}
+        />
+      }
+      subtitle={group.asset}
+      title={group.loans.length > 0 ? "Loan positions" : "Shielded deposits"}
+    />
+  )
+}
+
+function NoteList({
+  busyLiquidateIndex,
+  busyRepayIndex,
+  busyWithdrawIndex,
+  liquidationThresholdBps,
+  notes,
+  onLiquidate,
+  onRepay,
+  onWithdraw,
+  prices,
+  rows,
+}: {
+  busyLiquidateIndex: number | null
+  busyRepayIndex: number | null
+  busyWithdrawIndex: number | null
+  liquidationThresholdBps: number
+  notes: ShieldedNote[]
+  onLiquidate: (loan: ShieldedNote) => void
+  onRepay: (loan: ShieldedNote, deposit: ShieldedNote) => void
+  onWithdraw: (note: ShieldedNote) => void
+  prices: Record<ShieldedAsset, number>
+  rows: ShieldedNote[]
 }): React.ReactElement {
   return (
-    <div className="flex flex-col gap-1.5">
-      {notes.map((note) => {
-        const isWithdrawBusy = withdrawingIndex === note.index
-        const isRepayBusy = repayingIndex === note.index
-        const isLiquidateBusy = liquidatingIndex === note.index
-        const anyBusy =
-          withdrawingIndex !== null ||
-          repayingIndex !== null ||
-          liquidatingIndex !== null
-        const repaySource =
-          note.tree === "loan" ? pickRepaySource(notes, note) : null
-        const liquidatable =
-          note.tree === "loan" &&
-          !!note.bond &&
-          isUnderwater({
-            bond: note.bond,
-            loanAmount: note.amount,
-            loanAsset: note.asset,
-            prices,
-            thresholdBps: liquidationThresholdBps,
-          })
-        return (
-          <div
-            className="flex items-center justify-between gap-2 rounded-md border bg-background/64 px-2 py-1.5 text-xs"
-            key={`${note.tree}-${note.index}`}
-          >
-            <div className="flex items-center gap-2">
-              <Badge variant="outline">{note.asset}</Badge>
-              <Badge variant={note.tree === "loan" ? "warning" : "outline"}>
-                {note.tree}
-              </Badge>
-              <span className="font-mono">#{note.index}</span>
-              <PrivateValue className="truncate font-mono text-muted-foreground">
-                {formatNoteAmount(note)}
-              </PrivateValue>
-              {note.tree === "loan" && note.openedAt ? (
-                <LoanAgeBadge openedAt={note.openedAt} />
-              ) : null}
-              {note.tree === "loan" && note.bond ? (
-                <LoanHealthBadge
-                  bond={note.bond}
-                  loanAmount={note.amount}
-                  loanAsset={note.asset}
-                  prices={prices}
-                  thresholdBps={liquidationThresholdBps}
-                />
-              ) : null}
-            </div>
-            <div className="flex items-center gap-1.5">
-              {liquidatable ? (
+    <div className="border-t pt-3">
+      <div className="text-xs uppercase tracking-wide text-muted-foreground">
+        Notes
+      </div>
+      <div className="mt-2 flex flex-col gap-1.5">
+        {rows.map((note) => {
+          const isWithdrawBusy = busyWithdrawIndex === note.index
+          const isRepayBusy = busyRepayIndex === note.index
+          const isLiquidateBusy = busyLiquidateIndex === note.index
+          const anyBusy =
+            busyWithdrawIndex !== null ||
+            busyRepayIndex !== null ||
+            busyLiquidateIndex !== null
+          const repaySource =
+            note.tree === "loan" ? pickRepaySource(notes, note) : null
+          const liquidatable =
+            note.tree === "loan" &&
+            !!note.bond &&
+            isUnderwater({
+              bond: note.bond,
+              loanAmount: note.amount,
+              loanAsset: note.asset,
+              prices,
+              thresholdBps: liquidationThresholdBps,
+            })
+          return (
+            <div
+              className="flex flex-col gap-1 rounded-md border bg-background/64 px-2 py-1.5 text-xs sm:flex-row sm:items-center sm:justify-between"
+              key={`${note.tree}-${note.index}`}
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant={note.tree === "loan" ? "warning" : "outline"}>
+                  {note.tree}
+                </Badge>
+                <span className="font-mono">#{note.index}</span>
+                <PrivateValue className="truncate font-mono text-muted-foreground">
+                  {formatNoteAmount(note)}
+                </PrivateValue>
+                {note.tree === "loan" && note.openedAt ? (
+                  <LoanAgeBadge openedAt={note.openedAt} />
+                ) : null}
+                {note.tree === "loan" && note.bond ? (
+                  <LoanHealthBadge
+                    bond={note.bond}
+                    loanAmount={note.amount}
+                    loanAsset={note.asset}
+                    prices={prices}
+                    thresholdBps={liquidationThresholdBps}
+                  />
+                ) : null}
+              </div>
+              <div className="flex items-center gap-1.5">
+                {liquidatable ? (
+                  <Button
+                    disabled={isLiquidateBusy || anyBusy}
+                    onClick={() => onLiquidate(note)}
+                    size="sm"
+                    type="button"
+                    variant="destructive"
+                  >
+                    {isLiquidateBusy ? (
+                      <Loader2Icon
+                        aria-hidden="true"
+                        className="animate-spin"
+                      />
+                    ) : null}
+                    Liquidate
+                  </Button>
+                ) : null}
+                {repaySource ? (
+                  <Button
+                    disabled={isRepayBusy || anyBusy}
+                    onClick={() => onRepay(note, repaySource)}
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                  >
+                    {isRepayBusy ? (
+                      <Loader2Icon
+                        aria-hidden="true"
+                        className="animate-spin"
+                      />
+                    ) : null}
+                    Repay
+                  </Button>
+                ) : null}
                 <Button
-                  disabled={isLiquidateBusy || anyBusy}
-                  onClick={() => onLiquidate(note)}
-                  size="sm"
-                  type="button"
-                  variant="destructive"
-                >
-                  {isLiquidateBusy ? (
-                    <Loader2Icon
-                      aria-hidden="true"
-                      className="animate-spin"
-                    />
-                  ) : null}
-                  Liquidate
-                </Button>
-              ) : null}
-              {repaySource ? (
-                <Button
-                  disabled={isRepayBusy || anyBusy}
-                  onClick={() => onRepay(note, repaySource)}
+                  disabled={isWithdrawBusy || anyBusy}
+                  onClick={() => onWithdraw(note)}
                   size="sm"
                   type="button"
                   variant="outline"
                 >
-                  {isRepayBusy ? (
-                    <Loader2Icon
-                      aria-hidden="true"
-                      className="animate-spin"
-                    />
+                  {isWithdrawBusy ? (
+                    <Loader2Icon aria-hidden="true" className="animate-spin" />
                   ) : null}
-                  Repay
+                  {note.tree === "loan" ? "Claim" : "Withdraw"}
                 </Button>
-              ) : null}
-              <Button
-                disabled={isWithdrawBusy || anyBusy}
-                onClick={() => onWithdraw(note)}
-                size="sm"
-                type="button"
-                variant="outline"
-              >
-                {isWithdrawBusy ? (
-                  <Loader2Icon aria-hidden="true" className="animate-spin" />
-                ) : null}
-                {note.tree === "loan" ? "Claim" : "Withdraw"}
-              </Button>
+              </div>
             </div>
-          </div>
-        )
-      })}
+          )
+        })}
+      </div>
     </div>
   )
 }
@@ -372,6 +517,17 @@ function LoanAgeBadge({ openedAt }: { openedAt: number }): React.ReactElement {
       {formatAge(age)}
     </Badge>
   )
+}
+
+function formatOpenedAt(seconds: number): string {
+  try {
+    return new Intl.DateTimeFormat("en-US", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(new Date(seconds * 1000))
+  } catch {
+    return "—"
+  }
 }
 
 function useNowSecs(): number {
