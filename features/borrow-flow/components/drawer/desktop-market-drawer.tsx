@@ -49,22 +49,29 @@ export function DesktopMarketDrawer({
   }, [shouldPinTransaction, activeStep])
 
   // Once eligibility verifies, auto-advance to the transaction step and
-  // fire submit — saves the extra "Submit transaction" click that
-  // otherwise sits on the verification step. Ref-guarded per proof id
-  // so a re-render can't retrigger the submit for the same proof.
-  const autoSubmittedProofRef = React.useRef<string | null>(null)
+  // fire submit. The `flow.transaction` object identity churns every
+  // render (it lives in `submitTransaction`'s useCallback deps), so
+  // guarding the effect on `flow.transaction.status === "Ready"` races
+  // with the setState batch that lands Verified + Ready together. Key
+  // the ref on the proof id instead — that only bumps once per verify
+  // cycle. Empirically the drawer got stuck on the verification step
+  // because the tx-status guard was reading a stale render.
+  const autoAdvancedProofRef = React.useRef<string | null>(null)
   const verifiedProofId =
     flow.verification.status === "Verified"
       ? flow.verification.proof.id
       : null
+  const submitTransactionRef = React.useRef(submitTransaction)
+  React.useEffect(() => {
+    submitTransactionRef.current = submitTransaction
+  })
   React.useEffect(() => {
     if (!verifiedProofId) return
-    if (flow.transaction.status !== "Ready") return
-    if (autoSubmittedProofRef.current === verifiedProofId) return
-    autoSubmittedProofRef.current = verifiedProofId
+    if (autoAdvancedProofRef.current === verifiedProofId) return
+    autoAdvancedProofRef.current = verifiedProofId
     setActiveStep("transaction")
-    submitTransaction()
-  }, [verifiedProofId, flow.transaction.status, submitTransaction])
+    submitTransactionRef.current()
+  }, [verifiedProofId])
 
   return (
     <aside className="ml-4 hidden min-h-0 min-w-0 lg:block">
