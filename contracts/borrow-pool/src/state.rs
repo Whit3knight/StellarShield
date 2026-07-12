@@ -43,6 +43,11 @@ pub enum PersistentKey {
     // loan_commitment. Absent for pre-A bonds → liquidate falls back
     // to the sk-binding circuit. Present → service-triggerable.
     LoanNullifier(BytesN<32>),
+    // Track D sidecar: borrow_index value at open, keyed by
+    // loan_commitment. Repay uses the ratio (index_now / index_open)
+    // to compute the accrued debt the repayer must cover. Absent for
+    // pre-D loans → repay treats them as zero-interest.
+    BorrowIndexAtOpen(BytesN<32>),
 }
 
 /// Public commitment tuple pinned at borrow-time so a liquidator can
@@ -210,6 +215,23 @@ pub fn set_loan_nullifier(
     env.storage().persistent().set(
         &PersistentKey::LoanNullifier(loan_commitment.clone()),
         nullifier,
+    );
+}
+
+pub fn borrow_index_at_open(env: &Env, loan_commitment: &BytesN<32>) -> Option<u128> {
+    env.storage()
+        .persistent()
+        .get(&PersistentKey::BorrowIndexAtOpen(loan_commitment.clone()))
+}
+
+pub fn set_borrow_index_at_open(
+    env: &Env,
+    loan_commitment: &BytesN<32>,
+    value: u128,
+) {
+    env.storage().persistent().set(
+        &PersistentKey::BorrowIndexAtOpen(loan_commitment.clone()),
+        &value,
     );
 }
 

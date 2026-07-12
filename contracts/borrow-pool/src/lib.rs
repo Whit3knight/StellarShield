@@ -291,6 +291,13 @@ impl BorrowPool {
         state::loan_nullifier(&env, &loan_commitment)
     }
 
+    pub fn borrow_index_at_open(
+        env: Env,
+        loan_commitment: BytesN<32>,
+    ) -> Option<u128> {
+        state::borrow_index_at_open(&env, &loan_commitment)
+    }
+
     pub fn reserve_of(env: Env, asset: Symbol) -> Option<Address> {
         tokens::reserve(&env, &asset)
     }
@@ -652,6 +659,12 @@ impl BorrowPool {
         // we cache the value keyed by the loan commitment for O(1)
         // liquidate-time lookup.
         state::set_loan_nullifier(&env, &leaf.to_bytes(), &loan_nullifier_fr.to_bytes());
+        // Track D: snapshot the accrued borrow_index so repay can
+        // charge `loan_amount * index_now / index_at_open`. Read the
+        // accrued value AFTER `rate::accrue_borrow_index` above wound
+        // the accumulator forward to now.
+        let index_now = state::borrow_index(&env, &borrow_asset).value;
+        state::set_borrow_index_at_open(&env, &leaf.to_bytes(), index_now);
 
         env.events().publish(
             (BORROW_EVENT, collateral_asset.clone(), borrow_asset.clone()),
