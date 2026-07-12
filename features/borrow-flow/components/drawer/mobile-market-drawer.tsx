@@ -1,5 +1,5 @@
 import { ArrowLeftIcon, ArrowRightIcon, WalletIcon } from "lucide-react"
-import type * as React from "react"
+import * as React from "react"
 
 import type { ConnectedAccount } from "@/app/_constants/account"
 import { useNavMenus } from "@/app/_hooks/use-nav-menus"
@@ -185,6 +185,17 @@ export function MobileMarketDrawer({
     submitTransaction,
     verifyEligibility,
   } = useShieldedBorrowFlow({ account, market })
+
+  // Confirmed is terminal — toast covers the confirmation UI, close
+  // the drawer so the markets grid comes back into view.
+  const closedAtRef = React.useRef(false)
+  React.useEffect(() => {
+    if (flow.transaction.status !== "Confirmed") return
+    if (closedAtRef.current) return
+    closedAtRef.current = true
+    const timeout = window.setTimeout(onClose, 1_400)
+    return () => window.clearTimeout(timeout)
+  }, [flow.transaction.status, onClose])
 
   const drawerProps = {
     account,

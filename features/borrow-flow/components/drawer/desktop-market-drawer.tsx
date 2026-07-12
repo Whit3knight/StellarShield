@@ -73,6 +73,20 @@ export function DesktopMarketDrawer({
     submitTransactionRef.current()
   }, [verifiedProofId])
 
+  // Confirmed is the terminal state — the toast already carries the
+  // "Shielded borrow confirmed" copy + "View Transaction" action, and
+  // the transaction step's footer only exposes Close/Done. Close the
+  // drawer so the markets grid comes back into view; the user can open
+  // the positions drawer from the nav for the fresh position.
+  const closedAtRef = React.useRef(false)
+  React.useEffect(() => {
+    if (flow.transaction.status !== "Confirmed") return
+    if (closedAtRef.current) return
+    closedAtRef.current = true
+    const timeout = window.setTimeout(onClose, 1_400)
+    return () => window.clearTimeout(timeout)
+  }, [flow.transaction.status, onClose])
+
   return (
     <aside className="ml-4 hidden min-h-0 min-w-0 lg:block">
       <div className="relative isolate h-full overflow-hidden rounded-lg">
