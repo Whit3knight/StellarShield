@@ -72,7 +72,7 @@ export function useShieldedBorrowFlow({
   const collateralAsset = market.collateral as ShieldedAsset
   const borrowAsset = market.symbol as ShieldedAsset
 
-  const { deposit } = useDeposit(walletAddress, identity)
+  const { deposit, depositQuad } = useDeposit(walletAddress, identity)
   const { borrow } = useBorrow(walletAddress, identity)
 
   const deferredCollateralAmount = React.useDeferredValue(flow.collateralAmount)
@@ -160,26 +160,36 @@ export function useShieldedBorrowFlow({
       verification: { status: "Generating proof" },
     }))
 
-    console.log("[verify] deposit loop", {
+    console.log("[verify] deposit plan", {
       ownedNotes,
       targetNotes,
       missing,
     })
 
-    // NOTE: contract has `deposit_shielded_batch` but a single Groth16
-    // BLS12-381 verify already occupies ~half the per-tx CPU budget,
-    // so a batch of 2+ trips the ExceededLimit sim error. Until the
-    // verifier learns pairing batching, deposits stay one-per-tx.
-    for (let i = 0; i < missing; i++) {
-      console.log("[verify] deposit iter", { i, of: missing })
-      const result = await deposit(collateralAsset)
-      if (!result) {
-        console.log("[verify] deposit failed at iter", { i })
+    // Prefer the quad path when the whole borrow's collateral is
+    // missing — one Groth16 proof + one tx = one Freighter prompt.
+    // The circuit is fixed at 4 leaves, so any partial gap falls back
+    // to the singleton path.
+    if (missing === 4) {
+      const quadResult = await depositQuad(collateralAsset)
+      if (!quadResult) {
+        console.log("[verify] quad failed")
         setFlow((currentFlow) => ({
           ...currentFlow,
           verification: { status: "Failed", proof: null },
         }))
         return
+      }
+    } else {
+      for (let i = 0; i < missing; i++) {
+        const result = await deposit(collateralAsset)
+        if (!result) {
+          setFlow((currentFlow) => ({
+            ...currentFlow,
+            verification: { status: "Failed", proof: null },
+          }))
+          return
+        }
       }
     }
 
@@ -238,6 +248,7 @@ export function useShieldedBorrowFlow({
     deferredCollateralAmount,
     deferredLoanAmount,
     deposit,
+    depositQuad,
     flow.transaction.status,
     flow.verification.status,
     identity,

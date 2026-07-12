@@ -78,6 +78,50 @@ pub fn append(
     current
 }
 
+/// Append four leaves starting at `next_index` which MUST be a
+/// multiple of 4. Computes the local subtree root of the four leaves
+/// once (3 Poseidon(2) hashes) and then walks that subtree root up
+/// through the remaining `DEPTH - 2` levels of the tree — versus 4×
+/// full walks (80 Poseidon(2) hashes) for four back-to-back `append`
+/// calls. Every append still emits the correct frontier + leaf-level
+/// state so future singleton `append` calls remain consistent.
+pub fn append_four_aligned(
+    env: &Env,
+    leaves: &[Fr; 4],
+    frontier: &mut [Fr; DEPTH],
+    next_index: u64,
+) -> Fr {
+    debug_assert_eq!(next_index & 0b11, 0, "next_index must be 4-aligned");
+    let zeros = zero_hashes(env);
+
+    // Level 0 & 1: fill from the four fresh leaves.
+    let l1a = poseidon::hash_two_to_one(env, &leaves[0], &leaves[1]);
+    let l1b = poseidon::hash_two_to_one(env, &leaves[2], &leaves[3]);
+    let mut current = poseidon::hash_two_to_one(env, &l1a, &l1b);
+
+    // Frontier at levels 0 and 1 mirrors what a per-leaf append would
+    // have written at position `next_index + 3`:
+    //   - level 0: leaves[3] (right child of leaves[2])
+    //   - level 1: l1b        (right child of l1a)
+    frontier[0] = leaves[3].clone();
+    frontier[1] = l1b;
+
+    // Walk `current` (subtree root at level 2) up through the rest of
+    // the tree. Index at level 2 is `next_index / 4`.
+    let mut index = next_index >> 2;
+    for level in 2..DEPTH {
+        let is_left = index & 1 == 0;
+        if is_left {
+            frontier[level] = current.clone();
+            current = poseidon::hash_two_to_one(env, &current, &zeros[level]);
+        } else {
+            current = poseidon::hash_two_to_one(env, &frontier[level], &current);
+        }
+        index >>= 1;
+    }
+    current
+}
+
 /// Verify that `leaf` at `leaf_index` hashes up through `path` to
 /// `root`. The circuit already enforces this, so this is a spot-check
 /// utility for tests / dev tools — the contract itself doesn't

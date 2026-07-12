@@ -8,6 +8,7 @@ use soroban_sdk::{
 
 mod borrow_verifier;
 mod deposit_verifier;
+mod deposit_quad_verifier;
 mod liquidate_v2_verifier;
 mod liquidate_verifier;
 mod merkle;
@@ -435,6 +436,137 @@ impl BorrowPool {
             (next_index, new_root.to_bytes(), leaf.to_bytes(), memo),
         );
         Ok(next_index)
+    }
+
+    /// Quad-deposit variant that ships FOUR leaves under one Groth16
+    /// proof. Public signals order (snarkjs outputs first):
+    ///   [0..3] commitment[0..3]
+    ///   [4]    amount     (fixed denomination in whole units)
+    ///   [5]    asset_tag  (0 = XLM, 1 = USDC, 2 = EURC)
+    /// The circuit constrains each `commitment[i] == Poseidon(amount,
+    /// asset_tag, sk, salt_i)` for a shared `sk`. One pairing check on
+    /// chain covers all four, so the per-tx CPU budget only pays for
+    /// verification once — an ordinary `deposit_shielded_batch` at N=4
+    /// runs 4 verifies (~240M CPU) which trips the network's 100M cap.
+    /// Contract still transfers the denomination four times and
+    /// appends four leaves, so the caller pushes `4 * denomination`
+    /// worth of the underlying token in one shot.
+    pub fn deposit_shielded_quad(
+        env: Env,
+        from: Address,
+        asset: Symbol,
+        proof: BorrowProof,
+        memos: Vec<soroban_sdk::Bytes>,
+    ) -> Result<Vec<u64>, Error> {
+        from.require_auth();
+
+        if proof.public_signals.len() != 6 {
+            return Err(Error::InvalidProof);
+        }
+        if memos.len() != 4 {
+            return Err(Error::InvalidProof);
+        }
+
+        let expected_tag =
+            notes::asset_tag(&env, &asset).ok_or(Error::AssetUnknown)?;
+        let denomination =
+            notes::denomination(&env, &asset).ok_or(Error::AssetUnknown)?;
+
+        let asset_tag_fr = proof.public_signals.get(5).unwrap();
+        if fr_to_u32(&asset_tag_fr) != expected_tag {
+            return Err(Error::DenominationMismatch);
+        }
+        let amount_fr = proof.public_signals.get(4).unwrap();
+        if fr_to_i128(&amount_fr) != denomination {
+            return Err(Error::DenominationMismatch);
+        }
+
+        if !deposit_quad_verifier::verify_groth16(
+            &env,
+            proof.a.clone(),
+            proof.b.clone(),
+            proof.c.clone(),
+            proof.public_signals.clone(),
+        ) {
+            return Err(Error::InvalidProof);
+        }
+
+        // Pull four notes' worth of collateral in one SAC call — each
+        // `token::transfer` alone runs ~15M CPU on Soroban, so four
+        // separate transfers plus the pairing check would trip the
+        // 100M per-tx cap. Amount is bounded (denomination × 4).
+        tokens::transfer_in(&env, &asset, &from, denomination * 4);
+
+        let capacity = 1u64 << (merkle::DEPTH as u64);
+        let mut frontier_arr =
+            load_frontier(&env, state::deposit_frontier(&env, &asset));
+        let mut next_index = state::deposit_next_index(&env, &asset);
+        let total = state::total_deposit(&env, &asset);
+        let mut indexes: Vec<u64> = Vec::new(&env);
+
+        if next_index + 4 > capacity {
+            return Err(Error::TreeCapacityExceeded);
+        }
+
+        let leaf0 = proof.public_signals.get(0).unwrap();
+        let leaf1 = proof.public_signals.get(1).unwrap();
+        let leaf2 = proof.public_signals.get(2).unwrap();
+        let leaf3 = proof.public_signals.get(3).unwrap();
+
+        let new_root = if next_index & 0b11 == 0 {
+            // 4-aligned append — 21 Poseidon hashes total (subtree of
+            // 3 + walk-up of DEPTH-2) versus 4× DEPTH = 80 that four
+            // singleton `merkle::append` calls would run.
+            merkle::append_four_aligned(
+                &env,
+                &[
+                    leaf0.clone(),
+                    leaf1.clone(),
+                    leaf2.clone(),
+                    leaf3.clone(),
+                ],
+                &mut frontier_arr,
+                next_index,
+            )
+        } else {
+            // Rare unaligned path (should only hit if a caller mixes
+            // singleton + quad deposits mid-tree). Falls back to per-
+            // leaf appends.
+            let mut root = merkle::append(&env, &leaf0, &mut frontier_arr, next_index);
+            root = merkle::append(&env, &leaf1, &mut frontier_arr, next_index + 1);
+            root = merkle::append(&env, &leaf2, &mut frontier_arr, next_index + 2);
+            root = merkle::append(&env, &leaf3, &mut frontier_arr, next_index + 3);
+            root
+        };
+        let new_root_bytes = new_root.to_bytes();
+
+        // Emit one event per leaf so the client's scanner and the
+        // event-replay witness rebuild both keep working unchanged.
+        for i in 0u32..4 {
+            let leaf_fr = proof.public_signals.get(i).unwrap();
+            env.events().publish(
+                (DEPOSIT_EVENT, asset.clone()),
+                (
+                    next_index + (i as u64),
+                    new_root_bytes.clone(),
+                    leaf_fr.to_bytes(),
+                    memos.get(i).unwrap().clone(),
+                ),
+            );
+            indexes.push_back(next_index + (i as u64));
+        }
+        next_index += 4;
+
+        state::set_deposit_frontier(
+            &env,
+            &asset,
+            &frontier_to_vec(&env, &frontier_arr),
+        );
+        state::set_deposit_root(&env, &asset, &new_root_bytes);
+        state::set_deposit_next_index(&env, &asset, next_index);
+        state::set_total_deposit(&env, &asset, total.saturating_add(4));
+
+        Ok(indexes)
     }
 
     /// Batched `deposit_shielded`. `proofs[i]` mints the leaf described

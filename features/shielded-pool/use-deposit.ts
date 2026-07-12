@@ -15,7 +15,16 @@ import { emitDepositConfirmed } from "@/features/borrow-flow/borrow-events"
 import type { ScanIdentity } from "@/features/notes"
 
 import { prepareDeposit } from "./deposit"
+import { proveDepositQuad } from "./deposit-quad-prover"
 import { createToastTracker, describeError } from "./hook-utils"
+import {
+  DENOMINATION,
+  encodeMemoBundle,
+  encryptMemo,
+  randomFieldElement,
+} from "@/features/notes"
+import { append, DEPTH } from "@/features/notes/merkle"
+import { computeCommitment } from "@/features/notes/note"
 
 type Status = "idle" | "proving" | "signing" | "success" | "failed"
 
@@ -29,6 +38,16 @@ type UseDepositResult = {
     asset: ShieldedAsset,
     count: number
   ) => Promise<{
+    notes: ShieldedNote[]
+    txHash: string
+    indexes: number[]
+  } | null>
+  /**
+   * Quad-deposit path: one Groth16 proof for four notes, one on-chain
+   * verify, one Freighter signature. Falls back to the legacy singleton
+   * `deposit` when count !== 4.
+   */
+  depositQuad: (asset: ShieldedAsset) => Promise<{
     notes: ShieldedNote[]
     txHash: string
     indexes: number[]
@@ -350,7 +369,219 @@ export function useDeposit(
     [account, identity]
   )
 
-  return { deposit, depositBatch, message, reset, status }
+  const depositQuad = React.useCallback(
+    async (asset: ShieldedAsset) => {
+      if (!account || !identity) {
+        setStatus("failed")
+        setMessage("Connect a wallet first.")
+        return null
+      }
+      const contractId = getConfiguredContractId()
+      if (!contractId) {
+        setStatus("failed")
+        setMessage("Contract not configured.")
+        return null
+      }
+
+      const toast = createToastTracker()
+      toast.set(
+        toastManager.add({
+          title: "Generating quad deposit proof",
+          description: "One Groth16 proof for 4 notes (~5-8s)…",
+          type: "loading",
+        })
+      )
+      setStatus("proving")
+      setMessage(null)
+
+      try {
+        const denomination = DENOMINATION[asset]
+        const sk = identity.skField
+        const salts = [
+          randomFieldElement(),
+          randomFieldElement(),
+          randomFieldElement(),
+          randomFieldElement(),
+        ] as [bigint, bigint, bigint, bigint]
+
+        const proof = await proveDepositQuad({
+          amount: denomination,
+          asset,
+          salt: salts,
+          sk,
+        })
+
+        // Pre-compute witnesses for each of the four notes using the
+        // frontier we fetch pre-tx, then pin them onto the returned
+        // notes so subsequent spends don't have to replay the event log.
+        const bindings = await import("@/features/protocol/bindings/borrow-pool")
+        const client = new bindings.Client({
+          contractId,
+          networkPassphrase: getConfiguredNetworkPassphrase(),
+          rpcUrl: getConfiguredSorobanRpcUrl(),
+          publicKey: account,
+        })
+        const [nextIndexTx, frontierTx] = await Promise.all([
+          client.deposit_next_index({ asset }),
+          client.deposit_frontier({ asset }),
+        ])
+        const startIndex = Number(nextIndexTx.result ?? 0n)
+        const frontierRaw = (frontierTx.result ?? []) as Uint8Array[]
+        const frontier: bigint[] = new Array(DEPTH).fill(0n)
+        for (let i = 0; i < frontierRaw.length && i < DEPTH; i++) {
+          frontier[i] = bytesToBigIntBE(frontierRaw[i])
+        }
+        const witnesses = salts.map((salt, i) => {
+          const leaf = computeCommitment({
+            amount: denomination,
+            asset,
+            salt,
+            sk,
+          })
+          const nextIndex = startIndex + i
+          const { path, root } = append({ frontier, leaf, nextIndex })
+          const pathBits: number[] = []
+          let cursor = nextIndex
+          for (let level = 0; level < DEPTH; level++) {
+            pathBits.push(cursor & 1)
+            cursor >>= 1
+          }
+          return { path, pathBits, root, nextIndex }
+        })
+
+        toast.set(
+          toastManager.add({
+            title: "Sign in wallet",
+            description: "Approve deposit_shielded_quad for 4 notes.",
+            type: "loading",
+          })
+        )
+        setStatus("signing")
+
+        const memoBytes = salts.map((salt) =>
+          encodeMemoBundle(
+            encryptMemo({
+              plaintext: {
+                amount: denomination.toString(),
+                asset,
+                index: 0,
+                salt: salt.toString(),
+                tree: "deposit",
+              },
+              recipientPk: identity.publicKey,
+            })
+          )
+        )
+
+        const assembled = await client.deposit_shielded_quad({
+          from: account,
+          asset,
+          proof: {
+            a: Buffer.from(proof.a),
+            b: Buffer.from(proof.b),
+            c: Buffer.from(proof.c),
+            oracle_epoch: BigInt(0),
+            public_signals: proof.publicSignals.map((bytes) =>
+              bytesToBigIntBE(bytes)
+            ),
+          },
+          memos: memoBytes.map((m) => Buffer.from(m)),
+        })
+
+        const { signTransaction: freighter } = await import(
+          "@stellar/freighter-api"
+        )
+        const sent = await assembled.signAndSend({
+          signTransaction: (async (
+            xdrToSign: string,
+            opts?: { address?: string; networkPassphrase?: string }
+          ) => {
+            return freighter(xdrToSign, {
+              address: opts?.address ?? account,
+              networkPassphrase:
+                opts?.networkPassphrase ?? getConfiguredNetworkPassphrase(),
+            })
+          }) as unknown as Parameters<
+            typeof assembled.signAndSend
+          >[0] extends undefined
+            ? never
+            : NonNullable<
+                Parameters<typeof assembled.signAndSend>[0]
+              >["signTransaction"],
+        })
+
+        toast.close()
+
+        const hash = sent.sendTransactionResponse?.hash ?? ""
+        const indexResult = sent.result as unknown as
+          | { value: unknown[] }
+          | { error: { message: string } }
+        if (indexResult && "error" in indexResult) {
+          throw new Error(indexResult.error.message)
+        }
+        const rawIdxs =
+          "value" in indexResult ? (indexResult.value as unknown[]) : []
+        const indexes = rawIdxs.map((v) => Number(v as bigint))
+
+        const notesOut: ShieldedNote[] = salts.map((salt, i) => {
+          const stored: ShieldedNote = {
+            amount: denomination,
+            asset,
+            index: indexes[i] ?? witnesses[i].nextIndex,
+            salt,
+            sk,
+            tree: "deposit",
+            witness: {
+              pathElements: witnesses[i].path,
+              pathBits: witnesses[i].pathBits,
+              root: witnesses[i].root,
+            },
+          }
+          upsertNote(stored)
+          return stored
+        })
+        emitDepositConfirmed(hash)
+
+        setStatus("success")
+        setMessage(hash)
+        toastManager.add({
+          title: "Quad deposit confirmed",
+          description: `4 shielded ${asset} notes minted in one tx.`,
+          type: "success",
+          timeout: 6_000,
+          actionProps: {
+            children: "View Transaction",
+            onClick: () => window.open(getStellarExpertTxUrl(hash), "_blank"),
+          },
+        })
+        return { notes: notesOut, txHash: hash, indexes }
+      } catch (cause) {
+        toast.close()
+        const { title, description, rejected } = describeError(
+          cause,
+          "Quad deposit failed"
+        )
+        setStatus("failed")
+        setMessage(description)
+        toastManager.add({
+          title,
+          description,
+          type: rejected ? "info" : "error",
+          timeout: 8_000,
+        })
+        return null
+      }
+    },
+    [account, identity]
+  )
+
+  return { deposit, depositBatch, depositQuad, message, reset, status }
+}
+
+function bytesToBigIntBE(bytes: Uint8Array): bigint {
+  let v = 0n
+  for (const b of bytes) v = (v << 8n) | BigInt(b)
+  return v
 }
 
 function bigintFromBytes(bytes: Uint8Array): bigint {

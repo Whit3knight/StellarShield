@@ -451,6 +451,24 @@ export interface Client {
   positions_by_account: ({account}: {account: string}, options?: MethodOptions) => Promise<AssembledTransaction<Array<BorrowReceipt>>>
 
   /**
+   * Construct and simulate a deposit_shielded_quad transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   * Quad-deposit variant that ships FOUR leaves under one Groth16
+   * proof. Public signals order (snarkjs outputs first):
+   * [0..3] commitment[0..3]
+   * [4]    amount     (fixed denomination in whole units)
+   * [5]    asset_tag  (0 = XLM, 1 = USDC, 2 = EURC)
+   * The circuit constrains each `commitment[i] == Poseidon(amount,
+   * asset_tag, sk, salt_i)` for a shared `sk`. One pairing check on
+   * chain covers all four, so the per-tx CPU budget only pays for
+   * verification once — an ordinary `deposit_shielded_batch` at N=4
+   * runs 4 verifies (~240M CPU) which trips the network's 100M cap.
+   * Contract still transfers the denomination four times and
+   * appends four leaves, so the caller pushes `4 * denomination`
+   * worth of the underlying token in one shot.
+   */
+  deposit_shielded_quad: ({from, asset, proof, memos}: {from: string, asset: string, proof: BorrowProof, memos: Array<Buffer>}, options?: MethodOptions) => Promise<AssembledTransaction<Result<Array<u64>>>>
+
+  /**
    * Construct and simulate a liquidate_shielded_v2 transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    * Shielded liquidation v2 (Track A). Uses the pre-published loan
    * nullifier from the LoanNullifier sidecar so a service worker
@@ -574,6 +592,7 @@ export class Client extends ContractClient {
         "AAAAAAAAAAAAAAATaW5pdGlhbGl6ZV9zaGllbGRlZAAAAAADAAAAAAAAAAlyZWZsZWN0b3IAAAAAAAATAAAAAAAAAARyYXRlAAAH0AAAAApSYXRlUGFyYW1zAAAAAAAAAAAABHJpc2sAAAfQAAAAClJpc2tQYXJhbXMAAAAAAAEAAAPpAAAD7QAAAAAAAAAD",
         "AAAAAAAAAAAAAAAUYm9ycm93X2luZGV4X2F0X29wZW4AAAABAAAAAAAAAA9sb2FuX2NvbW1pdG1lbnQAAAAD7gAAACAAAAABAAAD6AAAAAo=",
         "AAAAAAAAAAAAAAAUcG9zaXRpb25zX2J5X2FjY291bnQAAAABAAAAAAAAAAdhY2NvdW50AAAAABMAAAABAAAD6gAAB9AAAAANQm9ycm93UmVjZWlwdAAAAA==",
+        "AAAAAAAAAtBRdWFkLWRlcG9zaXQgdmFyaWFudCB0aGF0IHNoaXBzIEZPVVIgbGVhdmVzIHVuZGVyIG9uZSBHcm90aDE2CnByb29mLiBQdWJsaWMgc2lnbmFscyBvcmRlciAoc25hcmtqcyBvdXRwdXRzIGZpcnN0KToKWzAuLjNdIGNvbW1pdG1lbnRbMC4uM10KWzRdICAgIGFtb3VudCAgICAgKGZpeGVkIGRlbm9taW5hdGlvbiBpbiB3aG9sZSB1bml0cykKWzVdICAgIGFzc2V0X3RhZyAgKDAgPSBYTE0sIDEgPSBVU0RDLCAyID0gRVVSQykKVGhlIGNpcmN1aXQgY29uc3RyYWlucyBlYWNoIGBjb21taXRtZW50W2ldID09IFBvc2VpZG9uKGFtb3VudCwKYXNzZXRfdGFnLCBzaywgc2FsdF9pKWAgZm9yIGEgc2hhcmVkIGBza2AuIE9uZSBwYWlyaW5nIGNoZWNrIG9uCmNoYWluIGNvdmVycyBhbGwgZm91ciwgc28gdGhlIHBlci10eCBDUFUgYnVkZ2V0IG9ubHkgcGF5cyBmb3IKdmVyaWZpY2F0aW9uIG9uY2Ug4oCUIGFuIG9yZGluYXJ5IGBkZXBvc2l0X3NoaWVsZGVkX2JhdGNoYCBhdCBOPTQKcnVucyA0IHZlcmlmaWVzICh+MjQwTSBDUFUpIHdoaWNoIHRyaXBzIHRoZSBuZXR3b3JrJ3MgMTAwTSBjYXAuCkNvbnRyYWN0IHN0aWxsIHRyYW5zZmVycyB0aGUgZGVub21pbmF0aW9uIGZvdXIgdGltZXMgYW5kCmFwcGVuZHMgZm91ciBsZWF2ZXMsIHNvIHRoZSBjYWxsZXIgcHVzaGVzIGA0ICogZGVub21pbmF0aW9uYAp3b3J0aCBvZiB0aGUgdW5kZXJseWluZyB0b2tlbiBpbiBvbmUgc2hvdC4AAAAVZGVwb3NpdF9zaGllbGRlZF9xdWFkAAAAAAAABAAAAAAAAAAEZnJvbQAAABMAAAAAAAAABWFzc2V0AAAAAAAAEQAAAAAAAAAFcHJvb2YAAAAAAAfQAAAAC0JvcnJvd1Byb29mAAAAAAAAAAAFbWVtb3MAAAAAAAPqAAAADgAAAAEAAAPpAAAD6gAAAAYAAAAD",
         "AAAAAAAAAxJTaGllbGRlZCBsaXF1aWRhdGlvbiB2MiAoVHJhY2sgQSkuIFVzZXMgdGhlIHByZS1wdWJsaXNoZWQgbG9hbgpudWxsaWZpZXIgZnJvbSB0aGUgTG9hbk51bGxpZmllciBzaWRlY2FyIHNvIGEgc2VydmljZSB3b3JrZXIKaG9sZGluZyBvbmx5IHRoZSBtZW1vIG9wZW5pbmdzIOKAlCBuZXZlciB0aGUgYm9ycm93ZXIncyBzayDigJQKY2FuIHRyaWdnZXIuIFJlcXVpcmVzIGEgcG9zdC1UcmFjay1BIGJvbmQ7IHByZS1BIGxvYW5zIHN0YXkgb24KdGhlIHYxIHBhdGggdmlhIGBsaXF1aWRhdGVfc2hpZWxkZWRgLgoKQ2lyY3VpdCBwdWJsaWMgc2lnbmFscyAoNSk6ClswXSBib3Jyb3dfYW1vdW50X2NvbW1pdCAgICAgICAgICBmcm9tIExpcXVpZGF0aW9uQm9uZApbMV0gY29sbGF0ZXJhbF92YWx1ZV9jb21taXQgICAgICAgZnJvbSBMaXF1aWRhdGlvbkJvbmQKWzJdIGJvcnJvd19wcmljZV9jb21taXQgICAgICAgICAgIGZyb20gTGlxdWlkYXRpb25Cb25kClszXSBjdXJyZW50X3ByaWNlICAgICAgICAgICAgICAgICBvcmFjbGUtc3VwcGxpZWQKWzRdIHRocmVzaG9sZF9icHMgICAgICAgICAgICAgICAgIG1hdGNoZXMgcmlza19wYXJhbXMubGlxdWlkYXRpb25fdGhyZXNob2xkX2JwcwoKYGxvYW5fY29tbWl0bWVudGAgKyBgbG9hbl9udWxsaWZpZXJgIGNvbWUgaW4gYXMgdHggYXJnczsgdGhlCmNvbnRyYWN0IHZhbGlkYXRlcyB0aGVtIGFnYWluc3QgYGxpcXVpZGF0aW9uX2JvbmRgICsKYGxvYW5fbnVsbGlmaWVyYCBzdG9yYWdlLiBCb3VudHkgcGF5b3V0IGlzIGlkZW50aWNhbCB0byB2MS4AAAAAABVsaXF1aWRhdGVfc2hpZWxkZWRfdjIAAAAAAAAIAAAAAAAAAApsaXF1aWRhdG9yAAAAAAATAAAAAAAAAAxib3Jyb3dfYXNzZXQAAAARAAAAAAAAABBjb2xsYXRlcmFsX2Fzc2V0AAAAEQAAAAAAAAAPbG9hbl9jb21taXRtZW50AAAAA+4AAAAgAAAAAAAAAA5sb2FuX251bGxpZmllcgAAAAAD7gAAACAAAAAAAAAABXByb29mAAAAAAAH0AAAAAtCb3Jyb3dQcm9vZgAAAAAAAAAADWJvdW50eV9jb21taXQAAAAAAAPuAAAAIAAAAAAAAAALYm91bnR5X21lbW8AAAAADgAAAAEAAAPpAAAD7QAAAAAAAAAD",
         "AAAAAAAAAVhCYXRjaGVkIGBkZXBvc2l0X3NoaWVsZGVkYC4gYHByb29mc1tpXWAgbWludHMgdGhlIGxlYWYgZGVzY3JpYmVkCmJ5IGBtZW1vc1tpXWA7IHRoZSBwYWlyIGxlbmd0aCBtdXN0IG1hdGNoLiBTaWduZWQgb25jZSBhdCB0aGUKY2FsbGVyIChzaW5nbGUgYGZyb20ucmVxdWlyZV9hdXRoKClgKSwgc28gdGhlIHdhbGxldCBVWCBvbmx5CnByb21wdHMgb25jZSBmb3IgYSBmdWxsIHJvdW5kIG9mIHNoaWVsZGVkIGNvbGxhdGVyYWwgaW5zdGVhZCBvZgpOIHNlcGFyYXRlIGRlcG9zaXRzLiBSZXR1cm5zIHRoZSBhc3NpZ25lZCBsZWFmIGluZGV4ZXMgaW4gdGhlCnNhbWUgb3JkZXIgdGhlIHByb29mcyBjYW1lIGluLgAAABZkZXBvc2l0X3NoaWVsZGVkX2JhdGNoAAAAAAAEAAAAAAAAAARmcm9tAAAAEwAAAAAAAAAFYXNzZXQAAAAAAAARAAAAAAAAAAZwcm9vZnMAAAAAA+oAAAfQAAAAC0JvcnJvd1Byb29mAAAAAAAAAAAFbWVtb3MAAAAAAAPqAAAADgAAAAEAAAPpAAAD6gAAAAYAAAAD",
         "AAAAAAAAAAAAAAAWbGlxdWlkYXRpb25fc2VydmljZV9wawAAAAAAAAAAAAEAAAPoAAAD7gAAACA=",
@@ -626,6 +645,7 @@ export class Client extends ContractClient {
         initialize_shielded: this.txFromJSON<Result<void>>,
         borrow_index_at_open: this.txFromJSON<Option<u128>>,
         positions_by_account: this.txFromJSON<Array<BorrowReceipt>>,
+        deposit_shielded_quad: this.txFromJSON<Result<Array<u64>>>,
         liquidate_shielded_v2: this.txFromJSON<Result<void>>,
         deposit_shielded_batch: this.txFromJSON<Result<Array<u64>>>,
         liquidation_service_pk: this.txFromJSON<Option<Buffer>>,

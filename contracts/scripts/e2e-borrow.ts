@@ -185,36 +185,30 @@ if (FORCE_FRESH || notes.length < 4) {
   console.log(
     `Depositing ${FORCE_FRESH ? 4 : 4 - notes.length} fresh note(s) via batch fn…`
   )
-  const { proveDeposit } = await import(
-    "../../features/shielded-pool/deposit-prover"
-  )
-  const depositWasmUrl = `file://${new URL("../../public/circuits-circom/shielded/deposit/deposit.wasm", import.meta.url).pathname}`
-  const depositZkeyUrl = `file://${new URL("../../public/circuits-circom/shielded/deposit/deposit.zkey", import.meta.url).pathname}`
-
   const depositClient = new bindingsModule.Client({
     contractId: CONTRACT_ID,
     networkPassphrase: NETWORK_PASSPHRASE,
     rpcUrl: RPC_URL,
     publicKey: stellarAddr,
   })
-  const missing = FORCE_FRESH ? 4 : 4 - notes.length
-  const preparedDeposits: {
-    salt: bigint
-    proof: Awaited<ReturnType<typeof proveDeposit>>
-    memoBytes: Uint8Array
-  }[] = []
-  for (let i = 0; i < missing; i++) {
-    const salt = rand()
-    const depositProof = await proveDeposit(
-      {
-        amount: DENOMINATION[COLLATERAL_ASSET],
-        asset: COLLATERAL_ASSET,
-        salt,
-        sk: identity.skField,
-      },
-      { wasmUrl: depositWasmUrl, zkeyUrl: depositZkeyUrl }
-    )
-    const depositMemo = memo.encodeMemoBundle(
+  const { proveDepositQuad } = await import(
+    "../../features/shielded-pool/deposit-quad-prover"
+  )
+  const quadWasmUrl = `file://${new URL("../../public/circuits-circom/shielded/deposit_quad/deposit.wasm", import.meta.url).pathname}`
+  const quadZkeyUrl = `file://${new URL("../../public/circuits-circom/shielded/deposit_quad/deposit.zkey", import.meta.url).pathname}`
+  const salts = [rand(), rand(), rand(), rand()] as [bigint, bigint, bigint, bigint]
+  console.log("Generating quad deposit proof…")
+  const quadProof = await proveDepositQuad(
+    {
+      amount: DENOMINATION[COLLATERAL_ASSET],
+      asset: COLLATERAL_ASSET,
+      salt: salts,
+      sk: identity.skField,
+    },
+    { wasmUrl: quadWasmUrl, zkeyUrl: quadZkeyUrl }
+  )
+  const quadMemos = salts.map((salt) =>
+    memo.encodeMemoBundle(
       memo.encryptMemo({
         plaintext: {
           amount: DENOMINATION[COLLATERAL_ASSET].toString(),
@@ -226,47 +220,38 @@ if (FORCE_FRESH || notes.length < 4) {
         recipientPk: identity.publicKey,
       })
     )
-    preparedDeposits.push({ salt, proof: depositProof, memoBytes: depositMemo })
-    console.log(`  prepared proof ${i + 1}/${missing}`)
-  }
-  // Chunk into groups of 2 — a single tx exceeds the 100M CPU budget
-  // above ~2 Groth16 verifies over BLS12-381. Two batches of two ⇒
-  // two signatures instead of four singletons; still cuts the UX from
-  // N prompts to ceil(N/2).
-  const BATCH_CHUNK = 1
-  const rawIdx: unknown[] = []
-  for (let start = 0; start < preparedDeposits.length; start += BATCH_CHUNK) {
-    const slice = preparedDeposits.slice(start, start + BATCH_CHUNK)
-    const asm = await depositClient.deposit_shielded_batch({
-      from: stellarAddr,
-      asset: COLLATERAL_ASSET,
-      proofs: slice.map((p) => ({
-        a: Buffer.from(p.proof.a),
-        b: Buffer.from(p.proof.b),
-        c: Buffer.from(p.proof.c),
-        oracle_epoch: BigInt(0),
-        public_signals: p.proof.publicSignals.map(bytesUintToBigint),
-      })),
-      memos: slice.map((p) => Buffer.from(p.memoBytes)),
-    })
-    const dsent = await asm.signAndSend({
-      signTransaction: (async (xdrToSign: string) => {
-        const tx = new stellarSdk.Transaction(xdrToSign, NETWORK_PASSPHRASE)
-        tx.sign(Keypair.fromSecret(stellarSecret))
-        return { signedTxXdr: tx.toXDR(), signerAddress: stellarAddr }
-      }) as unknown as never,
-    })
-    const dhash = dsent.sendTransactionResponse?.hash
-    console.log(`  batch tx (${slice.length} deposits): ${dhash}`)
-    const dresult = dsent.result as unknown as
-      | { value: unknown[] }
-      | { error: { message: string } }
-    if (dresult && "error" in dresult) throw new Error(dresult.error.message)
-    const chunkIdx =
-      "value" in dresult ? (dresult.value as unknown[]) : []
-    rawIdx.push(...chunkIdx)
-    await new Promise((r) => setTimeout(r, 2000))
-  }
+  )
+  const preparedDeposits: { salt: bigint }[] = salts.map((salt) => ({ salt }))
+  console.log(`  quad proof ready (${quadProof.publicSignals.length} public signals)`)
+  // Single tx, one signature, one on-chain Groth16 verify covering
+  // all four leaves.
+  const asm = await depositClient.deposit_shielded_quad({
+    from: stellarAddr,
+    asset: COLLATERAL_ASSET,
+    proof: {
+      a: Buffer.from(quadProof.a),
+      b: Buffer.from(quadProof.b),
+      c: Buffer.from(quadProof.c),
+      oracle_epoch: BigInt(0),
+      public_signals: quadProof.publicSignals.map(bytesUintToBigint),
+    },
+    memos: quadMemos.map((m) => Buffer.from(m)),
+  })
+  const dsent = await asm.signAndSend({
+    signTransaction: (async (xdrToSign: string) => {
+      const tx = new stellarSdk.Transaction(xdrToSign, NETWORK_PASSPHRASE)
+      tx.sign(Keypair.fromSecret(stellarSecret))
+      return { signedTxXdr: tx.toXDR(), signerAddress: stellarAddr }
+    }) as unknown as never,
+  })
+  const dhash = dsent.sendTransactionResponse?.hash
+  console.log(`  quad tx: ${dhash}`)
+  const dresult = dsent.result as unknown as
+    | { value: unknown[] }
+    | { error: { message: string } }
+  if (dresult && "error" in dresult) throw new Error(dresult.error.message)
+  const rawIdx: unknown[] =
+    "value" in dresult ? (dresult.value as unknown[]) : []
   for (let i = 0; i < preparedDeposits.length; i++) {
     const salt = preparedDeposits[i].salt
     const leafIndex = Number(rawIdx[i] as bigint)
@@ -285,7 +270,7 @@ if (FORCE_FRESH || notes.length < 4) {
       sk: identity.skField,
       leaf,
     })
-    console.log(`  deposit ${i + 1}/${missing} → leaf ${leafIndex}`)
+    console.log(`  deposit ${i + 1}/4 → leaf ${leafIndex}`)
   }
   await new Promise((r) => setTimeout(r, 3000))
   chainLeaves.sort((a, b) => a.index - b.index)
