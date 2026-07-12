@@ -61,16 +61,11 @@ export function DesktopMarketDrawer({
     flow.verification.status === "Verified"
       ? flow.verification.proof.id
       : null
-  const submitTransactionRef = React.useRef(submitTransaction)
-  React.useEffect(() => {
-    submitTransactionRef.current = submitTransaction
-  })
   React.useEffect(() => {
     if (!verifiedProofId) return
     if (autoAdvancedProofRef.current === verifiedProofId) return
     autoAdvancedProofRef.current = verifiedProofId
     setActiveStep("transaction")
-    submitTransactionRef.current()
   }, [verifiedProofId])
 
   return (

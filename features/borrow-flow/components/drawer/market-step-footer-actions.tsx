@@ -40,6 +40,8 @@ export function MarketStepFooterActions({
 
   if (step === "transaction") {
     const isFailed = flow.transaction.status === "Failed"
+    const isReady = flow.transaction.status === "Ready"
+    const isSubmitting = isSubmitPending(flow.transaction)
 
     return (
       <>
@@ -50,6 +52,15 @@ export function MarketStepFooterActions({
           <Button onClick={onSubmit} type="button">
             <RotateCcwIcon aria-hidden="true" />
             Retry submission
+          </Button>
+        ) : isReady || isSubmitting ? (
+          <Button
+            disabled={isSubmitting}
+            loading={isSubmitting}
+            onClick={onSubmit}
+            type="button"
+          >
+            {isSubmitting ? flow.transaction.status : "Submit transaction"}
           </Button>
         ) : (
           <Button onClick={onClose} type="button">

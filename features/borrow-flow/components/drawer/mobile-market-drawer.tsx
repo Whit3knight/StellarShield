@@ -35,27 +35,27 @@ function MobileTransactionDrawer({
   position,
 }: Omit<BorrowFlowDrawerProps, "onVerify">): React.ReactElement {
   const isSubmitting = isSubmitPending(flow.transaction)
+  const isReady = flow.transaction.status === "Ready"
+  const isFailed = flow.transaction.status === "Failed"
+  const isConfirmed = flow.transaction.status === "Confirmed"
 
   // This component only mounts once eligibility verifies (its parent
   // `MobileVerificationDrawer` conditionally renders it on
-  // `canSubmit`). Auto-open the drawer + auto-fire submit on mount so
-  // mobile users don't have to tap "Submit transaction" — the desktop
-  // path already auto-advances via `desktop-market-drawer.tsx`. Ref
-  // guard prevents a StrictMode double-mount from double-signing.
+  // `canSubmit`). Auto-open the drawer on mount so mobile users land
+  // on step 4 without an extra tap; the Submit button inside the
+  // drawer body handles the actual signing.
   const [open, setOpen] = React.useState(false)
-  const submittedRef = React.useRef(false)
+  const openedRef = React.useRef(false)
   React.useEffect(() => {
-    if (submittedRef.current) return
-    submittedRef.current = true
+    if (openedRef.current) return
+    openedRef.current = true
     setOpen(true)
-    onSubmit()
-  }, [onSubmit])
+  }, [])
 
   return (
     <Drawer onOpenChange={setOpen} open={open}>
       <DrawerTrigger
         disabled={isSubmitting}
-        onClick={onSubmit}
         render={<Button loading={isSubmitting} type="button" />}
       >
         {isSubmitting ? flow.transaction.status : "Submit transaction"}
@@ -74,9 +74,24 @@ function MobileTransactionDrawer({
           <Button onClick={onClose} type="button" variant="ghost">
             Close
           </Button>
-          <Button onClick={onClose} type="button">
-            Done
-          </Button>
+          {isFailed ? (
+            <Button onClick={onSubmit} type="button">
+              Retry submission
+            </Button>
+          ) : isReady || isSubmitting ? (
+            <Button
+              disabled={isSubmitting}
+              loading={isSubmitting}
+              onClick={onSubmit}
+              type="button"
+            >
+              {isSubmitting ? flow.transaction.status : "Submit transaction"}
+            </Button>
+          ) : (
+            <Button disabled={!isConfirmed} onClick={onClose} type="button">
+              Done
+            </Button>
+          )}
         </MarketDrawerFooter>
       </MarketDrawerPopup>
     </Drawer>
