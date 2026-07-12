@@ -196,4 +196,11 @@ stellar contract invoke --id CBJZP45HUUVXWDSEUIQPDJD4RZPTUJUG6IGVM7HQPHRK74SHKPX
 
 # Bindings
 stellar contract bindings typescript --contract-id CBJZP45HUUVXWDSEUIQPDJD4RZPTUJUG6IGVM7HQPHRK74SHKPXF4N7L --network testnet --output-dir /tmp/bindings
+
+# Liquidation watchlist (Track L)
+# Enumerates every live LiquidationBond on the pool (skipping ones
+# already burned by liquidate events) and prints them sorted oldest
+# first. Read-only; does not touch memo openings.
+bun run scan:underwater
+LOOKBACK_LEDGERS=32000 bun run scan:underwater
 ```

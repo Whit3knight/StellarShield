@@ -13,7 +13,8 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit",
-    "check:bundle": "bun scripts/check-bundle.ts"
+    "check:bundle": "bun scripts/check-bundle.ts",
+    "scan:underwater": "bun contracts/scripts/scan-underwater.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",
