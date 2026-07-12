@@ -4,6 +4,7 @@ import * as React from "react"
 
 import {
   onBorrowConfirmed,
+  onDepositConfirmed,
   onRepayConfirmed,
 } from "@/features/borrow-flow/borrow-events"
 import {
@@ -49,11 +50,15 @@ export function useShieldedPool(account: string | null): {
 
     const offBorrow = onBorrowConfirmed(() => setRefreshToken((t) => t + 1))
     const offRepay = onRepayConfirmed(() => setRefreshToken((t) => t + 1))
+    const offDeposit = onDepositConfirmed(() =>
+      setRefreshToken((t) => t + 1)
+    )
 
     return () => {
       controller.abort()
       offBorrow()
       offRepay()
+      offDeposit()
     }
   }, [identity, refreshToken])
 

@@ -11,6 +11,8 @@ import {
   getStellarExpertTxUrl,
 } from "@/features/wallet/network"
 
+import { emitDepositConfirmed } from "@/features/borrow-flow/borrow-events"
+
 import { prepareDeposit } from "./deposit"
 import { createToastTracker, describeError } from "./hook-utils"
 
@@ -137,18 +139,29 @@ export function useDeposit(
         toast.close()
 
         const hash = sent.sendTransactionResponse?.hash ?? ""
+        // `sent.result` is an `Ok<bigint>` / `Err<...>` from
+        // @stellar/stellar-sdk's rust_result — access via `.value` /
+        // `.error`, NOT `{tag, values}` (that shape belongs to the
+        // XDR discriminated union, not the SDK's Result wrapper).
+        // Getting this wrong pins every deposit's leafIndex at 0.
         const indexResult = sent.result as unknown as
-          | { tag: "Ok"; values: readonly [bigint] }
-          | { tag: "Err"; error: { message: string } }
-        if (indexResult && "tag" in indexResult && indexResult.tag === "Err") {
+          | { value: bigint; isOk?: () => boolean }
+          | { error: { message: string }; isErr?: () => boolean }
+        if (indexResult && "error" in indexResult) {
           throw new Error(indexResult.error.message)
         }
         const leafIndex = Number(
-          (indexResult as { tag: "Ok"; values: readonly [bigint] })?.values?.[0] ?? 0n
+          "value" in indexResult ? indexResult.value : 0n
         )
 
         const stored: ShieldedNote = { ...prepared.note, index: leafIndex }
         upsertNote(stored)
+        // Trigger a rescan so the note picks up its authoritative
+        // index from the DEPOSIT_EVENT body — the SDK Ok<u64> value
+        // above is correct now, but the scanner also enforces spent-
+        // nullifier + memo dedupe so we always converge on the same
+        // inventory a fresh browser reload would produce.
+        emitDepositConfirmed(hash)
         setStatus("success")
         setMessage(hash)
         toastManager.add({

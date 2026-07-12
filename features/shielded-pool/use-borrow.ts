@@ -200,14 +200,16 @@ export function useBorrow(
         toast.close()
 
         const hash = sent.sendTransactionResponse?.hash ?? ""
+        // Same wrapper as deposit — SDK's rust_result Ok/Err with
+        // `.value` / `.error`, not `{tag, values}`.
         const indexResult = sent.result as unknown as
-          | { tag: "Ok"; values: readonly [bigint] }
-          | { tag: "Err"; error: { message: string } }
-        if (indexResult && "tag" in indexResult && indexResult.tag === "Err") {
+          | { value: bigint }
+          | { error: { message: string } }
+        if (indexResult && "error" in indexResult) {
           throw new Error(indexResult.error.message)
         }
         const loanIndex = Number(
-          (indexResult as { tag: "Ok"; values: readonly [bigint] })?.values?.[0] ?? 0n
+          "value" in indexResult ? indexResult.value : 0n
         )
 
         const stored: ShieldedNote = { ...prepared.note, index: loanIndex }

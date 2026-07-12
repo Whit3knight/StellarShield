@@ -12,6 +12,7 @@ const bus: EventTarget =
 
 const CONFIRMED = "borrow-flow:confirmed"
 const REPAY_CONFIRMED = "borrow-flow:repay-confirmed"
+const DEPOSIT_CONFIRMED = "borrow-flow:deposit-confirmed"
 
 type HashDetail = { hash?: string }
 
@@ -43,4 +44,19 @@ export function onRepayConfirmed(
   }
   bus.addEventListener(REPAY_CONFIRMED, listener)
   return () => bus.removeEventListener(REPAY_CONFIRMED, listener)
+}
+
+export function emitDepositConfirmed(hash?: string): void {
+  bus.dispatchEvent(new CustomEvent(DEPOSIT_CONFIRMED, { detail: { hash } }))
+}
+
+export function onDepositConfirmed(
+  handler: (hash?: string) => void
+): () => void {
+  const listener = (event: Event) => {
+    const detail = (event as CustomEvent<HashDetail>).detail
+    handler(detail?.hash)
+  }
+  bus.addEventListener(DEPOSIT_CONFIRMED, listener)
+  return () => bus.removeEventListener(DEPOSIT_CONFIRMED, listener)
 }
