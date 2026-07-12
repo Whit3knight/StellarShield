@@ -93,11 +93,23 @@ fn permute<const T: usize>(
     // Sanity: caller guarantees `T = inputs.len() + 1`.
     debug_assert_eq!(inputs.len() + 1, T);
 
+    // One zero Fr for every subsequent scratch allocation. Cloning an
+    // Fr host object is cheap; marshalling a zero via
+    // `Fr::from_bytes(BytesN::from_array(env, &[0u8; 32]))` is not —
+    // ~50k CPU insns per call. Pay the marshal once here instead of
+    // twice per Poseidon round.
+    let zero = Fr::from_bytes(BytesN::from_array(env, &[0u8; 32]));
+
     // Initialise state: state[0] = 0 (capacity), state[1..] = inputs.
-    let mut state: [Fr; T] = core::array::from_fn(|_| Fr::from_bytes(BytesN::from_array(env, &[0u8; 32])));
+    let mut state: [Fr; T] = core::array::from_fn(|_| zero.clone());
     for (i, input) in inputs.iter().enumerate() {
         state[i + 1] = input.clone();
     }
+
+    // Pre-allocated scratch for the MDS output. `mem::swap` at the end
+    // of the round rotates state and next without another array
+    // allocation.
+    let mut next: [Fr; T] = core::array::from_fn(|_| zero.clone());
 
     let total_rounds = R_F + partial_rounds;
     for round in 0..total_rounds {
@@ -119,17 +131,15 @@ fn permute<const T: usize>(
         }
 
         // MDS matmul: next[i] = Σ_j M[i][j] * state[j].
-        let mut next: [Fr; T] =
-            core::array::from_fn(|_| Fr::from_bytes(BytesN::from_array(env, &[0u8; 32])));
         for i in 0..T {
-            let mut acc = Fr::from_bytes(BytesN::from_array(env, &[0u8; 32]));
+            let mut acc = zero.clone();
             for j in 0..T {
                 let term = mul(env, &matrix[i][j], &state[j]);
                 acc = add(env, &acc, &term);
             }
             next[i] = acc;
         }
-        state = next;
+        core::mem::swap(&mut state, &mut next);
     }
 
     state[0].clone()

@@ -870,12 +870,17 @@ impl BorrowPool {
         Ok(())
     }
 
-    /// Shielded liquidation. Permissionless — any caller who holds the
-    /// memo openings for an underwater loan can burn its nullifier.
-    /// Contract cross-checks the 3 bond commitments in the proof match
-    /// the stored `LiquidationBond` and enforces the risk-params
-    /// threshold. No bounty payout in v1: pool simply retains the
-    /// unclaimed collateral. See docs/liquidation-design.md.
+    /// Shielded liquidation (v1). Permissionless — any caller who
+    /// holds the memo openings for an underwater loan can burn its
+    /// nullifier via the sk-binding liquidate circuit. Contract
+    /// cross-checks the 3 bond commitments in the proof match the
+    /// stored `LiquidationBond` and enforces the risk-params
+    /// threshold. Bounty payout (Track C-simple) mints a fresh
+    /// denomination note to the liquidator via the caller-supplied
+    /// commitment; see the append + DEPOSIT_EVENT below.
+    /// Post-Track-A bonds route through `liquidate_shielded_v2`
+    /// (no sk in the circuit); this fn stays as the grandfathered
+    /// path for pre-A loans. See docs/liquidation-design.md.
     ///
     /// Public signals:
     ///   [0] loan_commitment
