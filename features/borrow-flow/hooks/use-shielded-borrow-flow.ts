@@ -129,6 +129,11 @@ export function useShieldedBorrowFlow({
       return
     }
 
+    console.log("[verify] fired", {
+      verificationStatus: flow.verification.status,
+      transactionStatus: flow.transaction.status,
+    })
+
     setFlow((currentFlow) => ({
       ...currentFlow,
       verification: { status: "Preparing" },
@@ -155,9 +160,17 @@ export function useShieldedBorrowFlow({
       verification: { status: "Generating proof" },
     }))
 
+    console.log("[verify] deposit loop", {
+      ownedNotes,
+      targetNotes,
+      missing,
+    })
+
     for (let i = 0; i < missing; i++) {
+      console.log("[verify] deposit iter", { i, of: missing })
       const result = await deposit(collateralAsset)
       if (!result) {
+        console.log("[verify] deposit failed at iter", { i })
         setFlow((currentFlow) => ({
           ...currentFlow,
           verification: { status: "Failed", proof: null },

@@ -62,52 +62,35 @@ export async function prepareBorrow(
 
   const sk = params.identity.skField
 
-  // Prefer per-note cached witness (populated at deposit-time by
-  // `prepareDeposit`). Fall back to event-replay only if the note
-  // predates the cache. The replay path silently truncates once the
-  // enabling deposit event ages past Soroban's ~24h retention.
-  const notesMissingWitness = params.collateralNotes.some(
-    (note) => !note.witness
-  )
-
-  // Retry the fetch a few times when a targeted note's event hasn't
-  // shown up yet. Soroban RPC's event index lags the ledger by a few
-  // seconds after tx confirmation, so a borrow that runs immediately
-  // after `verifyEligibility`'s deposit loop can beat the index. The
-  // note landed on-chain (the tx confirmed synchronously); the
-  // fallback just needs to wait for RPC to see it.
-  const highestMissingIndex = Math.max(
-    ...params.collateralNotes.filter((n) => !n.witness).map((n) => n.index),
+  // Borrow always recomputes witnesses from the CURRENT tree state via
+  // event replay. Per-note witnesses cached at deposit-time (by
+  // `prepareDeposit`) each carry the root that was current the moment
+  // that leaf was appended — every subsequent deposit shifts the root
+  // upward, so mixing cached witnesses across four notes yields four
+  // different roots and the circuit rejects the inclusion proof. The
+  // cache is still useful for withdraw / single-note flows where root
+  // consistency isn't across multiple witnesses.
+  //
+  // Retry the fetch a few times in case Soroban RPC's event index
+  // hasn't caught up with the last just-confirmed deposit — the tx
+  // landed synchronously (that's how we know the leaf index), we just
+  // need the RPC to see it.
+  const highestNeededIndex = params.collateralNotes.reduce(
+    (max, note) => Math.max(max, note.index),
     -1
   )
   let fallbackWitnesses: Awaited<ReturnType<typeof fetchDepositWitnesses>> = []
-  if (notesMissingWitness) {
-    for (let attempt = 0; attempt < 4; attempt++) {
-      fallbackWitnesses = await fetchDepositWitnesses(params.collateralAsset)
-      const highestSeen = fallbackWitnesses.reduce(
-        (max, w) => Math.max(max, w.leafIndex),
-        -1
-      )
-      if (highestSeen >= highestMissingIndex) break
-      if (attempt === 3) break
-      await new Promise((resolve) => setTimeout(resolve, 2_000))
-    }
+  for (let attempt = 0; attempt < 4; attempt++) {
+    fallbackWitnesses = await fetchDepositWitnesses(params.collateralAsset)
+    const highestSeen = fallbackWitnesses.reduce(
+      (max, w) => Math.max(max, w.leafIndex),
+      -1
+    )
+    if (highestSeen >= highestNeededIndex) break
+    if (attempt === 3) break
+    await new Promise((resolve) => setTimeout(resolve, 2_000))
   }
   const matched = params.collateralNotes.map((note) => {
-    if (note.witness) {
-      return {
-        leaf: computeCommitment({
-          amount: note.amount,
-          asset: note.asset,
-          salt: note.salt,
-          sk: note.sk,
-        }),
-        leafIndex: note.index,
-        pathBits: note.witness.pathBits,
-        pathElements: note.witness.pathElements,
-        root: note.witness.root,
-      }
-    }
     const commitment = computeCommitment({
       amount: note.amount,
       asset: note.asset,
@@ -139,9 +122,9 @@ export async function prepareBorrow(
           })),
         chainLeafAtNoteIndex: byIndex ? byIndex.leaf.toString() : null,
       })
-      console.error("[borrow] fallback witness miss\n" + detail)
+      console.error("[borrow] witness miss\n" + detail)
       throw new Error(
-        `No matching deposit event for note #${note.index}. Tree may have advanced beyond retention. See console for diagnostic.`
+        `No matching deposit event for note #${note.index}. See console for diagnostic.`
       )
     }
     return witness
