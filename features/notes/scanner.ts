@@ -406,11 +406,12 @@ async function hydrateSpentFromChain(
   if (candidates.length === 0) return
   try {
     const bindings = await import("@/features/protocol/bindings/borrow-pool")
+    const sdkForPk = await import("@stellar/stellar-sdk")
     const client = new bindings.Client({
       contractId,
       networkPassphrase: getConfiguredNetworkPassphrase(),
       rpcUrl: getConfiguredSorobanRpcUrl(),
-      publicKey: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP66",
+      publicKey: sdkForPk.StrKey.encodeEd25519PublicKey(Buffer.alloc(32)),
     })
     const nullifiers = candidates.map((n) => computeNullifier(n.sk, n.index))
     const nulBuffers = nullifiers.map((n) => Buffer.from(bigintTo32BytesBE(n)))
