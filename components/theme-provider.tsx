@@ -47,7 +47,9 @@ function ThemeHotkey() {
         return
       }
 
-      if (event.key.toLowerCase() !== "d") {
+      // Some IMEs / composing keydown events fire without a `key`
+      // string. Bail out instead of crashing the listener.
+      if (typeof event.key !== "string" || event.key.toLowerCase() !== "d") {
         return
       }
 
