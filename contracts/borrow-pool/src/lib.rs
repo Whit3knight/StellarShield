@@ -11,6 +11,7 @@ mod deposit_verifier;
 mod liquidate_v2_verifier;
 mod liquidate_verifier;
 mod merkle;
+mod merkle_zeros;
 mod notes;
 mod poseidon;
 mod poseidon_constants;

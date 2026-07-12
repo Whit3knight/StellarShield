@@ -19,26 +19,22 @@
 
 use soroban_sdk::{crypto::bls12_381::Fr, BytesN, Env};
 
+use crate::merkle_zeros::ZERO_HASHES;
 use crate::poseidon;
 
 /// Tree depth. `2^DEPTH = 1_048_576` leaves — plenty for MVP.
 pub const DEPTH: usize = 20;
 
-fn zero_fr(env: &Env) -> Fr {
-    Fr::from_bytes(BytesN::from_array(env, &[0u8; 32]))
-}
-
 /// Zero-subtree hash for each level. `zero_hashes[0]` = `Fr::zero()`;
 /// `zero_hashes[i]` = `Poseidon(zero_hashes[i-1], zero_hashes[i-1])`.
-/// Recomputed every append because we can't cheaply cache across
-/// invocations in Soroban's stateless calling model — Poseidon is a
-/// handful of host-fn calls anyway.
+///
+/// Sourced from `ZERO_HASHES` constants — recomputing them from
+/// scratch on every append via Poseidon(Fr, Fr) blows the network
+/// per-tx instruction budget once the tree gets past ~5 levels. The
+/// constants are generated from `features/notes/merkle.ts::zeroHashes()`
+/// so JS + Rust stay byte-identical.
 fn zero_hashes(env: &Env) -> [Fr; DEPTH + 1] {
-    let mut hashes: [Fr; DEPTH + 1] = core::array::from_fn(|_| zero_fr(env));
-    for level in 1..=DEPTH {
-        hashes[level] = poseidon::hash_two_to_one(env, &hashes[level - 1], &hashes[level - 1]);
-    }
-    hashes
+    core::array::from_fn(|i| Fr::from_bytes(BytesN::from_array(env, &ZERO_HASHES[i])))
 }
 
 /// Root of the tree before any leaves have been appended.
