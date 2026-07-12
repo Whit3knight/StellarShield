@@ -69,9 +69,30 @@ export async function prepareBorrow(
   const notesMissingWitness = params.collateralNotes.some(
     (note) => !note.witness
   )
-  const fallbackWitnesses = notesMissingWitness
-    ? await fetchDepositWitnesses(params.collateralAsset)
-    : []
+
+  // Retry the fetch a few times when a targeted note's event hasn't
+  // shown up yet. Soroban RPC's event index lags the ledger by a few
+  // seconds after tx confirmation, so a borrow that runs immediately
+  // after `verifyEligibility`'s deposit loop can beat the index. The
+  // note landed on-chain (the tx confirmed synchronously); the
+  // fallback just needs to wait for RPC to see it.
+  const highestMissingIndex = Math.max(
+    ...params.collateralNotes.filter((n) => !n.witness).map((n) => n.index),
+    -1
+  )
+  let fallbackWitnesses: Awaited<ReturnType<typeof fetchDepositWitnesses>> = []
+  if (notesMissingWitness) {
+    for (let attempt = 0; attempt < 4; attempt++) {
+      fallbackWitnesses = await fetchDepositWitnesses(params.collateralAsset)
+      const highestSeen = fallbackWitnesses.reduce(
+        (max, w) => Math.max(max, w.leafIndex),
+        -1
+      )
+      if (highestSeen >= highestMissingIndex) break
+      if (attempt === 3) break
+      await new Promise((resolve) => setTimeout(resolve, 2_000))
+    }
+  }
   const matched = params.collateralNotes.map((note) => {
     if (note.witness) {
       return {
