@@ -20,6 +20,7 @@ pragma circom 2.1.9;
 //   [11]    borrow_amount_commit     Poseidon(borrow_amount, bond_salt_amount)      (Track L)
 //   [12]    collateral_value_commit  Poseidon(total_collateral_value, bond_salt_value)  (Track L)
 //   [13]    borrow_price_commit      Poseidon(oracle_price, bond_salt_price)        (Track L)
+//   [14]    loan_nullifier           Poseidon(sk, borrow_commitment)                (Track A)
 //
 // Private witness:
 //   sk                          shielded identity secret
@@ -91,6 +92,11 @@ template Borrow(depth, notes) {
     signal input borrow_amount_commit;
     signal input collateral_value_commit;
     signal input borrow_price_commit;
+    // Track A pre-published loan nullifier. Bound to the loan
+    // commitment so a liquidator can trigger burn without ever
+    // knowing the borrower's sk. Contract records this in a sidecar
+    // storage slot keyed by loan commitment.
+    signal input loan_nullifier;
 
     // Private witness.
     signal input sk;
@@ -186,6 +192,12 @@ template Borrow(depth, notes) {
     bondPrice.inputs[0] <== oracle_price;
     bondPrice.inputs[1] <== bond_salt_price;
     bondPrice.out === borrow_price_commit;
+
+    // Track A: pre-publish nullifier bound to loan commitment.
+    component loanNul = Poseidon(2);
+    loanNul.inputs[0] <== sk;
+    loanNul.inputs[1] <== borrow_commitment;
+    loanNul.out === loan_nullifier;
 }
 
 component main {public [
@@ -199,5 +211,6 @@ component main {public [
     nullifiers,
     borrow_amount_commit,
     collateral_value_commit,
-    borrow_price_commit
+    borrow_price_commit,
+    loan_nullifier
 ]} = Borrow(20, 4);

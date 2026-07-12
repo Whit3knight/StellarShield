@@ -12,6 +12,7 @@
 //!   [11]     borrow_amount_commit         (Track L bond)
 //!   [12]     collateral_value_commit      (Track L bond)
 //!   [13]     borrow_price_commit          (Track L bond)
+//!   [14]     loan_nullifier               (Track A pre-published)
 
 use soroban_sdk::{
     crypto::bls12_381::{Fr, G1Affine, G2Affine},
@@ -38,6 +39,7 @@ const VK_IC_11: &[u8; 96] = include_bytes!("vk/borrow/vk_ic_11.bin");
 const VK_IC_12: &[u8; 96] = include_bytes!("vk/borrow/vk_ic_12.bin");
 const VK_IC_13: &[u8; 96] = include_bytes!("vk/borrow/vk_ic_13.bin");
 const VK_IC_14: &[u8; 96] = include_bytes!("vk/borrow/vk_ic_14.bin");
+const VK_IC_15: &[u8; 96] = include_bytes!("vk/borrow/vk_ic_15.bin");
 
 pub fn verify_groth16(
     env: &Env,
@@ -46,7 +48,7 @@ pub fn verify_groth16(
     proof_c: G1Affine,
     pub_signals: Vec<Fr>,
 ) -> bool {
-    let ic_len = 15u32;
+    let ic_len = 16u32;
     if pub_signals.len() + 1 != ic_len {
         return false;
     }
@@ -91,5 +93,6 @@ fn ic_points(env: &Env) -> Vec<G1Affine> {
         G1Affine::from_array(env, VK_IC_12),
         G1Affine::from_array(env, VK_IC_13),
         G1Affine::from_array(env, VK_IC_14),
+        G1Affine::from_array(env, VK_IC_15),
     ]
 }

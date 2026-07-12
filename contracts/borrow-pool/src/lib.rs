@@ -283,6 +283,13 @@ impl BorrowPool {
         state::liquidation_bond(&env, &loan_commitment)
     }
 
+    pub fn loan_nullifier(
+        env: Env,
+        loan_commitment: BytesN<32>,
+    ) -> Option<BytesN<32>> {
+        state::loan_nullifier(&env, &loan_commitment)
+    }
+
     pub fn reserve_of(env: Env, asset: Symbol) -> Option<Address> {
         tokens::reserve(&env, &asset)
     }
@@ -506,7 +513,7 @@ impl BorrowPool {
     ) -> Result<u64, Error> {
         from.require_auth();
 
-        if proof.public_signals.len() != 14 {
+        if proof.public_signals.len() != 15 {
             return Err(Error::InvalidProof);
         }
         let borrow_amount_fr = proof.public_signals.get(0).unwrap();
@@ -519,6 +526,7 @@ impl BorrowPool {
         let borrow_amount_commit_fr = proof.public_signals.get(11).unwrap();
         let collateral_value_commit_fr = proof.public_signals.get(12).unwrap();
         let borrow_price_commit_fr = proof.public_signals.get(13).unwrap();
+        let loan_nullifier_fr = proof.public_signals.get(14).unwrap();
 
         // Asset + risk parameter cross-check. Contract's stored risk
         // params dictate what the proof MUST have used; the circuit
@@ -637,6 +645,12 @@ impl BorrowPool {
             opened_at: env.ledger().timestamp(),
         };
         state::set_liquidation_bond(&env, &leaf.to_bytes(), &bond);
+        // Track A: pre-published loan_nullifier so a service worker
+        // can trigger liquidation without borrower sk. Circuit binds
+        // `Poseidon(sk, borrow_commitment) === loan_nullifier`; here
+        // we cache the value keyed by the loan commitment for O(1)
+        // liquidate-time lookup.
+        state::set_loan_nullifier(&env, &leaf.to_bytes(), &loan_nullifier_fr.to_bytes());
 
         env.events().publish(
             (BORROW_EVENT, collateral_asset.clone(), borrow_asset.clone()),

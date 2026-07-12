@@ -12,6 +12,7 @@
 //   [11]    borrow_amount_commit         (Track L bond)
 //   [12]    collateral_value_commit      (Track L bond)
 //   [13]    borrow_price_commit          (Track L bond)
+//   [14]    loan_nullifier               (Track A pre-published)
 
 import {
   assetTag,
@@ -54,6 +55,7 @@ export type BorrowProofResult = {
   borrowAmountCommit: bigint
   collateralValueCommit: bigint
   borrowPriceCommit: bigint
+  loanNullifier: bigint
 }
 
 async function fetchArtefact(url: string): Promise<Uint8Array> {
@@ -95,6 +97,7 @@ export async function proveBorrow(
   const borrowAmountCommit = poseidon([borrowAmount, inputs.bondSaltAmount])
   const collateralValueCommit = poseidon([collateralValue, inputs.bondSaltValue])
   const borrowPriceCommit = poseidon([inputs.oraclePrice, inputs.bondSaltPrice])
+  const loanNullifier = poseidon([inputs.sk, borrowCommitment])
 
   const wasmUrl = options.wasmUrl ?? DEFAULT_WASM_URL
   const zkeyUrl = options.zkeyUrl ?? DEFAULT_ZKEY_URL
@@ -120,6 +123,7 @@ export async function proveBorrow(
     borrow_amount_commit: borrowAmountCommit.toString(),
     collateral_value_commit: collateralValueCommit.toString(),
     borrow_price_commit: borrowPriceCommit.toString(),
+    loan_nullifier: loanNullifier.toString(),
 
     sk: inputs.sk.toString(),
     borrow_salt: inputs.borrowSalt.toString(),
@@ -174,6 +178,7 @@ export async function proveBorrow(
     borrowAmountCommit,
     collateralValueCommit,
     borrowPriceCommit,
+    loanNullifier,
   }
 }
 

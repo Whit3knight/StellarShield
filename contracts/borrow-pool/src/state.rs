@@ -39,6 +39,10 @@ pub enum PersistentKey {
     TotalDeposit(Symbol),
     TotalBorrow(Symbol),
     LiquidationBond(BytesN<32>),
+    // Track A sidecar: pre-published loan nullifier keyed by
+    // loan_commitment. Absent for pre-A bonds → liquidate falls back
+    // to the sk-binding circuit. Present → service-triggerable.
+    LoanNullifier(BytesN<32>),
 }
 
 /// Public commitment tuple pinned at borrow-time so a liquidator can
@@ -189,6 +193,23 @@ pub fn set_liquidation_bond(
     env.storage().persistent().set(
         &PersistentKey::LiquidationBond(loan_commitment.clone()),
         bond,
+    );
+}
+
+pub fn loan_nullifier(env: &Env, loan_commitment: &BytesN<32>) -> Option<BytesN<32>> {
+    env.storage()
+        .persistent()
+        .get(&PersistentKey::LoanNullifier(loan_commitment.clone()))
+}
+
+pub fn set_loan_nullifier(
+    env: &Env,
+    loan_commitment: &BytesN<32>,
+    nullifier: &BytesN<32>,
+) {
+    env.storage().persistent().set(
+        &PersistentKey::LoanNullifier(loan_commitment.clone()),
+        nullifier,
     );
 }
 
