@@ -157,11 +157,23 @@ export async function scanShieldedNotes(
   let response: unknown
   try {
     // eslint-disable-next-line no-console
-    console.log("[scanner] getEvents startLedger=", startLedger)
+    console.log(
+      "[scanner] getEvents startLedger=",
+      startLedger,
+      "filtersA=",
+      JSON.stringify(filtersA)
+    )
     const [respA, respB] = await Promise.all([
       server.getEvents({ filters: filtersA, startLedger, limit: 500 }),
       server.getEvents({ filters: filtersB, startLedger, limit: 500 }),
     ])
+    // eslint-disable-next-line no-console
+    console.log(
+      "[scanner] fetch A=",
+      ((respA as { events?: unknown[] }).events ?? []).length,
+      "B=",
+      ((respB as { events?: unknown[] }).events ?? []).length
+    )
     const eventsA = (respA as { events?: unknown[] }).events ?? []
     const eventsB = (respB as { events?: unknown[] }).events ?? []
     response = { events: [...eventsA, ...eventsB] }
