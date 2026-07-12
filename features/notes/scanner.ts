@@ -228,14 +228,28 @@ export async function scanShieldedNotes(
       recipientSk: identity.secretKey,
     })
     let skForNote = identity.skField
+    let usedLegacy = false
     if (!plaintext) {
       plaintext = tryDecryptAnyMemo({
         raw: decoded.memo,
         recipientSk: legacyIdentity.secretKey,
       })
-      if (plaintext) skForNote = legacySkField
+      if (plaintext) {
+        skForNote = legacySkField
+        usedLegacy = true
+      }
     }
     if (!plaintext) continue
+    if (topic === "deposit") {
+      console.log(
+        "[scanner] deposit note",
+        JSON.stringify({
+          index: decoded.index,
+          asset: plaintext.asset,
+          usedLegacy,
+        })
+      )
+    }
 
     const asset = plaintext.asset as ShieldedAsset
     if (!(SUPPORTED_ASSETS as readonly string[]).includes(asset)) continue
