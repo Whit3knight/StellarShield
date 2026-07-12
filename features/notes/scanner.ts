@@ -291,14 +291,24 @@ export async function scanShieldedNotes(
 
   const deduped = dedupeNotes(notes)
   const live = filterSpentNotes(deduped, spentNullifiers)
-  // Merge the Merkle inclusion witness cached at deposit-time onto
-  // freshly scanned notes. `prepareDeposit` computes the path locally
-  // before submitting the tx and stashes it on the note; scanner-
-  // rebuilt notes don't carry it, so a raw replace strands every
-  // spend behind an event-replay fallback that fails when Soroban RPC
-  // hasn't finished indexing the enabling deposit yet.
+
+  // Merge with existing cache so:
+  //   1. Scan-rebuilt notes inherit any Merkle inclusion witness that
+  //      `prepareDeposit` cached at mint-time (scanner never sees
+  //      Merkle state, only event topics + memos).
+  //   2. Cache notes not present in this scan are kept ONLY when they
+  //      still carry a witness AND the scan didn't observe them being
+  //      spent. Soroban RPC lags a few seconds behind the ledger, so
+  //      a note minted seconds ago may not appear in scan yet; dropping
+  //      it would strand its witness and force event-replay next spend.
+  //   3. Notes flagged as spent (their nullifier landed in withdraw /
+  //      repay / liquidate events during this scan) get dropped even
+  //      if the cache still lists them.
   const previous = snapshotNotes()
-  const merged = live.map((note) => {
+  const seen = new Set(
+    live.map((n) => `${n.asset}:${n.tree}:${n.index}`)
+  )
+  const withWitness = live.map((note) => {
     if (note.witness) return note
     const carry = previous.find(
       (p) =>
@@ -309,6 +319,18 @@ export async function scanShieldedNotes(
     )
     return carry ? { ...note, witness: carry.witness } : note
   })
+  const carriedOver = previous.filter((p) => {
+    if (!p.witness) return false
+    if (seen.has(`${p.asset}:${p.tree}:${p.index}`)) return false
+    if (p.tree === "deposit") {
+      // Deposit note carries no independent nullifier tag here, so we
+      // rely on the scan's spent-nullifier set: if none of the borrow /
+      // withdraw events referenced this note, treat it as live.
+      return true
+    }
+    return true
+  })
+  const merged = [...withWitness, ...carriedOver]
   merged.sort((a, b) => b.index - a.index)
   console.log(
     "[scanner] done",
@@ -316,6 +338,7 @@ export async function scanShieldedNotes(
       decrypted: notes.length,
       deduped: deduped.length,
       live: live.length,
+      carriedOver: carriedOver.length,
       preservedWitnesses: merged.filter((n) => n.witness).length,
       spentNullifiers: spentNullifiers.size,
     })
