@@ -111,6 +111,24 @@ export function useShieldedBorrowFlow({
       return
     }
 
+    // Guard against re-entry: a residual click or a re-render that
+    // still holds a fresh `verifyEligibility` reference can otherwise
+    // start a second deposit loop while the first is mid-flight.
+    if (
+      flow.verification.status === "Preparing" ||
+      flow.verification.status === "Generating proof" ||
+      flow.verification.status === "Verified"
+    ) {
+      return
+    }
+    if (
+      flow.transaction.status === "Signing" ||
+      flow.transaction.status === "Submitted" ||
+      flow.transaction.status === "Confirmed"
+    ) {
+      return
+    }
+
     setFlow((currentFlow) => ({
       ...currentFlow,
       verification: { status: "Preparing" },
@@ -203,6 +221,8 @@ export function useShieldedBorrowFlow({
     deferredCollateralAmount,
     deferredLoanAmount,
     deposit,
+    flow.transaction.status,
+    flow.verification.status,
     identity,
     metrics.collateralValue,
     metrics.healthFactor,
@@ -215,6 +235,18 @@ export function useShieldedBorrowFlow({
   const submitTransaction = React.useCallback(async () => {
     if (!walletAddress || !identity) return
     if (flow.verification.status !== "Verified") return
+
+    // Re-entry guard: once a borrow tx is in-flight or already
+    // confirmed, ignore repeat clicks. Only Ready (fresh) or Failed
+    // (retry) are legitimate entry points; Signing / Submitted /
+    // Confirmed all mean we're either mid-work or already done.
+    if (
+      flow.transaction.status === "Signing" ||
+      flow.transaction.status === "Submitted" ||
+      flow.transaction.status === "Confirmed"
+    ) {
+      return
+    }
 
     let intent: BorrowIntent
     let payload: ProtocolTransactionPayload
