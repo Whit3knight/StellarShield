@@ -337,6 +337,19 @@ impl BorrowPool {
         state::total_deposit(&env, &asset)
     }
 
+    /// Bulk nullifier-used check. Returns a boolean per input in the
+    /// same order — `true` means the nullifier has already been marked
+    /// spent by a prior withdraw / borrow / repay / liquidate. Kept as
+    /// a batch view so a client scanning many notes at once pays one
+    /// RPC round trip instead of N.
+    pub fn nullifiers_used(env: Env, nullifiers: Vec<BytesN<32>>) -> Vec<bool> {
+        let mut out: Vec<bool> = Vec::new(&env);
+        for n in nullifiers.iter() {
+            out.push_back(state::nullifier_used(&env, &n));
+        }
+        out
+    }
+
     pub fn total_borrow(env: Env, asset: Symbol) -> u128 {
         state::total_borrow(&env, &asset)
     }

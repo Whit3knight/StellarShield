@@ -24,6 +24,7 @@ import { replaceNotes, snapshotNotes } from "./note-store"
 
 import {
   getConfiguredContractId,
+  getConfiguredNetworkPassphrase,
   getConfiguredSorobanRpcUrl,
 } from "@/features/wallet/network"
 
@@ -325,6 +326,12 @@ export async function scanShieldedNotes(
   }
 
   const deduped = dedupeNotes(notes)
+  // Consult the contract's `nullifiers_used` view for every deposit
+  // note we can see — catches nullifiers spent by borrow events that
+  // predate the borrow-event nullifier-tail upgrade (which don't
+  // publish the four nullifiers in their event body). One bulk RPC
+  // per rescan.
+  await hydrateSpentFromChain(deduped, spentNullifiers)
   const live = filterSpentNotes(deduped, spentNullifiers)
 
   // Merge with prior cache so:
@@ -381,6 +388,52 @@ export async function scanShieldedNotes(
   )
   replaceNotes(merged)
   return merged
+}
+
+/**
+ * Query the contract's `nullifiers_used` view once per deposit note
+ * we surfaced and drop the ones already flagged spent. Covers borrow
+ * events that predate the nullifier-tail upgrade (whose bodies didn't
+ * carry the four spent nullifiers publicly).
+ */
+async function hydrateSpentFromChain(
+  notes: ShieldedNote[],
+  spentNullifiers: Set<bigint>
+): Promise<void> {
+  const contractId = getConfiguredContractId()
+  if (!contractId) return
+  const candidates = notes.filter((n) => n.tree === "deposit")
+  if (candidates.length === 0) return
+  try {
+    const bindings = await import("@/features/protocol/bindings/borrow-pool")
+    const client = new bindings.Client({
+      contractId,
+      networkPassphrase: getConfiguredNetworkPassphrase(),
+      rpcUrl: getConfiguredSorobanRpcUrl(),
+      publicKey: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP66",
+    })
+    const nullifiers = candidates.map((n) => computeNullifier(n.sk, n.index))
+    const nulBuffers = nullifiers.map((n) => Buffer.from(bigintTo32BytesBE(n)))
+    const tx = await client.nullifiers_used({ nullifiers: nulBuffers })
+    const flags = (tx.result ?? []) as boolean[]
+    for (let i = 0; i < flags.length; i++) {
+      if (flags[i]) spentNullifiers.add(nullifiers[i])
+    }
+  } catch {
+    // best-effort — a scan without this hydration still runs, just
+    // with the risk that pre-upgrade borrow events leave stale live
+    // notes in the drawer.
+  }
+}
+
+function bigintTo32BytesBE(value: bigint): Uint8Array {
+  const out = new Uint8Array(32)
+  let v = value
+  for (let i = 31; i >= 0; i--) {
+    out[i] = Number(v & 0xffn)
+    v >>= 8n
+  }
+  return out
 }
 
 /**
