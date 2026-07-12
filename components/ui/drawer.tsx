@@ -140,13 +140,7 @@ export function DrawerPopup({
   backdropClassName,
   className,
   children,
-  // Default true — every drawer needs an accessible close control.
-  // Callers that intentionally omit one (e.g. blocking modals) can
-  // override with `showCloseButton={false}`. Missing this on the
-  // positions / activity / shielded drawers left users stuck once
-  // the drawer opened — no visible close, no Escape wiring on
-  // desktop.
-  showCloseButton = true,
+  showCloseButton = false,
   position: positionProp,
   variant = "default",
   showBar = false,
