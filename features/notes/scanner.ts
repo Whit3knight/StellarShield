@@ -318,18 +318,18 @@ export async function scanShieldedNotes(
   const deduped = dedupeNotes(notes)
   const live = filterSpentNotes(deduped, spentNullifiers)
 
-  // Merge with existing cache so:
+  // Merge with prior cache so:
   //   1. Scan-rebuilt notes inherit any Merkle inclusion witness that
-  //      `prepareDeposit` cached at mint-time (scanner never sees
-  //      Merkle state, only event topics + memos).
+  //      `prepareDeposit` pinned at mint-time — the scanner only sees
+  //      event topics + memos, not Merkle state.
   //   2. Cache notes not present in this scan are kept ONLY when they
-  //      still carry a witness AND the scan didn't observe them being
-  //      spent. Soroban RPC lags a few seconds behind the ledger, so
-  //      a note minted seconds ago may not appear in scan yet; dropping
-  //      it would strand its witness and force event-replay next spend.
-  //   3. Notes flagged as spent (their nullifier landed in withdraw /
-  //      repay / liquidate events during this scan) get dropped even
-  //      if the cache still lists them.
+  //      still carry a witness, still have a positive amount (skip
+  //      the local spent tombstones useBorrow writes on success),
+  //      AND their nullifier hasn't appeared in the spent set. Soroban
+  //      RPC lags a few seconds behind the ledger, so a note minted
+  //      just before this rescan may not surface yet — dropping it
+  //      would strand a fresh deposit between `useDeposit`'s upsert
+  //      and the next-tick rescan, mid-flow.
   const previous = snapshotNotes()
   const seen = new Set(
     live.map((n) => `${n.asset}:${n.tree}:${n.index}`)
@@ -341,18 +341,19 @@ export async function scanShieldedNotes(
         p.tree === note.tree &&
         p.index === note.index &&
         p.asset === note.asset &&
+        p.amount === note.amount &&
+        p.sk === note.sk &&
         p.witness
     )
     return carry ? { ...note, witness: carry.witness } : note
   })
   const carriedOver = previous.filter((p) => {
     if (!p.witness) return false
+    if (p.amount <= 0n) return false
     if (seen.has(`${p.asset}:${p.tree}:${p.index}`)) return false
     if (p.tree === "deposit") {
-      // Deposit note carries no independent nullifier tag here, so we
-      // rely on the scan's spent-nullifier set: if none of the borrow /
-      // withdraw events referenced this note, treat it as live.
-      return true
+      const nullifier = computeNullifier(p.sk, p.index)
+      if (spentNullifiers.has(nullifier)) return false
     }
     return true
   })
