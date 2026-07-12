@@ -19,7 +19,7 @@ import {
   type ShieldedAsset,
   type ShieldedNote,
 } from "./note"
-import { replaceNotes } from "./note-store"
+import { replaceNotes, snapshotNotes } from "./note-store"
 
 import {
   getConfiguredContractId,
@@ -291,18 +291,37 @@ export async function scanShieldedNotes(
 
   const deduped = dedupeNotes(notes)
   const live = filterSpentNotes(deduped, spentNullifiers)
-  live.sort((a, b) => b.index - a.index)
+  // Merge the Merkle inclusion witness cached at deposit-time onto
+  // freshly scanned notes. `prepareDeposit` computes the path locally
+  // before submitting the tx and stashes it on the note; scanner-
+  // rebuilt notes don't carry it, so a raw replace strands every
+  // spend behind an event-replay fallback that fails when Soroban RPC
+  // hasn't finished indexing the enabling deposit yet.
+  const previous = snapshotNotes()
+  const merged = live.map((note) => {
+    if (note.witness) return note
+    const carry = previous.find(
+      (p) =>
+        p.tree === note.tree &&
+        p.index === note.index &&
+        p.asset === note.asset &&
+        p.witness
+    )
+    return carry ? { ...note, witness: carry.witness } : note
+  })
+  merged.sort((a, b) => b.index - a.index)
   console.log(
     "[scanner] done",
     JSON.stringify({
       decrypted: notes.length,
       deduped: deduped.length,
       live: live.length,
+      preservedWitnesses: merged.filter((n) => n.witness).length,
       spentNullifiers: spentNullifiers.size,
     })
   )
-  replaceNotes(live)
-  return live
+  replaceNotes(merged)
+  return merged
 }
 
 /**
