@@ -40,6 +40,7 @@ export {
   parseBackupJson,
   restoreNotesBackup,
 } from "./backup"
+export { useNotesBackup } from "./use-notes-backup"
 export {
   shieldedIdentityFromAddress,
   useShieldedIdentity,
