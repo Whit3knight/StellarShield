@@ -8,7 +8,8 @@
 // that we recompute per withdraw. If usage grows the tree can be
 // cached in note-store and appended incrementally.
 
-import { append, DEPTH, verifyInclusion } from "@/features/notes"
+import { DEPTH, verifyInclusion, zeroHashes } from "@/features/notes"
+import { poseidon } from "@/features/notes/poseidon"
 import {
   getConfiguredContractId,
   getConfiguredSorobanRpcUrl,
@@ -210,29 +211,57 @@ export async function fetchDepositWitnesses(
   }
   leaves.sort((a, b) => a.index - b.index)
 
-  const frontier = new Array<bigint>(DEPTH).fill(0n)
+  return buildFinalStateWitnesses(leaves.map((l) => l.leaf))
+}
+
+/**
+ * Build the full sparse tree with `leaves` at positions 0..N-1, then
+ * emit one witness per leaf using the FINAL tree state — every
+ * witness carries the same `root`, which is what the borrow circuit
+ * demands across its N=4 collateral inclusion checks.
+ *
+ * A naive per-append witness (root captured mid-tree-growth) drifts
+ * away from later appends: the sibling of leaf 0 shifts from
+ * `zeros[0]` to `leaves[1]` the moment leaf 1 lands, and the root
+ * changes with it. This function walks the tree ONCE, then reads each
+ * requested leaf's path against the completed state.
+ */
+function buildFinalStateWitnesses(leaves: bigint[]): WithdrawWitness[] {
+  const zeros = zeroHashes()
+
+  // Sparse level rep: only the "populated" leftmost prefix at each
+  // level is stored. Missing right-hand nodes are the zero-subtree
+  // hash at that level.
+  const levels: bigint[][] = []
+  levels[0] = leaves.slice()
+  for (let level = 0; level < DEPTH; level++) {
+    const cur = levels[level]
+    const next: bigint[] = []
+    for (let i = 0; i < cur.length; i += 2) {
+      const left = cur[i]
+      const right = i + 1 < cur.length ? cur[i + 1] : zeros[level]
+      next.push(poseidon([left, right]))
+    }
+    levels[level + 1] = next
+  }
+  const root =
+    levels[DEPTH].length > 0 ? levels[DEPTH][0] : zeros[DEPTH]
+
   const witnesses: WithdrawWitness[] = []
-
-  for (let idx = 0; idx < leaves.length; idx++) {
-    const { leaf, index } = leaves[idx]
-    // Trust `index` when contiguous with the append counter; if the
-    // sequence is broken drop the witness rather than silently produce
-    // a stale root.
-    if (index !== idx) continue
-
-    const { path, root } = append({ frontier, leaf, nextIndex: index })
+  for (let index = 0; index < leaves.length; index++) {
+    const leaf = leaves[index]
+    const path: bigint[] = []
     const pathBits: number[] = []
-    let cursor = index
     for (let level = 0; level < DEPTH; level++) {
-      pathBits.push(cursor & 1)
-      cursor >>= 1
+      const pos = index >> level
+      const siblingPos = pos ^ 1
+      const levelArr = levels[level]
+      path.push(
+        siblingPos < levelArr.length ? levelArr[siblingPos] : zeros[level]
+      )
+      pathBits.push(pos & 1)
     }
-
-    // Sanity: recompute inclusion from the derived path + root.
-    if (!verifyInclusion({ leaf, leafIndex: index, path, root })) {
-      continue
-    }
-
+    if (!verifyInclusion({ leaf, leafIndex: index, path, root })) continue
     witnesses.push({
       leaf,
       leafIndex: index,
@@ -241,7 +270,6 @@ export async function fetchDepositWitnesses(
       root,
     })
   }
-
   return witnesses
 }
 
