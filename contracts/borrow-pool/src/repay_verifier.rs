@@ -6,6 +6,8 @@
 //!   [2] deposit_root
 //!   [3] loan_nullifier
 //!   [4] deposit_nullifier
+//!   [5] borrow_index_snapshot  (Track D)
+//!   [6] borrow_index_now       (Track D)
 
 use soroban_sdk::{
     crypto::bls12_381::{Fr, G1Affine, G2Affine},
@@ -23,6 +25,8 @@ const VK_IC_2: &[u8; 96] = include_bytes!("vk/repay/vk_ic_2.bin");
 const VK_IC_3: &[u8; 96] = include_bytes!("vk/repay/vk_ic_3.bin");
 const VK_IC_4: &[u8; 96] = include_bytes!("vk/repay/vk_ic_4.bin");
 const VK_IC_5: &[u8; 96] = include_bytes!("vk/repay/vk_ic_5.bin");
+const VK_IC_6: &[u8; 96] = include_bytes!("vk/repay/vk_ic_6.bin");
+const VK_IC_7: &[u8; 96] = include_bytes!("vk/repay/vk_ic_7.bin");
 
 pub fn verify_groth16(
     env: &Env,
@@ -31,7 +35,7 @@ pub fn verify_groth16(
     proof_c: G1Affine,
     pub_signals: Vec<Fr>,
 ) -> bool {
-    let ic_len = 6u32;
+    let ic_len = 8u32;
     if pub_signals.len() + 1 != ic_len {
         return false;
     }
@@ -67,5 +71,7 @@ fn ic_points(env: &Env) -> Vec<G1Affine> {
         G1Affine::from_array(env, VK_IC_3),
         G1Affine::from_array(env, VK_IC_4),
         G1Affine::from_array(env, VK_IC_5),
+        G1Affine::from_array(env, VK_IC_6),
+        G1Affine::from_array(env, VK_IC_7),
     ]
 }

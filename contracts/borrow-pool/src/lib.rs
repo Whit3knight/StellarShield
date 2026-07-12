@@ -753,8 +753,10 @@ impl BorrowPool {
     }
 
     /// Shielded repay. Burns one loan note + one same-asset deposit
-    /// note. Circuit enforces `deposit.amount >= loan.amount` so the
-    /// pool is made whole; the delta becomes realized fee. Both
+    /// note. Circuit enforces
+    ///   `deposit_amount * borrow_index_snapshot >=
+    ///    loan_amount    * borrow_index_now`
+    /// so the pool is made whole for the accrued debt. Both
     /// nullifiers marked used, aggregate borrow + deposit counters
     /// decremented. No public transfer.
     ///
@@ -764,15 +766,23 @@ impl BorrowPool {
     ///   [2] deposit_root
     ///   [3] loan_nullifier
     ///   [4] deposit_nullifier
+    ///   [5] borrow_index_snapshot    (Track D)
+    ///   [6] borrow_index_now         (Track D)
+    ///
+    /// `loan_commitment` comes in as a tx arg so the contract can
+    /// look up the BorrowIndexAtOpen sidecar; pre-D loans without
+    /// the sidecar are grandfathered as zero-interest by treating
+    /// `snapshot = index_now` (the ratio collapses to 1.0).
     pub fn repay_shielded(
         env: Env,
         from: Address,
         asset: Symbol,
+        loan_commitment: BytesN<32>,
         proof: BorrowProof,
     ) -> Result<(), Error> {
         from.require_auth();
 
-        if proof.public_signals.len() != 5 {
+        if proof.public_signals.len() != 7 {
             return Err(Error::InvalidProof);
         }
         let asset_tag_fr = proof.public_signals.get(0).unwrap();
@@ -780,6 +790,8 @@ impl BorrowPool {
         let deposit_root_fr = proof.public_signals.get(2).unwrap();
         let loan_nul_fr = proof.public_signals.get(3).unwrap();
         let dep_nul_fr = proof.public_signals.get(4).unwrap();
+        let index_snapshot_fr = proof.public_signals.get(5).unwrap();
+        let index_now_fr = proof.public_signals.get(6).unwrap();
 
         let expected_tag =
             notes::asset_tag(&env, &asset).ok_or(Error::AssetUnknown)?;
@@ -806,6 +818,21 @@ impl BorrowPool {
             return Err(Error::ProofReplayed);
         }
         if loan_nul_bytes == dep_nul_bytes {
+            return Err(Error::InvalidProof);
+        }
+
+        // Track D: accrue the borrow_index to now, then cross-check
+        // the circuit's public signals match what the contract sees.
+        // Grandfather pre-D loans: an absent sidecar collapses the
+        // ratio to 1.0 by treating snapshot as index_now.
+        let index_now_snapshot = rate::accrue_borrow_index(&env, &asset);
+        let index_now = index_now_snapshot.value;
+        let index_snapshot = state::borrow_index_at_open(&env, &loan_commitment)
+            .unwrap_or(index_now);
+        if fr_to_u128(&index_snapshot_fr) != index_snapshot {
+            return Err(Error::InvalidProof);
+        }
+        if fr_to_u128(&index_now_fr) != index_now {
             return Err(Error::InvalidProof);
         }
 
@@ -1127,6 +1154,16 @@ fn fr_to_i128(value: &Fr) -> i128 {
         low = (low << 8) | (*byte as u128);
     }
     low as i128
+}
+
+fn fr_to_u128(value: &Fr) -> u128 {
+    let bytes = value.to_bytes();
+    let raw: [u8; 32] = bytes.into();
+    let mut out: u128 = 0;
+    for byte in raw.iter().skip(16) {
+        out = (out << 8) | (*byte as u128);
+    }
+    out
 }
 
 fn fr_to_u32(value: &Fr) -> u32 {

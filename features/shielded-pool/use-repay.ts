@@ -123,9 +123,38 @@ export function useRepay(account: string | null): UseRepayResult {
           // already closed
         }
 
+        const bindings = await import("@/features/protocol/bindings/borrow-pool")
+        const client = new bindings.Client({
+          contractId,
+          networkPassphrase: getConfiguredNetworkPassphrase(),
+          rpcUrl: getConfiguredSorobanRpcUrl(),
+          publicKey: account,
+        })
+
+        // Track D: fetch the borrow_index snapshot pinned at open
+        // and the current borrow_index. Grandfather pre-D loans by
+        // treating a missing snapshot as index_now (ratio 1.0 → no
+        // interest accrual applied).
+        const loanCommitmentBuffer = Buffer.from(
+          bigintTo32Bytes(loanCommitment)
+        )
+        const [snapshotFetch, indexNowFetch] = await Promise.all([
+          client.borrow_index_at_open({
+            loan_commitment: loanCommitmentBuffer,
+          }),
+          client.borrow_index({ asset: loanNote.asset }),
+        ])
+        const indexNowSnapshot = indexNowFetch.result
+        const borrowIndexNow = indexNowSnapshot?.value ?? BigInt(0)
+        const rawSnapshot = snapshotFetch.result
+        const borrowIndexSnapshot =
+          rawSnapshot === undefined || rawSnapshot === null
+            ? borrowIndexNow
+            : rawSnapshot
+
         const proveToast = toastManager.add({
           title: "Generating repay proof",
-          description: "2× commitment + 2× Merkle + amount range…",
+          description: "2× commitment + 2× Merkle + accrued-debt check…",
           type: "loading",
         })
         setStatus("proving")
@@ -138,6 +167,8 @@ export function useRepay(account: string | null): UseRepayResult {
           depositRoot: depWitness.root,
           depositPathBits: depWitness.pathBits,
           depositPathElements: depWitness.pathElements,
+          borrowIndexSnapshot,
+          borrowIndexNow,
         })
         try {
           toastManager.close(proveToast)
@@ -151,13 +182,6 @@ export function useRepay(account: string | null): UseRepayResult {
           type: "loading",
         })
         setStatus("signing")
-        const bindings = await import("@/features/protocol/bindings/borrow-pool")
-        const client = new bindings.Client({
-          contractId,
-          networkPassphrase: getConfiguredNetworkPassphrase(),
-          rpcUrl: getConfiguredSorobanRpcUrl(),
-          publicKey: account,
-        })
 
         const proofBuffers = {
           a: Buffer.from(proof.a),
@@ -172,6 +196,7 @@ export function useRepay(account: string | null): UseRepayResult {
         const assembled = await client.repay_shielded({
           from: account,
           asset: loanNote.asset,
+          loan_commitment: loanCommitmentBuffer,
           proof: proofBuffers,
         })
 
@@ -250,4 +275,14 @@ function bigintFromBytes(bytes: Uint8Array): bigint {
     value = (value << 8n) | BigInt(byte)
   }
   return value
+}
+
+function bigintTo32Bytes(value: bigint): Uint8Array {
+  const out = new Uint8Array(32)
+  let residue = value
+  for (let index = 31; index >= 0; index--) {
+    out[index] = Number(residue & 0xffn)
+    residue >>= 8n
+  }
+  return out
 }

@@ -18,6 +18,12 @@ pragma circom 2.1.9;
 //   [2] deposit_root
 //   [3] loan_nullifier
 //   [4] deposit_nullifier
+//   [5] borrow_index_snapshot   (Track D — index_at_open, 1e18 fixed)
+//   [6] borrow_index_now        (Track D — index accrued to tx time, 1e18 fixed)
+//
+// Track D solvency invariant (integer-safe rearrangement):
+//   deposit_amount * borrow_index_snapshot
+//     >= loan_amount * borrow_index_now
 //
 // Private witness:
 //   sk
@@ -70,6 +76,8 @@ template Repay(depth) {
     signal input deposit_root;
     signal input loan_nullifier;
     signal input deposit_nullifier;
+    signal input borrow_index_snapshot;
+    signal input borrow_index_now;
 
     // Private.
     signal input sk;
@@ -126,11 +134,29 @@ template Repay(depth) {
     depNul.inputs[1] <== deposit_index;
     depNul.out === deposit_nullifier;
 
-    // deposit_amount >= loan_amount. Use 128-bit range comparator.
-    component ge = GreaterEqThan(128);
-    ge.in[0] <== deposit_amount;
-    ge.in[1] <== loan_amount;
+    // Track D: deposit_amount * snapshot >= loan_amount * index_now
+    // (rearranged from `deposit_amount >= loan_amount * index_now /
+    // snapshot` so both sides stay integers). Amounts are whole
+    // units, indices are 1e18 fixed-point → each side fits inside
+    // ~87 bits worst case (100 * 1e18 * modest growth). 200-bit
+    // comparator leaves ample headroom.
+    signal lhs;
+    signal rhs;
+    lhs <== deposit_amount * borrow_index_snapshot;
+    rhs <== loan_amount * borrow_index_now;
+
+    component ge = GreaterEqThan(200);
+    ge.in[0] <== lhs;
+    ge.in[1] <== rhs;
     ge.out === 1;
 }
 
-component main {public [asset_tag, loan_root, deposit_root, loan_nullifier, deposit_nullifier]} = Repay(20);
+component main {public [
+    asset_tag,
+    loan_root,
+    deposit_root,
+    loan_nullifier,
+    deposit_nullifier,
+    borrow_index_snapshot,
+    borrow_index_now
+]} = Repay(20);

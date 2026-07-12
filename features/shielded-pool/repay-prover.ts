@@ -6,6 +6,8 @@
 //   [2] deposit_root
 //   [3] loan_nullifier
 //   [4] deposit_nullifier
+//   [5] borrow_index_snapshot  (Track D)
+//   [6] borrow_index_now       (Track D)
 
 import {
   assetTag,
@@ -26,6 +28,8 @@ export type RepayProofInputs = {
   depositRoot: bigint
   depositPathBits: number[]
   depositPathElements: bigint[]
+  borrowIndexSnapshot: bigint
+  borrowIndexNow: bigint
 }
 
 export type RepayProofResult = {
@@ -55,9 +59,13 @@ export async function proveRepay(
   if (inputs.loanNote.sk !== inputs.depositNote.sk) {
     throw new Error("repay: notes must belong to the same shielded identity")
   }
-  if (inputs.depositNote.amount < inputs.loanNote.amount) {
+  const requiredNumerator =
+    inputs.loanNote.amount * inputs.borrowIndexNow
+  const providedNumerator =
+    inputs.depositNote.amount * inputs.borrowIndexSnapshot
+  if (providedNumerator < requiredNumerator) {
     throw new Error(
-      `repay: deposit ${inputs.depositNote.amount.toString()} < loan ${inputs.loanNote.amount.toString()}`
+      `repay: deposit ${inputs.depositNote.amount.toString()} covers ${providedNumerator.toString()} but ${requiredNumerator.toString()} accrued (loan_amount × index_now)`
     )
   }
 
@@ -87,6 +95,8 @@ export async function proveRepay(
     deposit_root: inputs.depositRoot.toString(),
     loan_nullifier: loanNullifier.toString(),
     deposit_nullifier: depositNullifier.toString(),
+    borrow_index_snapshot: inputs.borrowIndexSnapshot.toString(),
+    borrow_index_now: inputs.borrowIndexNow.toString(),
     sk: inputs.loanNote.sk.toString(),
     loan_amount: inputs.loanNote.amount.toString(),
     loan_salt: inputs.loanNote.salt.toString(),
