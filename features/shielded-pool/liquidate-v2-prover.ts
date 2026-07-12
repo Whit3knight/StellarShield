@@ -164,10 +164,11 @@ function encodeG2(pi: string[][]): Uint8Array {
     out[0] = INFINITY_BYTE
     return out
   }
-  out.set(encodeFp(xC0), 0)
-  out.set(encodeFp(xC1), FP_BYTES)
-  out.set(encodeFp(yC0), FP_BYTES * 2)
-  out.set(encodeFp(yC1), FP_BYTES * 3)
+  // Soroban G2 order: X_c1 || X_c0 || Y_c1 || Y_c0 (matches vk-json-to-bytes.ts).
+  out.set(encodeFp(xC1), 0)
+  out.set(encodeFp(xC0), FP_BYTES)
+  out.set(encodeFp(yC1), FP_BYTES * 2)
+  out.set(encodeFp(yC0), FP_BYTES * 3)
   return out
 }
 
