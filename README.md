@@ -40,7 +40,7 @@ Registered markets: `USDC/XLM`, `XLM/USDC`, `EURC/USDC`, `USDC/EURC`, `EURC/XLM`
 | **Track A** ivk/nk split → pre-published `loan_nullifier` + sidecar + `liquidate_shielded_v2` | shipped |
 | **Track D** interest accrual on repay (`BorrowIndexAtOpen` + extended repay circuit) | shipped |
 | Track E fixture harness (TS-side against on-disk fixtures) | shipped |
-| Track G-full permissionless service worker | pending (needs deployed service key, then trivial extension of G-lite) |
+| Track G-full permissionless service worker (authenticated CLI mode) | shipped (needs deployed `liquidation_service_pk` slot value + matching `LIQUIDATION_SERVICE_SK` to activate) |
 | Track F UI polish | opportunistic |
 | Track B FROST threshold | dropped — Track A alone closes the sk-drain flagged in the design doc |
 | Rust-side fixture reader | blocked on `soroban-sdk` 23 (testutils build fix) |
@@ -215,10 +215,18 @@ stellar contract invoke --id CBJZP45HUUVXWDSEUIQPDJD4RZPTUJUG6IGVM7HQPHRK74SHKPX
 # Bindings
 stellar contract bindings typescript --contract-id CBJZP45HUUVXWDSEUIQPDJD4RZPTUJUG6IGVM7HQPHRK74SHKPXF4N7L --network testnet --output-dir /tmp/bindings
 
-# Liquidation watchlist (Track L)
-# Enumerates every live LiquidationBond on the pool (skipping ones
-# already burned by liquidate events) and prints them sorted oldest
-# first. Read-only; does not touch memo openings.
+# Liquidation watchlist / triage (Tracks G-lite + G-full)
+# Watchlist mode — no service key: enumerate every live
+# LiquidationBond (skipping ones already burned by liquidate events)
+# sorted oldest first. Read-only; does not touch memo openings.
 bun run scan:underwater
 LOOKBACK_LEDGERS=32000 bun run scan:underwater
+
+# Authenticated triage — service key set: also decrypt each borrow
+# memo with the service X25519 sk, fetch the current Reflector price,
+# and flag bonds whose openings prove `debt * threshold > collateral
+# * current_price * 10_000` — the same inequality the liquidate
+# circuit enforces. Underwater bonds sort first, marked with **.
+# LIQUIDATION_SERVICE_SK must match the on-chain LiquidationServicePk.
+LIQUIDATION_SERVICE_SK=0x... bun run scan:underwater
 ```
