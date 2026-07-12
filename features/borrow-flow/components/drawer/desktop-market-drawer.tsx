@@ -48,6 +48,24 @@ export function DesktopMarketDrawer({
     return () => window.cancelAnimationFrame(raf)
   }, [shouldPinTransaction, activeStep])
 
+  // Once eligibility verifies, auto-advance to the transaction step and
+  // fire submit — saves the extra "Submit transaction" click that
+  // otherwise sits on the verification step. Ref-guarded per proof id
+  // so a re-render can't retrigger the submit for the same proof.
+  const autoSubmittedProofRef = React.useRef<string | null>(null)
+  const verifiedProofId =
+    flow.verification.status === "Verified"
+      ? flow.verification.proof.id
+      : null
+  React.useEffect(() => {
+    if (!verifiedProofId) return
+    if (flow.transaction.status !== "Ready") return
+    if (autoSubmittedProofRef.current === verifiedProofId) return
+    autoSubmittedProofRef.current = verifiedProofId
+    setActiveStep("transaction")
+    submitTransaction()
+  }, [verifiedProofId, flow.transaction.status, submitTransaction])
+
   return (
     <aside className="ml-4 hidden min-h-0 min-w-0 lg:block">
       <div className="relative isolate h-full overflow-hidden rounded-lg">
