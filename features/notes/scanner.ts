@@ -221,6 +221,15 @@ export async function scanShieldedNotes(
     }
     if (topic !== "deposit" && topic !== "borrow") continue
 
+    // Borrow events carry the four spent collateral nullifiers after
+    // the memo — pull them out so deposit notes drop out of the local
+    // cache next time round.
+    if (topic === "borrow") {
+      for (const n of decodeBorrowSpentNullifiers(sdk, event)) {
+        spentNullifiers.add(n)
+      }
+    }
+
     const decoded = decodeIndexedEvent(sdk, event)
     if (!decoded) continue
 
@@ -513,12 +522,13 @@ function decodeIndexedEvent(
   }
   if (!Array.isArray(native)) return null
 
-  // Event body is (index, root, leaf, memo) after Phase 2 upgrade;
-  // fall back to the legacy (index, memo) shape so pre-upgrade
-  // events still decode until the retention window rolls over.
+  // Event body shapes accepted:
+  //   deposit / repay-back: (index, root, leaf, memo)
+  //   borrow post-upgrade:  (index, root, leaf, memo, n0, n1, n2, n3)
+  //   legacy:               (index, memo)
   let rawIndex: unknown
   let rawMemo: unknown
-  if (native.length === 4) {
+  if (native.length === 4 || native.length === 8) {
     rawIndex = native[0]
     rawMemo = native[3]
   } else if (native.length === 2) {
@@ -536,6 +546,35 @@ function decodeIndexedEvent(
   if (!memo) return null
 
   return { index, memo }
+}
+
+/**
+ * Extract the four collateral-note nullifiers from a borrow event
+ * body. Returns an empty array for pre-upgrade events (which didn't
+ * carry the nullifier tail).
+ */
+function decodeBorrowSpentNullifiers(
+  sdk: typeof import("@stellar/stellar-sdk"),
+  event: RpcEvent
+): bigint[] {
+  const value = toScVal(sdk, event.value)
+  if (!value) return []
+  let native: unknown
+  try {
+    native = sdk.scValToNative(value)
+  } catch {
+    return []
+  }
+  if (!Array.isArray(native) || native.length !== 8) return []
+  const out: bigint[] = []
+  for (let i = 4; i < 8; i++) {
+    const bytes = memoBytes(native[i])
+    if (!bytes) continue
+    let v = 0n
+    for (const b of bytes) v = (v << 8n) | BigInt(b)
+    out.push(v)
+  }
+  return out
 }
 
 function memoBytes(raw: unknown): Uint8Array | null {

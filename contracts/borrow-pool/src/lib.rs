@@ -920,7 +920,20 @@ impl BorrowPool {
 
         env.events().publish(
             (BORROW_EVENT, collateral_asset.clone(), borrow_asset.clone()),
-            (next_index, new_root.to_bytes(), leaf.to_bytes(), memo),
+            (
+                next_index,
+                new_root.to_bytes(),
+                leaf.to_bytes(),
+                memo,
+                // Publish the four spent collateral nullifiers so the
+                // client-side scanner can drop the deposit tombstones
+                // without holding on to per-session in-memory state
+                // (survives page reload / cross-device).
+                nullifier_bytes[0].clone(),
+                nullifier_bytes[1].clone(),
+                nullifier_bytes[2].clone(),
+                nullifier_bytes[3].clone(),
+            ),
         );
         Ok(next_index)
     }
