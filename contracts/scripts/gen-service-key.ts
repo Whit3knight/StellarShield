@@ -1,23 +1,19 @@
 #!/usr/bin/env bun
 /**
- * Generate an X25519 keypair for the liquidation service (Track A +
- * Track G-full). Prints:
- *   - service_sk_hex: 32-byte secret, distribute to the trusted
- *     service operator (env var LIQUIDATION_SERVICE_SK on the CLI).
- *   - service_pk_hex: 32-byte public key, publish on-chain via
- *     set_liquidation_service_pk so future borrows encrypt to it.
- *   - stellar invoke command that installs the pk on the deployed
- *     contract.
+ * Generates the X25519 keypair the liquidation service uses.
  *
- * Optional SEED env: deterministic keypair derivation. Same seed
- * always yields the same key. Omit for a cryptographically random
- * key.
+ *   sk = SHA-256(seed)         (feeds LIQUIDATION_SERVICE_SK env)
+ *   pk = X25519.getPublicKey(sk)   (fed to set_liquidation_service_pk)
  *
- * Usage:
- *   bun contracts/scripts/gen-service-key.ts
- *   SEED=my-org-liquidation-service-2026 bun contracts/scripts/gen-service-key.ts
- *   STELLAR_SHIELD_CONTRACT_ID=... bun contracts/scripts/gen-service-key.ts
+ * `SEED` env, if set, is base64 or 32-byte hex — reproducible key.
+ * Otherwise a fresh 32-byte random seed is drawn.
+ *
+ * Outputs sk + pk hex, plus the exact `stellar contract invoke`
+ * command the deployer can paste to publish the pk into the
+ * LiquidationServicePk instance-storage slot on the pool.
  */
+
+import { randomBytes } from "node:crypto"
 
 import { x25519 } from "@noble/curves/ed25519.js"
 import { sha256 } from "@noble/hashes/sha2.js"
@@ -25,8 +21,28 @@ import { sha256 } from "@noble/hashes/sha2.js"
 const CONTRACT =
   process.env.STELLAR_SHIELD_CONTRACT_ID ??
   "CBJZP45HUUVXWDSEUIQPDJD4RZPTUJUG6IGVM7HQPHRK74SHKPXF4N7L"
-const ADMIN_KEY = process.env.ADMIN_KEY ?? "deployer"
-const NETWORK = process.env.STELLAR_NETWORK ?? "testnet"
+
+function loadSeed(): Uint8Array {
+  const raw = process.env.SEED?.trim()
+  if (!raw) return new Uint8Array(randomBytes(32))
+  if (raw.startsWith("0x") || /^[0-9a-fA-F]+$/.test(raw)) {
+    const hex = raw.startsWith("0x") ? raw.slice(2) : raw
+    if (hex.length !== 64) {
+      throw new Error(`SEED hex must be 32 bytes; got ${hex.length / 2}`)
+    }
+    const out = new Uint8Array(32)
+    for (let i = 0; i < 32; i++) {
+      out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16)
+    }
+    return out
+  }
+  // Treat as base64.
+  const buf = Buffer.from(raw, "base64")
+  if (buf.length !== 32) {
+    throw new Error(`SEED base64 must decode to 32 bytes; got ${buf.length}`)
+  }
+  return new Uint8Array(buf)
+}
 
 function toHex(bytes: Uint8Array): string {
   let out = ""
@@ -34,31 +50,24 @@ function toHex(bytes: Uint8Array): string {
   return out
 }
 
-function deriveSecret(): Uint8Array {
-  const seed = process.env.SEED
-  if (seed) {
-    return sha256(new TextEncoder().encode(seed))
-  }
-  return x25519.utils.randomSecretKey()
+function main(): void {
+  const seed = loadSeed()
+  const sk = sha256(seed)
+  const pk = x25519.getPublicKey(sk)
+
+  console.log("# X25519 liquidation service keypair")
+  console.log("# Match `deriveShieldedIdentity(seed)` in features/notes/memo.ts")
+  console.log(`seed_hex=${toHex(seed)}`)
+  console.log(`sk_hex=${toHex(sk)}`)
+  console.log(`pk_hex=${toHex(pk)}`)
+  console.log("")
+  console.log("# Env for authenticated scan-underwater:")
+  console.log(`export LIQUIDATION_SERVICE_SK=0x${toHex(sk)}`)
+  console.log("")
+  console.log("# Deploy pk to contract (admin auth required):")
+  console.log(
+    `stellar contract invoke --source deployer --network testnet --id ${CONTRACT} -- set_liquidation_service_pk --pk ${toHex(pk)}`
+  )
 }
 
-const secretKey = deriveSecret()
-const publicKey = x25519.getPublicKey(secretKey)
-
-const skHex = toHex(secretKey)
-const pkHex = toHex(publicKey)
-
-console.log("Liquidation service X25519 keypair")
-console.log("==================================")
-console.log(`service_sk_hex : 0x${skHex}`)
-console.log(`service_pk_hex : 0x${pkHex}`)
-console.log("")
-console.log("Distribute service_sk_hex to the trusted service operator:")
-console.log(`  export LIQUIDATION_SERVICE_SK=0x${skHex}`)
-console.log("")
-console.log("Publish service_pk_hex on-chain via admin:")
-console.log(
-  `  stellar contract invoke --source ${ADMIN_KEY} --network ${NETWORK} \\
-    --id ${CONTRACT} \\
-    -- set_liquidation_service_pk --pk 0x${pkHex}`
-)
+main()
