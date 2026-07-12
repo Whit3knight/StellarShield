@@ -6,6 +6,7 @@ import { appPreferenceKeys } from "./_constants/preferences"
 import { ThemeProvider } from "@/components/theme-provider"
 import { ToastProvider } from "@/components/ui/toast"
 import { AdapterProvider } from "@/features/shared/adapter-provider"
+import { ShieldedPoolProvider } from "@/features/shielded-pool"
 import { cn } from "@/lib/utils"
 
 import { NavMenusProvider } from "./_hooks/use-nav-menus"
@@ -50,7 +51,9 @@ export default function RootLayout({
           <ToastProvider position="bottom-right">
             <AdapterProvider>
               <SelectedMarketProvider>
-                <NavMenusProvider>{children}</NavMenusProvider>
+                <ShieldedPoolProvider>
+                  <NavMenusProvider>{children}</NavMenusProvider>
+                </ShieldedPoolProvider>
               </SelectedMarketProvider>
             </AdapterProvider>
           </ToastProvider>
