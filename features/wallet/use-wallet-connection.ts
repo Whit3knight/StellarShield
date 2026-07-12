@@ -20,6 +20,7 @@ import {
   WalletConnectionCanceledError,
   WalletConnectionError,
 } from "./connectors"
+import { isStellarAddress } from "./utils"
 
 const walletConnectionChangeEvent = "stellar-shield:wallet-connection-change"
 const WALLET_BALANCE_REFRESH_MS = 20_000
@@ -211,7 +212,18 @@ function readStoredAccount(): ConnectedAccount | null {
       return null
     }
 
-    cachedStoredAccount = JSON.parse(storedAccount) as ConnectedAccount
+    const parsed = JSON.parse(storedAccount) as ConnectedAccount
+    // Guard against a corrupted / truncated address landing in
+    // storage from a previous buggy session. Every downstream Horizon
+    // fetch would 400-loop on a bad strkey; better to force a fresh
+    // reconnect than pin the user to broken state.
+    if (!isStellarAddress(parsed?.wallet?.address)) {
+      cachedStoredAccount = null
+      cachedStoredAccountValue = null
+      window.localStorage.removeItem(appPreferenceKeys.connectedWallet)
+      return null
+    }
+    cachedStoredAccount = parsed
     return cachedStoredAccount
   } catch {
     cachedStoredAccount = null

@@ -6,6 +6,23 @@ import {
 
 const BALANCE_PATTERN = /^([+-]?)(\d+)(?:\.(\d+))?$/
 
+// Stellar ed25519 public key strkey: 'G' prefix + 55 chars = 56.
+// Deliberately loose on the character set — the real bug we guard
+// against is truncation. Full base32-alphabet + checksum enforcement
+// lives in Freighter / stellar-sdk; the client-side guard just needs
+// to catch obviously malformed lengths before a Horizon 400 loop.
+const STELLAR_ADDRESS_PATTERN = /^G[A-Z0-9]{55}$/
+
+/**
+ * True for a well-formed Stellar strkey (56 chars, `G` prefix,
+ * base32 alphabet). Any wallet-connect flow must reject anything
+ * else — a truncated address writes garbage into localStorage and
+ * every subsequent Horizon poll returns 400 on loop.
+ */
+export function isStellarAddress(address: unknown): address is string {
+  return typeof address === "string" && STELLAR_ADDRESS_PATTERN.test(address)
+}
+
 export function formatWalletAddress(address: string): string {
   const trimmedAddress = address.trim()
 
@@ -128,6 +145,12 @@ export function createConnectedAccount({
   balances?: Record<string, string>
   provider: WalletProvider
 }): ConnectedAccount {
+  if (!isStellarAddress(address)) {
+    const raw = String(address ?? "")
+    throw new Error(
+      `createConnectedAccount: refusing to store malformed Stellar address "${raw}" (length ${raw.length}; expected 56 chars starting with G)`
+    )
+  }
   return {
     wallet: {
       address,

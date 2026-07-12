@@ -38,14 +38,14 @@ vi.mock("./connectors", () => {
 
 const connectedAccount: ConnectedAccount = {
   wallet: {
-    address: "GDU3Z6QKJ2KX3J64P5QBDW6M7Q9Q3EMB4L5PM7KXH4JR6Y9KQ",
+    address: "GDU3Z6QKJ2KX3J64P5QBDW6M7Q9Q3EMB4L5PM7KXH4JR6Y9KQABCDEFG",
     balance: "12,480.25 XLM",
     balances: {
       XLM: "12,480.25 XLM",
     },
     providerId: "freighter",
     providerName: "Freighter",
-    shortAddress: "GDU3...Y9KQ",
+    shortAddress: "GDU3...DEFG",
   },
 }
 
@@ -72,7 +72,7 @@ describe("useWalletConnection", () => {
 
     render(<WalletSnapshotProbe />)
 
-    expect(screen.getByText("GDU3...Y9KQ")).toBeInTheDocument()
+    expect(screen.getByText("GDU3...DEFG")).toBeInTheDocument()
   })
 
   it("refreshes cached wallet balances after loading a stored account", async () => {

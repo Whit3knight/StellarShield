@@ -11,6 +11,7 @@ import {
   createConnectedAccount,
   formatAssetBalance,
   formatXlmBalance,
+  isStellarAddress,
 } from "./utils"
 
 type HorizonAccountResponse = {
@@ -422,6 +423,12 @@ function assertFreighterResult(result: FreighterResult): void {
 }
 
 async function getWalletBalances(address: string): Promise<WalletBalanceResult> {
+  // Client-side guard so we never hammer Horizon with a malformed
+  // strkey (400 loop). Stellar public keys are exactly 56 chars,
+  // `G` prefix, base32.
+  if (!isStellarAddress(address)) {
+    return { balance: "Balance unavailable", balances: {} }
+  }
   try {
     const horizonUrl = getConfiguredHorizonUrl()
     const response = await fetch(`${horizonUrl}/accounts/${address}`)
