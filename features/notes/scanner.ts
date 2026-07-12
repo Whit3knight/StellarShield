@@ -77,9 +77,21 @@ export async function scanShieldedNotes(
 
   const contractId = getConfiguredContractId()
   if (!contractId) {
+    // eslint-disable-next-line no-console
+    console.warn("[scanner] no contract id configured — skipping scan")
     replaceNotes([])
     return []
   }
+  // eslint-disable-next-line no-console
+  console.log(
+    "[scanner] starting",
+    JSON.stringify({
+      contract: contractId,
+      identityPkPrefix: Array.from(identity.publicKey.slice(0, 4)).map((b) =>
+        b.toString(16).padStart(2, "0")
+      ).join(""),
+    })
+  )
 
   const sdk = await import("@stellar/stellar-sdk")
   const { rpc } = await import("@stellar/stellar-sdk")
@@ -105,6 +117,8 @@ export async function scanShieldedNotes(
   // (`(topic, asset, tree_kind)`). Widen to cover both.
   let response: unknown
   try {
+    // eslint-disable-next-line no-console
+    console.log("[scanner] getEvents startLedger=", startLedger)
     response = await server.getEvents({
       filters: [
         {
@@ -141,13 +155,17 @@ export async function scanShieldedNotes(
       startLedger,
       limit: 500,
     })
-  } catch {
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error("[scanner] getEvents threw", err)
     replaceNotes([])
     return []
   }
   if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
 
   const events = extractEvents(response)
+  // eslint-disable-next-line no-console
+  console.log("[scanner] events fetched:", events.length)
   const notes: ShieldedNote[] = []
   const spentNullifiers = new Set<bigint>()
 
@@ -245,6 +263,16 @@ export async function scanShieldedNotes(
   const deduped = dedupeNotes(notes)
   const live = filterSpentNotes(deduped, spentNullifiers)
   live.sort((a, b) => b.index - a.index)
+  // eslint-disable-next-line no-console
+  console.log(
+    "[scanner] done",
+    JSON.stringify({
+      decrypted: notes.length,
+      deduped: deduped.length,
+      live: live.length,
+      spentNullifiers: spentNullifiers.size,
+    })
+  )
   replaceNotes(live)
   return live
 }
