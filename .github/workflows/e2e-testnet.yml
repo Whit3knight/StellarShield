@@ -1,0 +1,50 @@
+name: E2E Testnet
+
+# Prove -> submit -> verify a real shielded borrow against the live testnet
+# contract. Scheduled + manual only; intentionally NOT a PR/push gate, since
+# testnet RPC flakiness would otherwise block unrelated merges.
+on:
+  schedule:
+    - cron: "0 6 * * *" # daily 06:00 UTC
+  workflow_dispatch:
+
+concurrency:
+  group: e2e-testnet
+  cancel-in-progress: false
+
+jobs:
+  borrow:
+    name: Shielded borrow e2e
+    runs-on: ubuntu-latest
+    # Public testnet values; the contract IDs match README / .env.example.
+    env:
+      NEXT_PUBLIC_STELLAR_SHIELD_CONTRACT_ID: CATPLYDPXDFBSLOUP4YQK5BZLGRBYTUXSTZMIXLMBHAPAR6K4JEP52YX
+      NEXT_PUBLIC_STELLAR_SOROBAN_RPC_URL: https://soroban-testnet.stellar.org
+      NEXT_PUBLIC_STELLAR_REFLECTOR_CEX_CONTRACT_ID: CCYOZJCOPG34LLQQ7N24YXBM7LL62R7ONMZ3G6WZAAYPB5OYKOMJRN63
+      DEPLOYER_ADDRESS: ${{ vars.DEPLOYER_ADDRESS }}
+      DEPLOYER_SECRET: ${{ secrets.DEPLOYER_SECRET }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Guard — deployer secret configured
+        run: |
+          if [ -z "$DEPLOYER_SECRET" ] || [ -z "$DEPLOYER_ADDRESS" ]; then
+            echo "::error::Set repo variable DEPLOYER_ADDRESS and secret DEPLOYER_SECRET to run the e2e harness."
+            exit 1
+          fi
+
+      - name: Top up deployer (best-effort friendbot)
+        run: curl -s "https://friendbot.stellar.org/?addr=$DEPLOYER_ADDRESS" > /dev/null || true
+
+      - name: Prove → submit → verify borrow
+        run: bun run test:e2e

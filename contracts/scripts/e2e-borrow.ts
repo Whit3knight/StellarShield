@@ -2,9 +2,12 @@
 /**
  * End-to-end shielded borrow via the CLI. Bypasses the browser UI so
  * we can isolate contract-side behaviour when the client stack acts
- * up. Assumes the deployer identity already holds ≥ 4 XLM shielded
- * notes on the configured contract — if not, prepend deposits via
- * `contracts/scripts/e2e-deposit.ts` (mirrors this file's shape).
+ * up. Self-provisioning: each run batches 4 fresh XLM collateral notes
+ * via `deposit_shielded_quad` before borrowing, so it needs only a
+ * funded `deployer` key — no pre-seeded pool state.
+ *
+ * Exits non-zero if the on-chain borrow verify fails, so it doubles as
+ * the prove→submit→verify regression harness (see `bun run test:e2e`).
  *
  * Usage:
  *   bun contracts/scripts/e2e-borrow.ts
@@ -46,10 +49,16 @@ const NETWORK_PASSPHRASE = "Test SDF Network ; September 2015"
 const BORROW_ASSET = "USDC"
 const COLLATERAL_ASSET = "XLM"
 
-const stellarAddr = stellarCli(["keys", "address", "deployer"])
-const stellarSecret = stellarCli(["keys", "secret", "deployer"])
+// Prefer env (CI: no stellar keystore needed), fall back to the local
+// `stellar` keystore for interactive dev use.
+const stellarAddr =
+  process.env.DEPLOYER_ADDRESS?.trim() || stellarCli(["keys", "address", "deployer"])
+const stellarSecret =
+  process.env.DEPLOYER_SECRET?.trim() || stellarCli(["keys", "secret", "deployer"])
 if (!stellarAddr || !stellarSecret) {
-  throw new Error("stellar keys deployer not found; run `stellar keys generate deployer` first")
+  throw new Error(
+    "deployer key not found; set DEPLOYER_ADDRESS + DEPLOYER_SECRET, or run `stellar keys generate deployer`"
+  )
 }
 console.log("Using deployer:", stellarAddr)
 
@@ -405,6 +414,26 @@ const sent = await assembled.signAndSend({
 const txHash = sent.sendTransactionResponse?.hash
 console.log(`Submitted: ${txHash}`)
 console.log(`https://stellar.expert/explorer/testnet/tx/${txHash}`)
+
+// ---- Verify the on-chain borrow actually succeeded -------------------
+// signAndSend surfaces a contract error here on proof rejection; a bare
+// hash without a successful result would let a broken proof pass CI.
+// This is the assertion that turns the script into a regression harness.
+const borrowResult = sent.result as unknown as
+  | { value: unknown }
+  | { error: { message: string } }
+  | undefined
+if (borrowResult && "error" in borrowResult) {
+  throw new Error(`borrow_shielded reverted: ${borrowResult.error.message}`)
+}
+const sendStatus = sent.sendTransactionResponse?.status
+if (sendStatus && sendStatus !== "PENDING") {
+  throw new Error(`borrow submit rejected: status ${sendStatus}`)
+}
+if (!txHash) {
+  throw new Error("borrow submit returned no tx hash")
+}
+console.log("PASS: prove → submit → verify succeeded")
 
 // ==== Helpers =========================================================
 function required(name: string): string {
