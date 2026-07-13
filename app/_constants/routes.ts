@@ -5,7 +5,7 @@ export const appRoutes = {
   activity: "#",
   markets: "#markets",
   overview: "#",
-  privacySecurity: "/privacy-security",
+  privacySecurity: "/privacy",
   proofs: "#",
   support: "#",
   terms: "/terms",
