@@ -89,17 +89,37 @@ Stellar Shield sits at the intersection of several established lines of work, no
 
 ### 3.1 Positioning statement
 
-Each of these dimensions has precedent in isolation. The combination does not exist elsewhere:
+In one phrase: **Stellar Shield is a shielded, on-chain-verified lending pool on Stellar** — the only system combining all four properties. Each dimension has precedent in isolation; the combination does not exist elsewhere:
 
 > **For** professional and privacy-conscious borrowers on Stellar **who** need collateralized leverage but cannot afford to broadcast their balance sheet, position size, and liquidation level to the entire chain, **Stellar Shield is** a privacy-preserving lending pool **that** lets you prove borrow eligibility and take a loan while your wallet, balances, and position size stay hidden on-chain. **Unlike** transparent Stellar lenders (Blend and every other Stellar lending market), which expose every position publicly, **and unlike** shielded-*transfer* tools (Zcash, Tornado-style pools), which hide payments but offer no borrowing primitive, **Stellar Shield** is the only option that combines shielded privacy *with* a lending market on Stellar — **because** eligibility is enforced by a real zero-knowledge proof verified *on-chain* via Protocol 22 BLS12-381 host functions, proofs are generated *client-side* so no server ever custodies a user's keys, and a user's private position can be rebuilt from public chain data alone.
 
-The defensibility is the intersection itself — shielded *and* lending *and* on Stellar *and* on-chain-verified. Replicating it requires ZK, lending, oracle, and in-browser proving competence in one place. This describes a technical and competitive position, not delivered privacy: real privacy additionally requires a large anonymity set (§14), which testnet volume does not provide.
+The concrete technical delta against a transparent Stellar lender (Blend) is measurable, not rhetorical: every borrow carries one on-chain Groth16 verification over BLS12-381 (16 IC points, §5.1) that spends 4 collateral nullifiers and mints a loan note, over per-asset commitment trees of depth 20 — a `2^20 = 1,048,576`-leaf anonymity *capacity* per asset — with zero balances or position sizes written to chain. Blend writes all of them. The defensibility is the intersection itself — shielded *and* lending *and* on Stellar *and* on-chain-verified. Replicating it requires ZK, lending, oracle, and in-browser proving competence in one place. This describes a technical and competitive position, not delivered privacy: capacity is not the same as a realized anonymity set, which requires real pool volume (§14) that testnet does not provide.
 
 ---
 
 ## 4. Data Model
 
 Stellar Shield stores no account balances. The pool's entire liability side is a set of *notes* — Zcash-style commitments whose openings live only in the owner's browser. This section defines the note, the commitment scheme, the per-asset Merkle trees, the nullifier set, and the two liquidation-support sidecars.
+
+### 4.0 Notation
+
+Symbols used throughout §4–§10. All field elements are over the BLS12-381 scalar field `F_r` (§5.2).
+
+| Symbol | Domain | Meaning | Public? |
+|---|---|---|---|
+| `sk` | `F_r` | Shielded spending key; also the memo-decryption key (§8.2). | private |
+| `amount` | `F_r` | Note value in whole units. | private |
+| `asset_tag` | `{0,1,2}` | Asset index into `SUPPORTED_ASSETS = [XLM, USDC, EURC]`. | public |
+| `salt` | `F_r` | Per-note random field element; unlinks equal-value notes. | private |
+| `index` | `u64` | Leaf position in a Merkle tree, assigned at append. | public |
+| `cm` | `F_r` | Note commitment `= Poseidon(amount, asset_tag, sk, salt)`. | public |
+| `nf` | `F_r` | Nullifier `= Poseidon(sk, index)`; spend tag, unlinkable to `cm`. | public (at spend) |
+| `nf_loan` | `F_r` | Loan nullifier `= Poseidon(sk, cm_borrow)`; enables keyless liquidation (§10). | public (sidecar) |
+| `root` | `F_r` | Current Merkle root of a per-asset tree; `DEPTH = 20`. | public |
+| `p` | `F_r` | Oracle price (USD, 14-decimal) folded into the borrow proof (§9). | private (committed) |
+| `hf_min` | bps | Minimum health factor, cross-checked against on-chain risk params. | public |
+| `max_ltv` | bps | Maximum loan-to-value, cross-checked against on-chain risk params. | public |
+| `π` | Groth16 | Proof `(A, B, C)` over BLS12-381 verified on-chain (§5.1). | public |
 
 ### 4.1 The note
 
