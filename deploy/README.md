@@ -86,6 +86,11 @@ mode (then `LIQUIDATOR_SECRET` is unused). Fund `LIQUIDATOR_SECRET` minimally.
 Files: `stellar-shield-keeper.service`, `stellar-shield-keeper.timer`,
 `keeper.env.example`.
 
+**Docker alternative.** If your keeper host runs Docker rather than systemd, use
+`deploy/docker/` instead (`docker compose up -d`) — same one-shot scan on an
+interval, hardened container, hot keys via a chmod-600 `keeper.env`. Run the
+systemd keeper **or** the Docker keeper, never both. See `deploy/docker/README.md`.
+
 ---
 
 ## Cost
@@ -112,7 +117,8 @@ users is Vercel egress on the artifacts; Pro covers it long before testnet does.
 
 ## Deferred
 
-Containers/k8s, autoscaling, monitoring stack, on-call, DB HA (no DB). This is a
+k8s/orchestration, autoscaling, monitoring stack, on-call, DB HA (no DB). (A
+single-container Docker option for the keeper exists at `deploy/docker/`.) This is a
 testnet technical validation; no uptime SLA is warranted.
 
 ---

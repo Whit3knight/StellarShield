@@ -35,6 +35,10 @@ pnpm-debug.log*
 .env*
 !.env.example
 
+# keeper hot-key env — NEVER commit (matches deploy/keeper.env + deploy/docker/keeper.env).
+# keeper.env.example is a different name and stays tracked.
+keeper.env
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

@@ -1,0 +1,51 @@
+# Liquidation keeper — ALTERNATIVE to the systemd keeper
+# (deploy/stellar-shield-keeper.service/.timer). Run ONE or the other, never both.
+# The web tier is on Vercel; there is no web/Next container here, and no database.
+#
+# SINGLE REPLICA ONLY. Never `docker compose up --scale keeper=2`. The scanner
+# has no cross-instance lock — two keepers sign duplicate liquidation txs =
+# sequence-number races and wasted gas. This is a correctness requirement.
+services:
+  keeper:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.keeper
+    image: stellar-shield-keeper:local
+    restart: unless-stopped
+
+    # Bun's transpile/cache writes go to $HOME; point it at the tmpfs so the
+    # root FS can stay read-only.
+    environment:
+      HOME: /tmp
+
+    # Hot keys (LIQUIDATION_SERVICE_SK + LIQUIDATOR_SECRET) plus chain config live
+    # here. Create it and lock it down before `up`:
+    #   cp ../keeper.env.example keeper.env && chmod 600 keeper.env
+    # NEVER commit keeper.env (it is git- and docker-ignored).
+    # Override cadence/mode by adding KEEPER_INTERVAL / KEEPER_ARGS to this file.
+    env_file: ./keeper.env
+
+    # Outbound-only: no ports published.
+
+    # Tiny workload; cap it so a leak can't starve the host.
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 128
+
+    # Nothing is written outside /tmp — snarkjs proves in-memory from the
+    # liquidate-v2 wasm/zkey read into RAM. Root FS stays read-only.
+    read_only: true
+    tmpfs:
+      - /tmp
+
+    # Outbound HTTPS needs zero Linux capabilities.
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

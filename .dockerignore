@@ -1,0 +1,45 @@
+# .dockerignore — keeps the liquidation-keeper image lean.
+# Only deploy/docker/Dockerfile.keeper builds from this repo; the web tier is on
+# Vercel (not containerized). Build context is the repo root.
+
+# Reinstalled inside the image / build outputs — never copy these in.
+node_modules
+**/node_modules
+.next
+out
+build
+coverage
+*.tsbuildinfo
+
+# VCS + local noise
+.git
+.gitignore
+.DS_Store
+
+# Secrets — must NEVER land in an image layer.
+.env*
+!.env.example
+deploy/keeper.env
+deploy/docker/keeper.env
+
+# Circom build cruft (~622MB): source .circom, build zkeys, ptau, node_modules.
+# The keeper imports NONE of it (the only "contracts/circuits" refs in the TS it
+# loads are code comments — verified). It reads its wasm/zkey from public/ below.
+contracts/circuits
+
+# Rust build outputs, if any.
+**/target
+
+# ZK proving artifacts the keeper never reads (~74MB): borrow/repay/withdraw/
+# deposit/deposit_quad/liquidate-v1 + the retired borrow_eligibility pair.
+# KEEP public/circuits-circom/shielded/liquidate-v2/** — scan-underwater.ts
+# (:64-70, :277-278) readFileSync's liquidate.wasm + liquidate.zkey from there in
+# --trigger mode. Excluding siblings explicitly avoids any negation edge cases.
+public/circuits-circom/shielded/borrow
+public/circuits-circom/shielded/deposit
+public/circuits-circom/shielded/deposit_quad
+public/circuits-circom/shielded/liquidate
+public/circuits-circom/shielded/repay
+public/circuits-circom/shielded/withdraw
+public/circuits-circom/borrow_eligibility.wasm
+public/circuits-circom/borrow_eligibility.zkey

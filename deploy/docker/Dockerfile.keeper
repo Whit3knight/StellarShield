@@ -1,0 +1,25 @@
+# Stellar Shield liquidation keeper — Bun runs the TypeScript directly, so there
+# is NO build step (no `next build`). This image is an alternative to the systemd
+# keeper (deploy/stellar-shield-keeper.service/.timer). Web tier lives on Vercel.
+# Keeper is outbound-only: no EXPOSE.
+FROM oven/bun:1.3
+
+WORKDIR /app
+
+# Deps first so this layer only busts when the lockfile changes.
+# All runtime deps (@stellar/stellar-sdk, snarkjs, @noble/*) are production
+# dependencies, so --production is safe and drops dev-only weight.
+COPY package.json bun.lock ./
+RUN bun install --frozen-lockfile --production
+
+# App source (whole repo minus .dockerignore). Bun resolves the scan-underwater
+# imports from features/* and contracts/scripts/*, and readFileSync's
+# public/circuits-circom/shielded/liquidate-v2/{liquidate.wasm,liquidate.zkey}.
+COPY . .
+RUN chmod +x deploy/docker/keeper-entrypoint.sh
+
+# oven/bun images ship a non-root `bun` user (uid 1000). Keeper never needs root.
+USER bun
+
+# Interval loop re-runs the one-shot scan on a schedule (see the entrypoint).
+ENTRYPOINT ["/app/deploy/docker/keeper-entrypoint.sh"]
