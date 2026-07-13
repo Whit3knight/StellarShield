@@ -504,8 +504,31 @@ Full shielded lifecycle (deposit → borrow → claim → repay → liquidate) w
 12. **Interest accrual is linear, not compounding** (`rate.rs:72`).
 13. **Recent Poseidon assumption** — security leans on a younger algebraic hash than a classical one.
 
-### 17.3 Gated to mainnet
-Trusted-setup ceremony (R5); third-party security audit (R6, R14); a documented legal/compliance position covering money-transmitter status, not only sanctions (BR2 — see §17.4); administrative decentralization (R12); on-chain oracle commitment cross-check (R7); and a meaningful anonymity set (R4) — the gap between "the cryptography works" and "privacy is delivered." Reaching it requires real pool volume, which requires validated external demand, neither of which exists today.
+### 17.3 Phased roadmap
+
+The path from a working testnet artifact to a launched product runs through four gated phases. Each gate is a hard exit criterion, not a date: a phase does not begin until the prior gate is met. This staging is deliberate — it front-loads the two blockers that make privacy *real* (a proper trusted setup and a meaningful anonymity set) and refuses to custody real value before an audit clears it. Only at the end of Phase 4 does the paper's central claim — *your positions stay hidden* — hold for a real user, because only then does the anonymity set exist to back it.
+
+```mermaid
+flowchart LR
+    P1["Phase 1 — Development &rarr; Testnet<br/><b>DONE</b><br/>Full shielded lifecycle,<br/>on-chain proof verify"]
+    P2["Phase 2 — Security Audit<br/>Trusted-setup ceremony,<br/>3rd-party audit, oracle<br/>cross-check, Rust tests"]
+    P3["Phase 3 — Partnership / Ecosystem<br/>Oracle fallback, wallet +<br/>liquidator integrations,<br/>demand + legal position"]
+    P4["Phase 4 — Mainnet Launch<br/>Decentralized admin,<br/>anonymity set, value<br/>capture activated"]
+
+    P1 -->|Gate: lifecycle validated| P2
+    P2 -->|Gate: audit clean +<br/>toxic waste destroyed| P3
+    P3 -->|Gate: demand proven +<br/>legal position + partners| P4
+    P4 -->|<b>Privacy delivered</b>| DONE([Live product])
+```
+
+| Phase | Status | Goal | Exit criteria (gate) | Clears |
+|---|---|---|---|---|
+| **1 — Development → Testnet** | **Done** | Prove privacy-preserving lending is technically viable on Stellar. | Full shielded lifecycle (deposit → borrow → claim → repay → liquidate) runs end-to-end with on-chain Groth16 verification; signature-derived identity; artifact pinning; e2e testnet harness green. | §17.1 |
+| **2 — Security Audit & Hardening** | Gated on P1 | Make the system safe to hold real value. | Multi-party trusted-setup ceremony (toxic waste destroyed); third-party audit across circuits, contract, oracle, and in-browser proving, findings closed; on-chain oracle-price cross-check shipped; Rust contract unit tests unblocked. | R5, R6, R7, R14, limitations 1·2·8·11 |
+| **3 — Partnership & Ecosystem** | Gated on P2 | Validate demand and remove single-point dependencies. | Oracle fallback/cross-check partner (second SEP-40 feed); wallet + liquidation-service integrations live; documented legal/compliance position covering money-transmitter status (not only sanctions, see §17.4); a real external demand signal. | R13, BR2, BR5, BR6, limitations 3·7 |
+| **4 — Mainnet Launch** | Gated on P3 | Deliver *meaningful* privacy to real users and launch. | Administrative decentralization (multisig/timelock/governance); a meaningful anonymity set from real pool volume; recent-roots window for spend liveness; value-capture mechanism activated. | R4, R12, BR3, limitations 4·6·9 |
+
+The USP is only fully realized at Phase 4. Phases 1–3 build the trust and the crowd that "keep your positions in the dark" requires: the cryptography (Phase 1) is necessary but not sufficient; the audit and ceremony (Phase 2) make it safe; partners and demand (Phase 3) supply the anonymity set (Phase 4) that turns *working cryptography* into *delivered privacy*. Each gate reaching Phase 4 depends on validated external demand and real pool volume — neither of which exists today.
 
 ### 17.4 Regulatory note
 The Tornado Cash record makes the legal gate concrete: OFAC sanctioned the contracts on 2022-08-08 [S11]; the Fifth Circuit ruled in Nov 2024 that OFAC overstepped and Treasury delisted the addresses on 2025-03-21 [S15, S16]; yet co-founder Roman Storm was convicted on 2025-08-06 of conspiracy to operate an unlicensed money-transmitting business [S17]. Lawful code does not shield an operator from money-transmission liability. Aztec Connect's sunset [S14] is a parallel precedent for the difficulty of decentralizing a single-operator system after the fact.
