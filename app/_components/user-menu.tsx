@@ -143,6 +143,11 @@ export function UserMenu({
           >
             <DownloadIcon aria-hidden="true" />
             Export notes
+            {backup.unbackedCount > 0 ? (
+              <span className="ml-auto text-xs text-amber-600 dark:text-amber-500">
+                {backup.unbackedCount} unsaved
+              </span>
+            ) : null}
           </MenuItem>
           <MenuItem
             closeOnClick

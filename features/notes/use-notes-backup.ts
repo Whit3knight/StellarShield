@@ -12,12 +12,28 @@ import {
   parseBackupJson,
   restoreNotesBackup,
 } from "./backup"
-import { snapshotNotes } from "./note-store"
+import {
+  countUnbackedNotes,
+  markBackedUp,
+  subscribeBackupState,
+} from "./backup-state"
+import { snapshotNotes, subscribeNotes } from "./note-store"
+import { legacyIdentityFromAddress } from "./use-shielded-identity"
 
 type UseNotesBackupResult = {
   canBackup: boolean
+  unbackedCount: number
   exportNotes: () => void
   importNotes: (file: File) => Promise<void>
+}
+
+function subscribeStale(listener: () => void): () => void {
+  const offNotes = subscribeNotes(listener)
+  const offBackup = subscribeBackupState(listener)
+  return () => {
+    offNotes()
+    offBackup()
+  }
 }
 
 /**
@@ -27,7 +43,13 @@ type UseNotesBackupResult = {
  * identity isn't ready yet (wallet not connected).
  */
 export function useNotesBackup(): UseNotesBackupResult {
-  const { identity } = useShieldedPoolContext()
+  const { account, identity } = useShieldedPoolContext()
+
+  const unbackedCount = React.useSyncExternalStore(
+    subscribeStale,
+    () => (account ? countUnbackedNotes(account, snapshotNotes()) : 0),
+    () => 0
+  )
 
   const exportNotes = React.useCallback(() => {
     if (!identity) {
@@ -63,6 +85,7 @@ export function useNotesBackup(): UseNotesBackupResult {
       anchor.download = download.filename
       anchor.click()
       URL.revokeObjectURL(url)
+      if (account) markBackedUp(account, notes)
       toastManager.add({
         title: "Backup exported",
         description: `${notes.length} note${notes.length === 1 ? "" : "s"} sealed to ${download.filename}.`,
@@ -77,7 +100,7 @@ export function useNotesBackup(): UseNotesBackupResult {
         timeout: 6_000,
       })
     }
-  }, [identity])
+  }, [account, identity])
 
   const importNotes = React.useCallback(
     async (file: File) => {
@@ -93,7 +116,20 @@ export function useNotesBackup(): UseNotesBackupResult {
       try {
         const raw = await file.text()
         const bundle = parseBackupJson(raw)
-        const restored = decodeNotesBackup(bundle, identity)
+        let restored: ReturnType<typeof decodeNotesBackup>
+        try {
+          restored = decodeNotesBackup(bundle, identity)
+        } catch (primaryError) {
+          // Backups written before the R1 identity migration were sealed
+          // under the address-derived key; retry with it before giving up.
+          if (!account) throw primaryError
+          const legacy = await legacyIdentityFromAddress(account)
+          try {
+            restored = decodeNotesBackup(bundle, legacy)
+          } catch {
+            throw primaryError
+          }
+        }
         restoreNotesBackup(restored)
         toastManager.add({
           title: "Backup imported",
@@ -113,11 +149,12 @@ export function useNotesBackup(): UseNotesBackupResult {
         })
       }
     },
-    [identity]
+    [account, identity]
   )
 
   return {
     canBackup: Boolean(identity),
+    unbackedCount,
     exportNotes,
     importNotes,
   }
