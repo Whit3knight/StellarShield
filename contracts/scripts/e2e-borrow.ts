@@ -562,8 +562,10 @@ async function fetchReflectorPrice(
     xdr.ScVal.scvSymbol(asset),
   ])
   const call = new stellarSdk.Contract(contractId).call("lastprice", feed)
+  // All-zeros ed25519 address; must be checksum-valid or `new Account()`
+  // throws "accountId is invalid".
   const src =
-    "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP66"
+    "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"
   const tx = new stellarSdk.TransactionBuilder(
     new stellarSdk.Account(src, "0"),
     {

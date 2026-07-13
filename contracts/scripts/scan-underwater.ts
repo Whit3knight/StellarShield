@@ -92,9 +92,10 @@ function loadServiceSecret(): Uint8Array | null {
   return bytes
 }
 
-// Read-only source; all zeros satisfies TransactionBuilder for
-// preflight-only simulateTransaction.
-const SIMULATION_SOURCE = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP66"
+// Read-only source; the all-zeros ed25519 address satisfies
+// TransactionBuilder for preflight-only simulateTransaction. Must be a
+// checksum-valid strkey or `new Account()` throws "accountId is invalid".
+const SIMULATION_SOURCE = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"
 
 const SUPPORTED_ASSETS = ["XLM", "USDC", "EURC"] as const
 const EVENT_PAGE_LIMIT = 500

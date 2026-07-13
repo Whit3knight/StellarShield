@@ -29,8 +29,10 @@ const REFLECTOR_ASSETS: Record<SupportedAssetSymbol, ReflectorAssetRef> = {
 
 // Public key used only to satisfy TransactionBuilder for read-only
 // `simulateTransaction`. Preflight ignores account existence — no funds
-// required. All zeros → a syntactically valid, deterministic address.
-const SIMULATION_SOURCE = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP66"
+// required. This is the all-zeros ed25519 address (StrKey.encode of 32
+// zero bytes); it must be a checksum-valid strkey or `new Account()`
+// throws "accountId is invalid".
+const SIMULATION_SOURCE = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"
 
 export type ReflectorPrice = {
   decimals: number
