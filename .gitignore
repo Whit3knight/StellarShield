@@ -44,5 +44,11 @@ next-env.d.ts
 /contracts/**/target
 Cargo.lock
 
+# circom circuit build artifacts (local dev ceremony outputs; the published
+# proving/verification artifacts live in public/circuits-circom and
+# contracts/borrow-pool/src/vk, which stay tracked)
+/contracts/circuits/**/node_modules
+/contracts/circuits/**/build
+
 # playwright mcp scratch
 /.playwright-mcp

@@ -60,10 +60,8 @@ export type PrepareTransactionParams = {
 
 export type SimulateBorrowParams = {
   /**
-   * Groth16 proof bytes + oracle bindings. Required by the Soroban
-   * adapter — the contract's `borrow` function verifies the proof
-   * atomically. Undefined for the mock adapter, which skips the
-   * on-chain step entirely.
+   * Groth16 proof bytes + oracle bindings. The contract's `borrow`
+   * function verifies the proof atomically.
    */
   contractProof?: BorrowContractPayload
   fee: AssetAmount
@@ -134,8 +132,7 @@ export type ProtocolAdapter = {
   ) => Promise<AdapterResult<ProtocolTransactionReceipt>>
   /**
    * Read the on-chain position for `account`. Returns `null` when the
-   * contract stores no position for the caller. Optional on adapters
-   * that have no on-chain surface (mock adapter returns `null`).
+   * contract stores no position for the caller.
    */
   readChainPosition?: (
     params: ReadChainPositionParams,

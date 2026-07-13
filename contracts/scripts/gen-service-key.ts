@@ -20,7 +20,8 @@ import { sha256 } from "@noble/hashes/sha2.js"
 
 const CONTRACT =
   process.env.STELLAR_SHIELD_CONTRACT_ID ??
-  "CBJZP45HUUVXWDSEUIQPDJD4RZPTUJUG6IGVM7HQPHRK74SHKPXF4N7L"
+  process.env.NEXT_PUBLIC_STELLAR_SHIELD_CONTRACT_ID ??
+  "CATPLYDPXDFBSLOUP4YQK5BZLGRBYTUXSTZMIXLMBHAPAR6K4JEP52YX"
 
 function loadSeed(): Uint8Array {
   const raw = process.env.SEED?.trim()

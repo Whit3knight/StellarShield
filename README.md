@@ -20,13 +20,20 @@ user's note inventory from public events alone.
 
 | Item | Value |
 | --- | --- |
-| Contract ID | `CBJZP45HUUVXWDSEUIQPDJD4RZPTUJUG6IGVM7HQPHRK74SHKPXF4N7L` |
+| Contract ID | `CATPLYDPXDFBSLOUP4YQK5BZLGRBYTUXSTZMIXLMBHAPAR6K4JEP52YX` |
 | Admin | `GCGLOK2DM2Y4NGESNJBTTOHEY7EB3MO35FV5YQSZIOWV6QW6ZNRXGPXK` |
 | Network | Testnet (`Test SDF Network ; September 2015`) |
 | Reflector CEX/DEX | `CCYOZJCOPG34LLQQ7N24YXBM7LL62R7ONMZ3G6WZAAYPB5OYKOMJRN63` |
 | Reflector FX | `CCSSOHTBL3LEWUCBBEB5NJFC2OKFRC74OWEIJIZLRJBGAAU4VMU5NV4W` |
 
 Registered markets: `USDC/XLM`, `XLM/USDC`, `EURC/USDC`, `USDC/EURC`, `EURC/XLM`, `XLM/EURC`.
+
+The contract ID above is **canonical** — it is what the app routes through
+(`.env.local` / `features/protocol/bindings/borrow-pool.ts`). A second live
+testnet deployment (`CBJZP45H…4N7L`) exists from an earlier deploy with
+identical markets but **separate pool state**; it is retired. Any redeploy must
+update this table, `.env.example`, and the CLI script fallbacks together, and
+keep them equal.
 
 ## Roadmap status
 
@@ -44,8 +51,9 @@ Registered markets: `USDC/XLM`, `XLM/USDC`, `EURC/USDC`, `USDC/EURC`, `EURC/XLM`
 | Autonomous liquidation loop (`scan:underwater --trigger`) | shipped (needs `LIQUIDATOR_SECRET` Stellar signing key alongside the service sk) |
 | Service keypair generator (`bun run gen:service-key`) | shipped |
 | Deployment runbook + lifecycle demo doc | shipped (`docs/deployment.md`, `docs/demo.md`) |
+| Multi-note deposit (`shielded-deposit-quad` circuit + `deposit-quad-prover.ts`) | experimental — circuit, verifier (`deposit_quad_verifier`), prover, and artifacts exist but are not wired into `use-deposit.ts`; not a supported flow |
 | Track F UI polish | opportunistic |
-| Track B FROST threshold | dropped — Track A alone closes the sk-drain flagged in the design doc |
+| Track B FROST threshold | dropped — Track A closes the sk-drain, but the liquidation-service operator still decrypts every borrow position (see Trust model below); FROST was the only path to remove that operator trust |
 | Rust-side fixture reader | blocked on `soroban-sdk` 23 (testutils build fix) |
 
 ## Setup
@@ -168,7 +176,7 @@ stellar contract install \
 # → prints WASM_HASH
 
 stellar contract invoke \
-  --id CBJZP45HUUVXWDSEUIQPDJD4RZPTUJUG6IGVM7HQPHRK74SHKPXF4N7L \
+  --id CATPLYDPXDFBSLOUP4YQK5BZLGRBYTUXSTZMIXLMBHAPAR6K4JEP52YX \
   --source deployer --network testnet \
   -- upgrade --wasm_hash $WASM_HASH
 
@@ -184,18 +192,42 @@ stellar contract invoke \
 4. On the fresh loan note row, click **Claim** — receives the loan amount into Freighter via `withdraw_loan_shielded`.
 5. Deposit a repay-source note in the loan's asset ≥ loan amount. **Repay** button appears on the loan note. Click → both nullifiers burn, loan note vanishes.
 6. Any Withdraw button on a deposit note calls `withdraw_shielded` and receives the fixed denomination.
-7. Refresh browser (or clear localStorage) → scanner rebuilds the same inventory from public events. No client-side backup needed.
+7. Refresh browser (or clear localStorage) → scanner rebuilds inventory from public events **within the RPC event-retention window** (scanner looks back 10,000 ledgers, ~14h). Notes older than that window require the encrypted backup file (user menu → export/import); recovery from chain events alone is not unbounded.
 8. `bun run lint && bun run typecheck && bun run test && bun run build` all green.
 
 ## Deferred
 
-- **Interest accrual on repay**: v1 repay burns loan against deposit >= loan amount. The `borrow_index` snapshot / `repay_amount = loan × index` check will land in the v2 repay circuit alongside collateral recovery.
-- **Collateral recovery on repay**: v1 leaves original collateral notes burned. v2 repay circuit will mint recovered collateral commitments back to the deposit tree.
+- **Collateral recovery on repay**: v1 leaves original collateral notes burned. v2 repay circuit will mint recovered collateral commitments back to the deposit tree. (Interest accrual on repay — the `borrow_index` snapshot / `repay_amount = loan × index` check — **shipped** under Track A/D; only collateral recovery remains deferred.)
 - **Liquidation (self-liquidate)**: **shipped end-to-end**. Extended borrow circuit publishes 3 bond commitments; contract persists `LiquidationBond` keyed by the loan commitment; separate liquidate circuit (`shielded-liquidate`, 1476 non-linear constraints) proves a position is underwater and burns the loan nullifier via `liquidate_shielded`. Frontend `useLiquidate` hook + drawer "Liquidate" button + `LoanHealthBadge` render live health factors from cached Reflector prices. Dual-recipient memo encoding + admin-configured `liquidation_service_pk` slot are on-chain prerequisites for a permissionless off-chain service.
 - **Liquidation (off-chain service worker)**: **Track A shipped end-to-end.** Borrow circuit gains a `loan_nullifier = Poseidon(sk, borrow_commitment)` public signal that lands in a `LoanNullifier(loan_commit)` sidecar at borrow-time. New `shielded-liquidate-v2` circuit (933 non-linear, pot12) drops sk from the witness — a service holding only the memo openings can prove. New `liquidate_shielded_v2` contract fn wraps the verifier with sidecar cross-checks. `useLiquidate` fetches the sidecar in parallel with the bond and branches: present → v2 path, absent → v1 fallback so grandfathered pre-A bonds stay borrower-self-liquidatable. Design ratified in `docs/liquidation-design.md` §Track A. FROST/threshold decryption (Track B) is now a pure decentralization layer on top — no additional circuit changes.
 - **Other deferred**: automated e2e prove→submit→verify testnet harness (all 3 recent hotfixes — pub-signal order, G2 encoding, Merkle budget — would have been caught by one).
 - **Reflector on-chain commitment cross-check**: borrow circuit publishes a Poseidon commitment over the oracle price; the contract now enforces oracle freshness but not the commitment match. Waiting on a paired oracle attestation channel.
 - **Rust unit tests**: soroban-sdk `testutils` feature triggers an upstream ed25519-dalek / rand_core conflict against soroban-env-host 22.1.x. Fixture cross-checks in `contracts/borrow-pool/tests/{poseidon,merkle}_fixtures.txt` cover the primitives until soroban-sdk 23 lands.
+
+## Trust model & privacy limitations
+
+Testnet stage. These are honest limitations, not solved problems:
+
+- **Shielded identity is currently derived from the public wallet address**
+  (`features/notes/use-shielded-identity.ts` — SHA-256 of the G-address).
+  Anyone who knows a user's address can recompute their memo-decryption key and
+  note spending key. The intended signature-based derivation is not yet
+  shipped. Do not treat memo encryption as private against an observer who has
+  linked any note to a wallet.
+- **The liquidation-service operator sees every position.** Borrow memos are
+  dual-encrypted to the borrower and the service key, so an operator holding
+  `LIQUIDATION_SERVICE_SK` decrypts every borrower's collateral, loan size, and
+  entry price. Privacy holds against outside observers, not the operator.
+  `LIQUIDATION_SERVICE_SK` decrypts all borrow memos — it must never be placed
+  in CI secrets used for public deploys; rotate via `bun run gen:service-key`
+  if exposed.
+- **Anonymity set is effectively zero** at current testnet volume with fixed
+  denominations. Timing/amount correlation links deposits to withdrawals
+  regardless of the cryptography.
+- **Oracle price commitment is not cross-checked on-chain** (the contract
+  enforces freshness only). A malicious client can commit to a price that
+  differs from Reflector; `bun run scan:underwater` monitoring is the interim
+  detection. See `docs/REMEDIATION.md` for the sequenced fixes (R1, R3, R7).
 
 ## Commands cheat sheet
 
@@ -212,10 +244,10 @@ bun run build
 cd contracts
 stellar contract build
 stellar contract install --wasm target/wasm32v1-none/release/borrow_pool.wasm --source deployer --network testnet
-stellar contract invoke --id CBJZP45HUUVXWDSEUIQPDJD4RZPTUJUG6IGVM7HQPHRK74SHKPXF4N7L --network testnet -- list_markets
+stellar contract invoke --id CATPLYDPXDFBSLOUP4YQK5BZLGRBYTUXSTZMIXLMBHAPAR6K4JEP52YX --network testnet -- list_markets
 
 # Bindings
-stellar contract bindings typescript --contract-id CBJZP45HUUVXWDSEUIQPDJD4RZPTUJUG6IGVM7HQPHRK74SHKPXF4N7L --network testnet --output-dir /tmp/bindings
+stellar contract bindings typescript --contract-id CATPLYDPXDFBSLOUP4YQK5BZLGRBYTUXSTZMIXLMBHAPAR6K4JEP52YX --network testnet --output-dir /tmp/bindings
 
 # Liquidation watchlist / triage (Tracks G-lite + G-full)
 # Watchlist mode — no service key: enumerate every live
