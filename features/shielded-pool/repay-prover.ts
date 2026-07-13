@@ -15,6 +15,7 @@ import {
   computeNullifier,
   type ShieldedNote,
 } from "@/features/notes"
+import { fetchArtefact } from "./artifacts"
 import { bigintTo32Bytes, structureProof } from "./proof-encoding"
 
 const DEFAULT_WASM_URL = "/circuits-circom/shielded/repay/repay.wasm"
@@ -42,14 +43,6 @@ export type RepayProofResult = {
   publicSignals: Uint8Array[]
 }
 
-async function fetchArtefact(url: string): Promise<Uint8Array> {
-  const response = await fetch(url)
-  if (!response.ok) {
-    throw new Error(`Failed to fetch ${url}: ${response.status}`)
-  }
-  return new Uint8Array(await response.arrayBuffer())
-}
-
 export async function proveRepay(
   inputs: RepayProofInputs,
   options: { wasmUrl?: string; zkeyUrl?: string } = {}
@@ -60,8 +53,7 @@ export async function proveRepay(
   if (inputs.loanNote.sk !== inputs.depositNote.sk) {
     throw new Error("repay: notes must belong to the same shielded identity")
   }
-  const requiredNumerator =
-    inputs.loanNote.amount * inputs.borrowIndexNow
+  const requiredNumerator = inputs.loanNote.amount * inputs.borrowIndexNow
   const providedNumerator =
     inputs.depositNote.amount * inputs.borrowIndexSnapshot
   if (providedNumerator < requiredNumerator) {
@@ -72,7 +64,10 @@ export async function proveRepay(
 
   const loanCommitment = computeCommitment(inputs.loanNote)
   const depositCommitment = computeCommitment(inputs.depositNote)
-  const loanNullifier = computeNullifier(inputs.loanNote.sk, inputs.loanNote.index)
+  const loanNullifier = computeNullifier(
+    inputs.loanNote.sk,
+    inputs.loanNote.index
+  )
   const depositNullifier = computeNullifier(
     inputs.depositNote.sk,
     inputs.depositNote.index
@@ -111,22 +106,30 @@ export async function proveRepay(
     deposit_path_bits: inputs.depositPathBits.map((b) => b.toString()),
   }
 
-  const groth16 = (snarkjs as {
-    groth16: {
-      fullProve: (
-        input: Record<string, string | string[]>,
-        wasmFile: Uint8Array | string,
-        zkeyFile: Uint8Array | string
-      ) => Promise<{ proof: unknown; publicSignals: string[] }>
+  const groth16 = (
+    snarkjs as {
+      groth16: {
+        fullProve: (
+          input: Record<string, string | string[]>,
+          wasmFile: Uint8Array | string,
+          zkeyFile: Uint8Array | string
+        ) => Promise<{ proof: unknown; publicSignals: string[] }>
+      }
     }
-  }).groth16
+  ).groth16
 
-  const { proof, publicSignals } = await groth16.fullProve(witnessInputs, wasm, zkey)
+  const { proof, publicSignals } = await groth16.fullProve(
+    witnessInputs,
+    wasm,
+    zkey
+  )
 
   const structured = structureProof(
     proof as { pi_a: string[]; pi_b: string[][]; pi_c: string[] }
   )
-  const signals = publicSignals.map((decimal) => bigintTo32Bytes(BigInt(decimal)))
+  const signals = publicSignals.map((decimal) =>
+    bigintTo32Bytes(BigInt(decimal))
+  )
 
   void loanCommitment
   void depositCommitment
@@ -139,4 +142,3 @@ export async function proveRepay(
     publicSignals: signals,
   }
 }
-

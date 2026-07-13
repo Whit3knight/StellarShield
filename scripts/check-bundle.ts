@@ -26,7 +26,10 @@ const ASYNC_ONLY_PACKAGES = [
   STELLAR_SDK_PACKAGE,
   SNARKJS_PACKAGE,
 ]
-const FORBIDDEN_PACKAGES = ["radix-ui"]
+const FORBIDDEN_PACKAGES: Record<string, string> = {
+  "radix-ui": "was replaced by @base-ui/react",
+  circomlibjs: "is unused; the app uses features/notes/poseidon.ts",
+}
 const ROOT_MAIN_UNCOMPRESSED_CEILING_BYTES = 500_000
 
 async function main(): Promise<void> {
@@ -37,11 +40,9 @@ async function main(): Promise<void> {
   ) as PackageJson
   const allDeps = { ...pkg.dependencies, ...pkg.devDependencies }
 
-  for (const forbidden of FORBIDDEN_PACKAGES) {
+  for (const [forbidden, reason] of Object.entries(FORBIDDEN_PACKAGES)) {
     if (allDeps[forbidden]) {
-      failures.push(
-        `package.json still lists ${forbidden}; remove it (was replaced by @base-ui/react)`
-      )
+      failures.push(`package.json still lists ${forbidden}; remove it (${reason})`)
     }
   }
 

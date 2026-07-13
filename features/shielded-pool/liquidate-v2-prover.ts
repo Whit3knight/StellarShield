@@ -14,6 +14,7 @@
 // them against LiquidationBond + LoanNullifier storage.
 
 import { poseidon } from "@/features/notes/poseidon"
+import { fetchArtefact } from "./artifacts"
 import { bigintTo32Bytes, structureProof } from "./proof-encoding"
 
 const DEFAULT_WASM_URL = "/circuits-circom/shielded/liquidate-v2/liquidate.wasm"
@@ -37,14 +38,6 @@ export type LiquidateV2ProofResult = {
   publicSignals: Uint8Array[]
 }
 
-async function fetchArtefact(url: string): Promise<Uint8Array> {
-  const response = await fetch(url)
-  if (!response.ok) {
-    throw new Error(`Failed to fetch ${url}: ${response.status}`)
-  }
-  return new Uint8Array(await response.arrayBuffer())
-}
-
 export async function proveLiquidateV2(
   inputs: LiquidateV2ProofInputs,
   options: {
@@ -54,7 +47,10 @@ export async function proveLiquidateV2(
     zkey?: Uint8Array
   } = {}
 ): Promise<LiquidateV2ProofResult> {
-  const borrowAmountCommit = poseidon([inputs.loanAmount, inputs.bondSaltAmount])
+  const borrowAmountCommit = poseidon([
+    inputs.loanAmount,
+    inputs.bondSaltAmount,
+  ])
   const collateralValueCommit = poseidon([
     inputs.collateralNotional,
     inputs.bondSaltValue,
@@ -94,15 +90,17 @@ export async function proveLiquidateV2(
     bond_salt_price: inputs.bondSaltPrice.toString(),
   }
 
-  const groth16 = (snarkjs as {
-    groth16: {
-      fullProve: (
-        input: Record<string, string>,
-        wasmFile: Uint8Array | string,
-        zkeyFile: Uint8Array | string
-      ) => Promise<{ proof: unknown; publicSignals: string[] }>
+  const groth16 = (
+    snarkjs as {
+      groth16: {
+        fullProve: (
+          input: Record<string, string>,
+          wasmFile: Uint8Array | string,
+          zkeyFile: Uint8Array | string
+        ) => Promise<{ proof: unknown; publicSignals: string[] }>
+      }
     }
-  }).groth16
+  ).groth16
 
   const { proof, publicSignals } = await groth16.fullProve(
     witnessInputs,
@@ -113,7 +111,9 @@ export async function proveLiquidateV2(
   const structured = structureProof(
     proof as { pi_a: string[]; pi_b: string[][]; pi_c: string[] }
   )
-  const signals = publicSignals.map((decimal) => bigintTo32Bytes(BigInt(decimal)))
+  const signals = publicSignals.map((decimal) =>
+    bigintTo32Bytes(BigInt(decimal))
+  )
 
   return {
     a: structured.a,
@@ -122,4 +122,3 @@ export async function proveLiquidateV2(
     publicSignals: signals,
   }
 }
-

@@ -23,6 +23,7 @@ import {
   type ShieldedAsset,
   type ShieldedNote,
 } from "@/features/notes"
+import { fetchArtefact } from "./artifacts"
 import { poseidon } from "@/features/notes/poseidon"
 import { bigintTo32Bytes, structureProof } from "./proof-encoding"
 
@@ -60,14 +61,6 @@ export type BorrowProofResult = {
   loanNullifier: bigint
 }
 
-async function fetchArtefact(url: string): Promise<Uint8Array> {
-  const response = await fetch(url)
-  if (!response.ok) {
-    throw new Error(`Failed to fetch ${url}: ${response.status}`)
-  }
-  return new Uint8Array(await response.arrayBuffer())
-}
-
 export async function proveBorrow(
   inputs: BorrowProofInputs,
   options: { wasmUrl?: string; zkeyUrl?: string } = {}
@@ -84,8 +77,7 @@ export async function proveBorrow(
     0n
   )
   const collateralValue = totalCollateral * inputs.oraclePrice
-  const borrowAmount =
-    (collateralValue * BigInt(inputs.maxLtvBps)) / 10_000n
+  const borrowAmount = (collateralValue * BigInt(inputs.maxLtvBps)) / 10_000n
 
   const nullifiers = inputs.collateralNotes.map((note) =>
     computeNullifier(inputs.sk, note.index)
@@ -99,7 +91,10 @@ export async function proveBorrow(
   })
 
   const borrowAmountCommit = poseidon([borrowAmount, inputs.bondSaltAmount])
-  const collateralValueCommit = poseidon([collateralValue, inputs.bondSaltValue])
+  const collateralValueCommit = poseidon([
+    collateralValue,
+    inputs.bondSaltValue,
+  ])
   const borrowPriceCommit = poseidon([inputs.oraclePrice, inputs.bondSaltPrice])
   const loanNullifier = poseidon([inputs.sk, borrowCommitment])
 
@@ -134,7 +129,9 @@ export async function proveBorrow(
     collateral_amounts: inputs.collateralNotes.map((note) =>
       note.amount.toString()
     ),
-    collateral_salts: inputs.collateralNotes.map((note) => note.salt.toString()),
+    collateral_salts: inputs.collateralNotes.map((note) =>
+      note.salt.toString()
+    ),
     collateral_indices: inputs.collateralNotes.map((note) =>
       note.index.toString()
     ),
@@ -150,18 +147,20 @@ export async function proveBorrow(
     bond_salt_price: inputs.bondSaltPrice.toString(),
   }
 
-  const groth16 = (snarkjs as {
-    groth16: {
-      fullProve: (
-        input: Record<string, string | string[] | string[][]>,
-        wasmFile: Uint8Array | string,
-        zkeyFile: Uint8Array | string,
-        logger?: unknown,
-        wtnsCalcOptions?: unknown,
-        proverOptions?: { singleThread?: boolean }
-      ) => Promise<{ proof: unknown; publicSignals: string[] }>
+  const groth16 = (
+    snarkjs as {
+      groth16: {
+        fullProve: (
+          input: Record<string, string | string[] | string[][]>,
+          wasmFile: Uint8Array | string,
+          zkeyFile: Uint8Array | string,
+          logger?: unknown,
+          wtnsCalcOptions?: unknown,
+          proverOptions?: { singleThread?: boolean }
+        ) => Promise<{ proof: unknown; publicSignals: string[] }>
+      }
     }
-  }).groth16
+  ).groth16
 
   // In Bun the multithreaded Groth16 prover crashes on Web Worker
   // message dispatch; fall back to single-threaded arithmetic there.
@@ -180,7 +179,9 @@ export async function proveBorrow(
   const structured = structureProof(
     proof as { pi_a: string[]; pi_b: string[][]; pi_c: string[] }
   )
-  const signals = publicSignals.map((decimal) => bigintTo32Bytes(BigInt(decimal)))
+  const signals = publicSignals.map((decimal) =>
+    bigintTo32Bytes(BigInt(decimal))
+  )
 
   return {
     a: structured.a,
@@ -225,4 +226,3 @@ export function validateCollateralNotes(
     }
   }
 }
-

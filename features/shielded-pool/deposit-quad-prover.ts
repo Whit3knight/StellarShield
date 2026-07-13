@@ -16,6 +16,7 @@ import {
   DENOMINATION,
   type ShieldedAsset,
 } from "@/features/notes"
+import { fetchArtefact } from "./artifacts"
 import { bigintTo32Bytes, structureProof } from "./proof-encoding"
 
 const DEFAULT_WASM_URL = "/circuits-circom/shielded/deposit_quad/deposit.wasm"
@@ -34,14 +35,6 @@ export type DepositQuadProofResult = {
   c: Uint8Array
   commitments: [bigint, bigint, bigint, bigint]
   publicSignals: Uint8Array[] // 6 × 32 bytes big-endian Fr
-}
-
-async function fetchArtefact(url: string): Promise<Uint8Array> {
-  const response = await fetch(url)
-  if (!response.ok) {
-    throw new Error(`Failed to fetch ${url}: ${response.status}`)
-  }
-  return new Uint8Array(await response.arrayBuffer())
 }
 
 export async function proveDepositQuad(
@@ -82,18 +75,20 @@ export async function proveDepositQuad(
     salt: inputs.salt.map((s) => s.toString()),
   }
 
-  const groth16 = (snarkjs as {
-    groth16: {
-      fullProve: (
-        input: Record<string, string | string[]>,
-        wasmFile: Uint8Array | string,
-        zkeyFile: Uint8Array | string,
-        logger?: unknown,
-        wtnsCalcOptions?: unknown,
-        proverOptions?: { singleThread?: boolean }
-      ) => Promise<{ proof: unknown; publicSignals: string[] }>
+  const groth16 = (
+    snarkjs as {
+      groth16: {
+        fullProve: (
+          input: Record<string, string | string[]>,
+          wasmFile: Uint8Array | string,
+          zkeyFile: Uint8Array | string,
+          logger?: unknown,
+          wtnsCalcOptions?: unknown,
+          proverOptions?: { singleThread?: boolean }
+        ) => Promise<{ proof: unknown; publicSignals: string[] }>
+      }
     }
-  }).groth16
+  ).groth16
 
   const singleThread =
     typeof (globalThis as { Bun?: unknown }).Bun !== "undefined"
@@ -109,7 +104,9 @@ export async function proveDepositQuad(
   const structured = structureProof(
     proof as { pi_a: string[]; pi_b: string[][]; pi_c: string[] }
   )
-  const signals = publicSignals.map((decimal) => bigintTo32Bytes(BigInt(decimal)))
+  const signals = publicSignals.map((decimal) =>
+    bigintTo32Bytes(BigInt(decimal))
+  )
 
   return {
     a: structured.a,

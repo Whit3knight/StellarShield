@@ -51,6 +51,9 @@ jobs:
       - name: Unit tests
         run: bun run test
 
+      - name: Verify circuit artifact manifest
+        run: bun run check:artifacts
+
       - name: Build
         run: bun run build
 

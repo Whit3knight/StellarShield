@@ -1,0 +1,18 @@
+{
+  "borrow_eligibility.wasm": "ce290e4eb948a1b8568ff99bbe00c456be020f3e8a8212d796f763172b9f9581",
+  "borrow_eligibility.zkey": "e648b7267fc4cf45a182adfb31ae3a2266c66247a654c0e34a46d53f54721ec5",
+  "shielded/borrow/borrow.wasm": "62772ab7a2bfd57d5c05d1baf12a9bbc5376bfb06fcd6e5af3ccecbd6d3103d6",
+  "shielded/borrow/borrow.zkey": "e72aefba341c46b602c756a6ba9435cae4f616a7b56999efb382fa5d57630508",
+  "shielded/deposit/deposit.wasm": "9a61fbfac0af24ec3364a10a05807a134ebc5bfdb333a2dc3ccacac97f50f6ba",
+  "shielded/deposit/deposit.zkey": "0e477d067d74b1603e5808f2ce6598ba08ca8d17a547ff6841763018707083f5",
+  "shielded/deposit_quad/deposit.wasm": "c0e60ca9e36f200d25e7a6c3ef5f3d2589e5a9b7ffa231e9a38d1bea32891d00",
+  "shielded/deposit_quad/deposit.zkey": "4c228fb100f065102ec4e9f3a0d36ce803c1472e8e92f6e15c0857b3e2d0cdc5",
+  "shielded/liquidate-v2/liquidate.wasm": "6d7349e1fc96afc311be499bf76e8725f66f7d6a4db2771f8fb06a5b345d4e37",
+  "shielded/liquidate-v2/liquidate.zkey": "645ddaaa31b059f9c036f35655fb372e1ad3ce24cb160d3fd73d2748a3f770d9",
+  "shielded/liquidate/liquidate.wasm": "14ce316cb53174d3ecf0a907d3a654fca09b4f689262f7c16a2c5904b9414d86",
+  "shielded/liquidate/liquidate.zkey": "0cb565e5c7a600547257fe8bcd391ead9db495eb13299adc60e9afc40b5fd222",
+  "shielded/repay/repay.wasm": "ec93f514b0bf9bcbc38f172e49a99ef1936cfcebe5ba7e734d6e7f1375f0136c",
+  "shielded/repay/repay.zkey": "9dfd0189c0ff91f4c60c6203a872a6e98990637b03e01b26817cf4cce392a5c8",
+  "shielded/withdraw/withdraw.wasm": "fdf9cdc47b8f0b69fa62621ba18ef635001c48aad1142f98dacde8854e7341e7",
+  "shielded/withdraw/withdraw.zkey": "f919fae11d5e1e7efd0ad91d44f3eeb19fadf924c0488a15af4bf3ed9398818e"
+}

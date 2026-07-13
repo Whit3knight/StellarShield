@@ -14,6 +14,7 @@ import {
   DENOMINATION,
   type ShieldedAsset,
 } from "@/features/notes"
+import { fetchArtefact } from "./artifacts"
 import { bigintTo32Bytes, structureProof } from "./proof-encoding"
 
 const DEFAULT_WASM_URL = "/circuits-circom/shielded/deposit/deposit.wasm"
@@ -32,14 +33,6 @@ export type DepositProofResult = {
   c: Uint8Array // 96 bytes, G1 uncompressed
   commitment: bigint
   publicSignals: Uint8Array[] // 3 × 32 bytes big-endian Fr
-}
-
-async function fetchArtefact(url: string): Promise<Uint8Array> {
-  const response = await fetch(url)
-  if (!response.ok) {
-    throw new Error(`Failed to fetch ${url}: ${response.status}`)
-  }
-  return new Uint8Array(await response.arrayBuffer())
 }
 
 /**
@@ -84,18 +77,20 @@ export async function proveDeposit(
     sk: inputs.sk.toString(),
   }
 
-  const groth16 = (snarkjs as {
-    groth16: {
-      fullProve: (
-        input: Record<string, string>,
-        wasmFile: Uint8Array | string,
-        zkeyFile: Uint8Array | string,
-        logger?: unknown,
-        wtnsCalcOptions?: unknown,
-        proverOptions?: { singleThread?: boolean }
-      ) => Promise<{ proof: unknown; publicSignals: string[] }>
+  const groth16 = (
+    snarkjs as {
+      groth16: {
+        fullProve: (
+          input: Record<string, string>,
+          wasmFile: Uint8Array | string,
+          zkeyFile: Uint8Array | string,
+          logger?: unknown,
+          wtnsCalcOptions?: unknown,
+          proverOptions?: { singleThread?: boolean }
+        ) => Promise<{ proof: unknown; publicSignals: string[] }>
+      }
     }
-  }).groth16
+  ).groth16
 
   const singleThread =
     typeof (globalThis as { Bun?: unknown }).Bun !== "undefined"
@@ -111,7 +106,9 @@ export async function proveDeposit(
   const structured = structureProof(
     proof as { pi_a: string[]; pi_b: string[][]; pi_c: string[] }
   )
-  const signals = publicSignals.map((decimal) => bigintTo32Bytes(BigInt(decimal)))
+  const signals = publicSignals.map((decimal) =>
+    bigintTo32Bytes(BigInt(decimal))
+  )
 
   return {
     a: structured.a,
@@ -121,4 +118,3 @@ export async function proveDeposit(
     publicSignals: signals,
   }
 }
-

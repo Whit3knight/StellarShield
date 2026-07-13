@@ -14,6 +14,8 @@
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit",
     "check:bundle": "bun scripts/check-bundle.ts",
+    "gen:artifacts": "bun scripts/gen-artifact-manifest.ts",
+    "check:artifacts": "bun scripts/gen-artifact-manifest.ts --check",
     "scan:underwater": "bun contracts/scripts/scan-underwater.ts",
     "gen:service-key": "bun contracts/scripts/gen-service-key.ts",
     "test:e2e": "bun contracts/scripts/e2e-borrow.ts"
@@ -27,7 +29,6 @@
     "@stellar/freighter-api": "^6.0.1",
     "@stellar/stellar-sdk": "^16.0.1",
     "circomlib": "^2.0.5",
-    "circomlibjs": "^0.1.7",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^1.23.0",
@@ -37,7 +38,7 @@
     "react-day-picker": "^10.0.1",
     "react-dom": "19.2.4",
     "react-number-format": "^5.4.5",
-    "snarkjs": "^0.7.6",
+    "snarkjs": "0.7.6",
     "tailwind-merge": "^3.6.0"
   },
   "devDependencies": {
