@@ -39,6 +39,9 @@ pnpm-debug.log*
 # keeper.env.example is a different name and stays tracked.
 keeper.env
 
+# Vercel CLI local project link (contains org/project ids) — never commit.
+.vercel
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
