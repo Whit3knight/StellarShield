@@ -1,16 +1,16 @@
 # Business Requirements Document (BRD)
 
-## Stellar Shield — Shielded Lending Pool on Stellar
+## Stellar Shield — Borrow in the Open, Keep Your Positions in the Dark
 
-**Version:** 1.0 | **Date:** 2026-07-13 | **Status:** Draft for review
-**Companion doc:** [PRD.md](./PRD.md)
+**Version:** 1.1 | **Date:** 2026-07-13 | **Status:** Remediation M1–M3 applied
+**Companion docs:** [PRD.md](./PRD.md), [REMEDIATION.md](./REMEDIATION.md)
 
 > **How this document was produced:** drafted from the live codebase and README,
-> then fact-checked against source (every "shipped" claim spot-verified) and
-> adversarially reviewed. Claims the code contradicts are stated as limitations,
-> not aspirations. Note that `CLAUDE.md` describes a retired mock-adapter
-> architecture and is stale; this document supersedes it for requirements
-> purposes.
+> fact-checked against source (every "shipped" claim spot-verified) and
+> adversarially reviewed. v1.1 folds in the completed remediation (M1–M3): the
+> risk register (§8) marks what is now fixed, disclosed, or still gated.
+> `CLAUDE.md`, README, and the canonical contract ID have since been
+> reconciled with the code.
 
 ---
 
@@ -46,7 +46,7 @@ market-facing product. Objectives are split accordingly.
 
 | # | Objective | Gate |
 |---|-----------|------|
-| P1 | Deliver *actual* privacy to users (anonymity set large enough that linkage attacks fail) | Requires: signature-based identity derivation (see R1), meaningful pool volume, mitigation of timing/pattern correlation |
+| P1 | Deliver *actual* privacy to users (anonymity set large enough that linkage attacks fail) | Signature-based identity now shipped (R1); still requires meaningful pool volume and mitigation of timing/pattern correlation |
 | P2 | Mainnet deployment | Requires: third-party audit, trusted-setup ceremony, admin multisig, oracle commitment cross-check, explicit compliance/legal position |
 
 **Honesty note:** with the current implementation and testnet volume, the
@@ -119,7 +119,7 @@ not product success.
 
 | Metric | Target | Status |
 |---|---|---|
-| E2E testnet lifecycle (README 8-step verification) repeatable | On demand | Achievable today |
+| E2E testnet lifecycle (README 8-step verification) repeatable | On demand | Implemented — `bun run test:e2e` proves→submits→verifies on-chain; scheduled CI workflow |
 | Borrow proof generation in-browser | ≤ 30s | **Documented estimate (~15–30s), no benchmark harness — unverified target** |
 | Fresh-browser note recovery from chain events | 100% **within RPC retention window** | Implemented; window-bounded (R2) |
 | CI gates: lint, typecheck, test, build, check:bundle | Green on main | Enforced |
@@ -148,27 +148,46 @@ and their absence marks the current phase as a demo.
 
 ## 8. Risks
 
-Ranked. R1–R3 are **claims the code currently contradicts**, not future risks —
-they must be fixed in code or permanently framed as limitations.
+Ranked. R1–R3 were originally **claims the code contradicted**. R1 and R3 are
+now addressed (see status below); the rest are fixed, disclosed, or gated.
+
+**Remediation status (2026-07-13)** — tracked in [REMEDIATION.md](./REMEDIATION.md):
+
+- **Resolved in code:** R1 (identity now derived from a Freighter signature,
+  address scheme kept only as legacy decrypt fallback), R2 (recovery bound
+  disclosed + unsaved-note backup nudge + legacy-identity backup import),
+  R6 (e2e prove→submit→verify harness with on-chain assertion, wired to CI),
+  R8 (circuit artifacts hash-pinned via a committed manifest; unused
+  `circomlibjs` removed; `snarkjs` pinned), R9 (memo nonce reviewed — safe;
+  safety rests on a one-time key per memo, documented), R15 (README accrual
+  contradiction reconciled), R16 (canonical contract ID declared — fixed a
+  live split-brain where the CLI operated a different contract than the app;
+  CLAUDE.md refreshed; stale mock comments removed).
+- **Disclosed as accepted limitation:** R3, R4, R7 (README trust-model +
+  privacy-limitations section).
+- **Still gated to a mainnet decision:** R5, R11, R12, R14, and the on-chain
+  half of R7. R10, R13 parked until real traffic / incident.
+- Also fixed en route: an invalid simulation-source strkey that was breaking
+  live Reflector pricing app-wide.
 
 | # | Risk | Severity | Notes |
 |---|------|----------|-------|
-| R1 | **Shielded identity derived from the public wallet address** (`use-shielded-identity.ts`: seed = SHA-256 of the G... address). Anyone knowing the address can recompute the X25519 secret key, decrypt all memos, and reconstruct the full note inventory. The intended signature-based derivation was rejected for UX and never shipped; README/code comments still describe it. | **Critical — breaks the core privacy claim** | Fix: derive from a Freighter signature (secret input) or equivalent. Until then, memo encryption protects only against observers who have not linked any activity to the wallet. |
-| R2 | **Note recovery bounded by RPC event retention.** Scanner looks back 10,000 ledgers (~14h) against public RPC, which itself has limited event retention. Notes older than the window are invisible on a fresh browser — funds effectively unspendable without a backup. | **Critical — falsifies "no backup needed"** | Fix: archive/indexer data source, or make the backup file (`features/notes/backup.ts`) a required, prominent flow instead of optional. |
+| R1 | **Shielded identity derived from the public wallet address** (`use-shielded-identity.ts`: seed = SHA-256 of the G... address). Anyone knowing the address can recompute the X25519 secret key, decrypt all memos, and reconstruct the full note inventory. The intended signature-based derivation was rejected for UX and never shipped; README/code comments still describe it. | ✅ **Resolved** (was critical) | Now derived from a Freighter `signMessage` signature, cached per browser; address scheme retained only as a legacy decrypt/spend fallback. |
+| R2 | **Note recovery bounded by RPC event retention.** Scanner looks back 10,000 ledgers (~14h) against public RPC, which itself has limited event retention. Notes older than the window are invisible on a fresh browser — funds effectively unspendable without a backup. | ✅ **Resolved** (was critical) | Bound disclosed in README; app shows an "N unsaved" backup nudge; backup import retries the legacy identity. Indexer/archive deliberately not built (single-dev testnet). |
 | R3 | **Liquidation service is a trusted deanonymizing party.** Borrow memos are encrypted to borrower *and* `liquidation_service_pk`; the operator decrypts every borrower's position (collateral, loan, price). "Solvent without deanonymizing" holds only against outsiders. FROST decentralization was dropped. | **High — contradicts privacy framing** | Docs must name the operator as trusted with pool-wide visibility. Decentralizing it is the only removal path. |
 | R4 | **Anonymity set ≈ 0.** Tiny fixed denominations (USDC/EURC 10, XLM 100), low testnet volume, and the distinctive 4-notes-then-borrow fingerprint make timing/amount correlation trivial for any motivated analyst. | High | Privacy is a function of set size; reframed objectives (P1) reflect this. |
 | R5 | **No trusted-setup ceremony** — `.zkey`/`.ptau` are locally generated dev artifacts; holder of toxic waste can forge proofs. | Critical for mainnet | Real ceremony or universal setup before mainnet. |
-| R6 | **Unaudited circuits and contract; zero Rust unit tests; no automated e2e prove→submit→verify harness.** Three recent hotfixes (pub-signal order, G2 encoding, Merkle budget) all in the class one e2e harness would catch. | Critical for mainnet, High now | E2E harness is the highest-ROI unshipped item. |
+| R6 | **Unaudited circuits and contract; zero Rust unit tests; no automated e2e prove→submit→verify harness.** Three recent hotfixes (pub-signal order, G2 encoding, Merkle budget) all in the class one e2e harness would catch. | ✅ **Harness resolved**; audit gated | `bun run test:e2e` proves→submits→verifies on-chain and fails loudly; scheduled CI workflow added. Third-party audit + Rust unit tests remain gated (soroban-sdk 23). |
 | R7 | **Oracle price commitment not cross-checked on-chain** (freshness only; contract's own comment confirms the gap). A proof can commit to a price that differs from the live oracle. | High | Blocked on attestation channel; solvency leans on an unenforced binding. |
-| R8 | **Client-side crypto supply chain**: snarkjs / circomlibjs (old, unmaintained) run in-browser over secret witnesses; circuit artifacts (`.wasm`/`.zkey`) served from `public/` with no integrity pinning. A compromised dep or swapped artifact exfiltrates or subverts proofs. | High | Pin + hash-verify artifacts; audit dep surface. |
-| R9 | **Memo nonce derivation**: ChaCha20-Poly1305 nonce = first 12 bytes of ephemeral pk; uniqueness rests on ephemeral-key generation. Nonce reuse under a fixed key is catastrophic. | Medium | Review; cheap to harden. |
+| R8 | **Client-side crypto supply chain**: snarkjs / circomlibjs (old, unmaintained) run in-browser over secret witnesses; circuit artifacts (`.wasm`/`.zkey`) served from `public/` with no integrity pinning. A compromised dep or swapped artifact exfiltrates or subverts proofs. | ✅ **Resolved** | All provers load artifacts through a shared SHA-256-pinned loader (committed manifest, CI-checked); unused `circomlibjs` removed and blocked; `snarkjs` pinned exact. Deep dep audit still gated to mainnet. |
+| R9 | **Memo nonce derivation**: ChaCha20-Poly1305 nonce = first 12 bytes of ephemeral pk; uniqueness rests on ephemeral-key generation. Nonce reuse under a fixed key is catastrophic. | ✅ **Reviewed — safe** | Each memo derives a one-time ChaCha key from a fresh ephemeral key, so nonce reuse is not the safety property; the never-reuse-ephemeral invariant is now documented and test-guarded. |
 | R10 | **Scanner DoS**: every client attempts trial-decryption of all memos each pass; adversarial event spam inflates scan cost. | Medium | Rate/shape limits or pagination strategy. |
 | R11 | **Regulatory exposure** (Tornado Cash precedent: contract-level sanctions, developer prosecution). No compliance design exists; it is a **gating input** to the mainnet decision (P2), not deferrable past it. | High (mainnet) | Obtain a legal position before any mainnet work. |
 | R12 | **Single admin key** for params/upgrade. | Medium | Multisig/governance before mainnet. |
 | R13 | **Reflector single-oracle dependency**; SEP-40 is a swap point but no fallback exists. | Medium | — |
 | R14 | **Single developer vs lending-protocol security bar.** Five audit-heavy surfaces (circuits, contract, oracle, in-browser proving, keeper) held by one person; recent hotfix history shows the failure mode. | High | System must not hold real value under this model; mainnet requires added people/audit. |
-| R15 | **Interest-accrual documentation contradiction**: README roadmap says shipped (Track D), README "Deferred" section says deferred. Accrual enforcement (`deposit × index_snapshot ≥ loan × index_now`) has fixture coverage but no on-chain test. | Medium | Reconcile README; add contract-side test when unblocked. |
-| R16 | **Stale docs** (`CLAUDE.md` describes retired architecture and non-existent tests) and **contract-ID ambiguity** (README documents one contract ID; `.env.local` points the app at a different one). | Low but compounding | Refresh CLAUDE.md; declare canonical contract ID. |
+| R15 | **Interest-accrual documentation contradiction**: README roadmap says shipped (Track D), README "Deferred" section says deferred. Accrual enforcement (`deposit × index_snapshot ≥ loan × index_now`) has fixture coverage but no on-chain test. | ✅ **Resolved** | README reconciled — accrual shipped, only collateral recovery deferred. |
+| R16 | **Stale docs** (`CLAUDE.md` describes retired architecture and non-existent tests) and **contract-ID ambiguity** (README documents one contract ID; `.env.local` points the app at a different one). | ✅ **Resolved** | Canonical contract ID declared across README/.env/CLI (fixed a live split-brain); CLAUDE.md refreshed; stale mock comments removed. |
 
 ## 9. Constraints
 
@@ -186,10 +205,10 @@ they must be fixed in code or permanently framed as limitations.
 | # | Question | Owner |
 |---|----------|-------|
 | OQ-1 | Does the target user exist at meaningful scale on Stellar? What demand signal would validate P1? | Product owner |
-| OQ-2 | Fix R1 (signature-based identity) — accepted UX cost of a per-session wallet popup? | Product owner |
-| OQ-3 | R2 strategy: indexer/archive vs mandatory backup flow? | Product owner |
-| OQ-4 | `shielded-deposit-quad`: circuit + prover exist but appear in no roadmap track — shipped, in-progress, or experimental? | Product owner |
-| OQ-5 | Mainnet gate checklist owner and criteria (audit, ceremony, multisig, oracle cross-check, legal position)? | Product owner |
-| OQ-6 | Liquidation service activation on testnet: who holds the service SK; when is `liquidation_service_pk` set? | Operator |
-| OQ-7 | Circuit build artifacts in git status (`.zkey`/`.ptau`/`node_modules` untracked): gitignore, or pin published artifacts with checksums (consensus-critical)? | Developer |
-| OQ-8 | Under what legal structure, if any, could this reach mainnet? | Counsel (future) |
+| OQ-2 | ✅ Resolved — accepted the one-time-per-browser signature popup; R1 shipped with localStorage-cached seed. | Done |
+| OQ-3 | ✅ Resolved — promote the existing backup flow (unsaved-note nudge + legacy-identity import); no indexer for a single-dev testnet. | Done |
+| OQ-4 | ✅ Resolved — `shielded-deposit-quad` documented as experimental/unwired in the README roadmap (it is used by the e2e provisioning script, not the app UI). | Done |
+| OQ-5 | Mainnet gate checklist owner and criteria (audit, ceremony, multisig, oracle cross-check, legal position)? | Open — Product owner |
+| OQ-6 | Liquidation service activation on testnet: who holds the service SK; when is `liquidation_service_pk` set? | Open — Operator |
+| OQ-7 | ✅ Resolved — circuit build artifacts gitignored; published artifacts pinned by SHA-256 manifest (R8). | Done |
+| OQ-8 | Under what legal structure, if any, could this reach mainnet? | Open — Counsel (future) |

@@ -1,7 +1,12 @@
 # Stellar Shield — Remediation Plan
 
-**Version:** 1.0 | **Date:** 2026-07-13 | **Status:** Draft for execution
+**Version:** 1.0 | **Date:** 2026-07-13 | **Status:** M1–M3 complete; M4 gated
 **Companion docs:** [BRD.md](./BRD.md) (risks R1–R16, open questions OQ-1–8), [PRD.md](./PRD.md) (test gaps §7).
+
+> **Progress (2026-07-13):** M1 (docs honest), M2 (trustworthy build), and M3
+> (privacy works) are done and committed. Resolved: R1, R2, R3-disclosure,
+> R6, R7-stopgap, R8, R9, R15, R16, plus a live-pricing strkey bug. Remaining
+> work is M4 (§Part 4), all gated to a mainnet decision.
 
 **Context held constant:** single developer, testnet only, no real value at risk.
 The goal is **docs that tell the truth and a build that catches its own

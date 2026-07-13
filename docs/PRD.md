@@ -2,18 +2,18 @@
 
 ## Stellar Shield — Borrow in the Open, Keep Your Positions in the Dark
 
-**Version:** 1.0 | **Date:** 2026-07-13 | **Status:** Draft for review
-**Companion doc:** [BRD.md](./BRD.md) (business context, risks R1–R16, open questions)
+**Version:** 1.1 | **Date:** 2026-07-13 | **Status:** Remediation M1–M3 applied
+**Companion docs:** [BRD.md](./BRD.md) (business context, risks R1–R16), [REMEDIATION.md](./REMEDIATION.md)
 
 **Legend:** `[IMPLEMENTED]` = live in code, testnet-real · `[PLANNED]` = roadmap
-· `[DROPPED]` = explicitly abandoned · `[GAP]` = claim the code contradicts,
-fixed here to match reality.
+· `[DROPPED]` = explicitly abandoned · `[GAP]` = claim the code once contradicted
+(v1.1: the two originally-flagged gaps are now resolved — see below).
 
-Every requirement below was fact-checked against source. Two widely-circulated
-claims from older docs are **false** and corrected here: identity is derived
-from the wallet *address*, not a signature (FR-N1); and there is no
-`AdapterProvider`/mock-adapter switch — the composition root is
-`features/shielded-pool/shielded-pool-provider.tsx` (FR-P3).
+Every requirement was fact-checked against source. The two gaps v1.0 flagged
+are addressed: identity is now signature-derived (FR-N1, R1 shipped); and the
+composition root is `features/shielded-pool/shielded-pool-provider.tsx` with no
+`AdapterProvider`/mock adapter (FR-P3), with the stale mock comments in
+`features/protocol/types.ts` still flagged for deletion.
 
 ---
 
@@ -92,7 +92,7 @@ note inventory from public chain events **within the RPC retention window**
 
 - WalletConnect. `[SCAFFOLDING ONLY]`
 - On-chain oracle price-commitment cross-check. `[PLANNED — blocked on attestation channel]`
-- Signature-based shielded identity derivation. `[PLANNED — required to close BRD R1]`
+- Signature-based shielded identity derivation. `[IMPLEMENTED — R1 shipped]`
 - FROST/threshold decryption for the liquidation service. `[DROPPED]`
 
 ## 4. Functional Requirements
@@ -115,26 +115,34 @@ note inventory from public chain events **within the RPC retention window**
 
 ### 4.3 Shielded identity & notes (`features/notes/`) `[IMPLEMENTED]`
 
-- **FR-N1 `[GAP]`:** Deterministic X25519 identity derived from
-  **SHA-256 of the public wallet address** (`use-shielded-identity.ts`) — the
-  signature-based scheme described in README/code comments was rejected for UX
-  and is unshipped. Requirement going forward: migrate to a secret-input
-  derivation (BRD R1, OQ-2); until then all privacy claims carry this caveat.
+- **FR-N1 `[IMPLEMENTED — R1 fixed]`:** X25519 identity derived from a
+  Freighter `signMessage` signature over a canonical message (a secret input),
+  `use-shielded-identity.ts`. Signed once per browser profile; the 32-byte seed
+  is cached in localStorage so the popup does not recur. The old address-derived
+  scheme (`legacyIdentityFromAddress`) is retained only as a decrypt/spend
+  fallback for pre-migration notes; new notes never mint under it.
 - **FR-N2:** `scanner.ts` is the sole inventory builder: `deposit`/`borrow`
   events mint notes; `withdraw`/`repay`/`liquidate` events mark nullifiers
-  spent; each memo trial-decrypted. Lookback: 10,000 ledgers (NFR-R1).
+  spent; each memo trial-decrypted against the current identity plus supplied
+  legacy identities (each note materializes with the `sk` of whichever identity
+  decrypted it). Lookback: 10,000 ledgers (NFR-R1).
 - **FR-N3:** In-memory note store replaced wholesale per scan; surfaced via
   `useNotes()`.
 - **FR-N4:** Poseidon commitments + Merkle paths client-side (`poseidon.ts`,
   `merkle.ts` — tested against fixtures shared with the contract).
 - **FR-N5:** Encrypted backup export/import (`backup.ts`, `use-notes-backup`).
+  Tracks which note keys have been exported per wallet and surfaces an
+  "N unsaved" nudge (`backup-state.ts`); import retries the legacy identity so
+  pre-R1 backups still restore (R2).
 
 ### 4.4 Shielded pool operations (`features/shielded-pool/`) `[IMPLEMENTED]`
 
 - **FR-S1:** Hooks `useDeposit`, `useBorrow`, `useWithdraw`, `useRepay`,
-  `useLiquidate`; each pairs a snarkjs prover wrapper (`*-prover.ts`, artifacts
-  from `public/circuits-circom/shielded/*`) with generated TS bindings
-  (`features/protocol/bindings`), signed via Freighter.
+  `useLiquidate`; each pairs a snarkjs prover wrapper (`*-prover.ts`) with
+  generated TS bindings (`features/protocol/bindings`), signed via Freighter.
+  All provers load artifacts through one SHA-256-pinned loader
+  (`artifacts.ts` + committed `artifact-manifest.json`) that refuses to prove
+  on a hash mismatch (R8).
 - **FR-S2:** Borrow consumes exactly 4 collateral nullifiers
   (`COLLATERAL_NOTES_PER_BORROW = 4`), mints 1 loan commitment, publishes 3
   bond commitments + a `loan_nullifier` sidecar public signal.
@@ -201,13 +209,13 @@ note inventory from public chain events **within the RPC retention window**
 | NFR-P1 | Performance | Borrow proof ≤ 30s in-browser | **Target — documented estimate ~15–30s; no benchmark harness. Add timed check or keep as target, not "measured"** |
 | NFR-P2 | Performance | `@stellar/freighter-api` async-chunks only; no radix-ui (`bun run check:bundle`) | Enforced post-build |
 | NFR-C1 | Correctness | All asset math bigint fixed-point (`features/shared/money`); no float drift | Implemented + tested |
-| NFR-PR1 | Privacy | Wallet↔note unlinkability via denominations, nullifiers, memo encryption | **Partial — broken by address-derived identity (R1) and ~0 anonymity set (R4); UI masking implemented** |
+| NFR-PR1 | Privacy | Wallet↔note unlinkability via denominations, nullifiers, memo encryption | Identity now signature-derived (R1 fixed); UI masking implemented. Residual limit is the ~0 anonymity set (R4), not the key scheme |
 | NFR-PR2 | Privacy | Liquidation service never holds *spending* keys (ivk/nk split, v2 circuit) | Implemented at design level; no enforcing test. Service does hold *viewing* capability pool-wide (R3) |
 | NFR-S1 | Security | On-chain nullifier replay guard; Groth16 via Protocol 22 host fns; proof replay rejection; oracle freshness window | Implemented (no Rust unit tests — §7 gap #1) |
 | NFR-S2 | Security | Oracle price *commitment* cross-checked on-chain | **Gap — planned (R7)** |
 | NFR-S3 | Security | Production trusted setup | **Gap — mainnet blocker (R5)** |
-| NFR-S4 | Security | Circuit artifacts in `public/` integrity-pinned; proving deps supply-chain reviewed | **Gap (R8)** |
-| NFR-R1 | Reliability | Note inventory recoverable from chain events **within scanner lookback (10,000 ledgers ≈ 14h) and RPC event retention** | Implemented, window-bounded. Older notes need the backup file (R2) |
+| NFR-S4 | Security | Circuit artifacts in `public/` integrity-pinned; proving deps reviewed | Artifacts SHA-256-pinned via committed manifest + CI check; `circomlibjs` removed, `snarkjs` pinned (R8). Deep dep audit still gated |
+| NFR-R1 | Reliability | Note inventory recoverable from chain events **within scanner lookback (10,000 ledgers ≈ 14h) and RPC event retention** | Window-bounded; app now nudges unsaved-note backup and imports legacy-identity backups (R2). Older notes need the backup file |
 | NFR-Q1 | Quality | lint/typecheck/test/build green; TS fixture harness covers circuit/contract primitives | Implemented; Rust tests blocked on soroban-sdk 23 |
 
 ## 6. Acceptance Criteria (P0)
@@ -264,23 +272,27 @@ QA-derived, Given/When/Then. These are the verifiable form of the P0 stories.
 
 ## 7. Test Coverage Gaps (ranked by risk)
 
-Current suite: 19 TS test files (money, proof-encoding, result, fixtures,
-merkle, scanner, notes, backup, markets, wallet/network, session-store,
-private-value, etc.). Gaps:
+Current suite: 23 TS test files, 165 tests. Recently closed: `quote.ts` math,
+artifact-integrity loader, memo ephemeral-key freshness, R1 legacy-identity
+backward-compat, backup-state. Remaining gaps:
 
 1. **Zero Rust contract tests** — nullifier/proof replay, oracle staleness,
    auth gating unverified except manually. Blocked on soroban-sdk 23; revisit.
-2. **No tests for the five lifecycle hooks** — priority: borrow preflight
-   nullifier-exclusion logic and the liquidate v2/v1 branch.
-3. **No automated e2e prove→submit→verify harness** — all three recent
-   hotfixes were in its catch class; `contracts/scripts/e2e-borrow.ts` exists
-   but is unwired. **Highest-ROI next item.**
-4. **Prover input-assembly (public-signal ordering) untested** — exact class
-   of a past hotfix.
-5. **`quote.ts` untested** (older docs falsely claimed coverage) — LTV/HF/
-   liquidation-price math feeds user decisions.
-6. **Oracle price path untested** (`prices.ts`, `price-cache.ts`,
-   `market-stats.ts`) — a decimals bug silently mis-triages health.
+2. **Lifecycle-hook branch tests** — borrow preflight nullifier-exclusion and
+   the liquidate v2/v1 branch remain untested at the unit level (the latter is
+   a one-line `!= null` in a heavy async hook; the e2e harness exercises the
+   real paths).
+3. ✅ **Closed — e2e prove→submit→verify harness** (`bun run test:e2e`) now
+   asserts the on-chain borrow verify and runs on a schedule in CI. This is the
+   primary regression net for the pub-signal-order / G2 / Merkle-budget class,
+   so a fast unit duplicate (gap 4) was intentionally not added.
+4. Prover public-signal ordering — covered end-to-end by the e2e harness (3),
+   not by a standalone unit test.
+5. ✅ **Closed — `quote.ts` tested** (LTV/HF/utilization/liquidation-price +
+   null/zero-collateral edges).
+6. **Oracle price path** (`prices.ts`, `price-cache.ts`, `market-stats.ts`)
+   still lacks unit tests — though the invalid-strkey bug that broke it live is
+   now fixed and the e2e run exercises the real Reflector read.
 7. **`scan-underwater.ts` classification/trigger loop untested.**
 8. **`risk-params.ts` / `liquidation-service.ts` untested** (thin wrappers;
    non-invalidating cache noted).
@@ -290,24 +302,25 @@ private-value, etc.). Gaps:
 | Dimension | Current | Future |
 |---|---|---|
 | Network | Stellar testnet, single upgradeable contract | Mainnet gated on audit + ceremony + multisig + oracle cross-check + legal position (BRD P2) |
-| Identity | Address-derived (R1) | Signature-derived (secret input) |
-| Recovery | 10k-ledger window against public RPC | Indexer/archive or mandatory backup flow |
-| Proving | Real in-browser Groth16, dev trusted setup | Production ceremony / universal setup |
+| Identity | **Signature-derived, cached (R1 done)**; address scheme kept as legacy fallback | — |
+| Recovery | 10k-ledger window + backup nudge + legacy-identity import (R2 done) | Indexer/archive only if backup UX proves insufficient |
+| Proving | Real in-browser Groth16, artifacts hash-pinned (R8); dev trusted setup | Production ceremony / universal setup |
 | Repay | Burns collateral notes; interest accrual live | v2 repay circuit: collateral recovery |
 | Liquidation | v1 + v2 shipped; autonomous loop shipped-unconfigured; single trusted operator | Activate service; decentralization dropped (FROST) — operator trust stays unless revisited |
-| Oracle | Reflector freshness check only | On-chain commitment cross-check |
-| Testing | TS unit + fixture harness | E2E testnet harness (next priority); Rust tests post soroban-sdk 23 |
-| Docs | README mostly current (one internal contradiction); CLAUDE.md stale | Refresh CLAUDE.md; reconcile README accrual status; declare canonical contract ID |
+| Oracle | Reflector freshness check only (live-price strkey bug fixed) | On-chain commitment cross-check |
+| Testing | TS unit (165) + fixture harness + **e2e testnet harness in CI (R6)** | Rust tests post soroban-sdk 23 |
+| Docs | README + CLAUDE.md refreshed; canonical contract ID declared; BRD/PRD/REMEDIATION maintained | — |
 
 ## 9. Lifecycle (as implemented)
 
 ```
 Freighter connect
-  → deriveShieldedIdentity(SHA-256(address))        ← R1: to become signature-based
-  → scanner: deposit|borrow events mint notes; withdraw|repay|liquidate spend nullifiers
+  → identity = deriveShieldedIdentity(SHA-256(signMessage(canonical)))  ← R1: signature-derived, cached
+  → scanner trial-decrypts vs [current identity, legacy address-derived]
+     deposit|borrow events mint notes; withdraw|repay|liquidate spend nullifiers
   → note store → useNotes()
   → shielded drawer → useDeposit/useBorrow/useWithdraw/useRepay/useLiquidate
-  → snarkjs Groth16 prover (artifacts from public/circuits-circom/shielded/*)
+  → snarkjs Groth16 prover (artifacts hash-pinned via artifact-manifest.json)
   → contract call via TS bindings, signed by Freighter
   → contract verifies proof, burns/appends nullifiers/leaves, emits event + encrypted memo
   → next scan pass reflects the change
@@ -322,16 +335,19 @@ their async progress. Errors flow through `AdapterResult`/`AdapterError`
 
 Product/business questions live in BRD §10 (OQ-1…OQ-8). PRD-level additions:
 
-1. Delete legacy `borrow-eligibility-circom` and stale mock-adapter comments in
-   `features/protocol/types.ts`?
-2. Wire `e2e-borrow.ts` into a scheduled/gated CI job — owner and cadence?
-3. Promote notes backup from optional to recommended UX while recovery is
-   window-bounded?
+1. Delete dead code: legacy `borrow-eligibility-circom` dir, the stale
+   mock-adapter `ProtocolAdapter` type in `features/protocol/types.ts`, and the
+   unused `circomlib` dependency? (Deferred — flagged, not blockers.)
+2. ✅ Done — `e2e-borrow.ts` wired to a scheduled CI job (`test:e2e`).
+3. ✅ Done — backup promoted with an unsaved-note nudge (R2).
 4. Add a timed proof-generation benchmark so NFR-P1 becomes measured?
+5. Degraded-privacy banner for wallets lacking `signMessage`? (Freighter has
+   it; WalletConnect is scaffolding-only.)
 
 ---
 
-**Recommended next-track priority:** (1) e2e testnet harness; (2) fix R1
-identity derivation — it gates every privacy claim; (3) CLAUDE.md/README/
-contract-ID hygiene; (4) resolve deposit-quad status; (5) v2 repay (collateral
-recovery).
+**Status:** M1 (docs honest), M2 (trustworthy build), and M3 (privacy works)
+of [REMEDIATION.md](./REMEDIATION.md) are complete. **Recommended next:**
+(1) manual browser smoke-test of the R1 signature popup UX; (2) minor dead-code
+cleanups (OQ #1 above); (3) v2 repay (collateral recovery); (4) M4 mainnet-gate
+prerequisites remain gated on a mainnet decision.
