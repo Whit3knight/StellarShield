@@ -234,9 +234,15 @@ export function deriveShieldedIdentity(seed: Uint8Array): {
   return { publicKey, secretKey }
 }
 
-// ChaCha20-Poly1305 needs a 12-byte nonce. Ephemeral pk is unique per
-// memo, so taking its first 12 bytes gives a nonce that's unique with
-// overwhelming probability (birthday bound ~2^48 memos before collision).
+// ChaCha20-Poly1305 needs a 12-byte nonce. Safety here does NOT rest on
+// nonce uniqueness: `encryptMemo` derives a one-time ChaCha key from a
+// FRESH ephemeral X25519 key per memo, so each key is used for exactly one
+// encryption and the nonce could even be constant. A nonce-prefix
+// collision between two memos is harmless because their keys differ.
+// INVARIANT: never reuse an ephemeral key across plaintexts — that would
+// fix both key and this deterministic nonce, reusing the keystream
+// (catastrophic for ChaCha20-Poly1305). The freshness guard lives in
+// notes.test.ts ("fresh ephemeral key per memo").
 function deriveNonce(ephemeralPk: Uint8Array): Uint8Array {
   return ephemeralPk.slice(0, 12)
 }

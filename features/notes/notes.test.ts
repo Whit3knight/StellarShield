@@ -176,6 +176,37 @@ describe("encrypted memo round-trip", () => {
     expect(identityA.publicKey).toEqual(identityB.publicKey)
     expect(identityA.secretKey).toEqual(identityB.secretKey)
   })
+
+  it("uses a fresh ephemeral key per memo, so no key/nonce is reused", () => {
+    // The nonce is the ephemeral pk's first 12 bytes (deterministic), so
+    // safety rests on each memo deriving a one-time ChaCha key from a
+    // fresh ephemeral key — not on nonce uniqueness. Guard that invariant:
+    // identical plaintext + recipient must still differ byte-for-byte.
+    const { publicKey, secretKey } = deriveShieldedIdentity(
+      new Uint8Array(32).fill(0x55)
+    )
+    const plaintext = {
+      amount: "5",
+      asset: "XLM",
+      index: 1,
+      salt: "7",
+      tree: "deposit" as const,
+    }
+    const a = encryptMemo({ plaintext, recipientPk: publicKey })
+    const b = encryptMemo({ plaintext, recipientPk: publicKey })
+    expect(Buffer.from(a.ephemeralPk).equals(Buffer.from(b.ephemeralPk))).toBe(
+      false
+    )
+    expect(Buffer.from(a.ciphertext).equals(Buffer.from(b.ciphertext))).toBe(
+      false
+    )
+    expect(tryDecryptMemo({ bundle: a, recipientSk: secretKey })).toEqual(
+      plaintext
+    )
+    expect(tryDecryptMemo({ bundle: b, recipientSk: secretKey })).toEqual(
+      plaintext
+    )
+  })
 })
 
 describe("dual-recipient memo (Track L)", () => {
