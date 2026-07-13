@@ -491,13 +491,75 @@ Not adversarial. Past RPC retention (~14 h), a fresh browser rebuilding from eve
 
 ## 16. Economic Model
 
-Stellar Shield has **no revenue model today, and this paper does not imply one.** It runs on friendbot-funded test assets with no real value at risk. The economic mechanisms below govern solvency, not value capture.
+> **Zero-revenue today.** Stellar Shield runs on friendbot-funded test assets: **$0 TVL, $0 borrow volume, $0 revenue, no token.** Every figure in §16.4 is **illustrative structural arithmetic, not a forecast.** This section describes *where revenue would come from* and why the design constrains the answer to essentially one mechanism — it does not claim any of it exists.
 
-**Liquidation bounty — a solvency incentive, not revenue.** The only value-transfer mechanism in the code is a fixed-denomination bounty paid to whoever liquidates an underwater position. It aligns a third party's incentive with pool solvency; it pays external liquidators and does not accrue value to the protocol or its operator.
+### 16.1 The governing constraint — a shielded pool cannot send an invoice
 
-**Rate and risk parameters.** The system implements the standard solvency levers: a **borrow index / interest accrual** (linear, not compounding, `rate.rs:72`), a **maximum LTV** enforced at borrow time as the zero-knowledge eligibility predicate, and a **minimum health factor** below which a position becomes liquidatable. These are risk controls, not a business model. On repay, the pool retains the difference between the forfeited deposit note and the accrued debt as a fee.
+Transparent lenders can bill an identity: origination fees per account, KYC tiers, targeted rewards. Stellar Shield deliberately cannot see who is borrowing, so **a fee can only be collected where it can be baked into the interest index or the note/denomination math** — never charged to a party the protocol refuses to identify. This single constraint is what narrows the revenue question, and it is the honest reason the answer is not "many fee lines" but "one aggregate wedge."
 
-**Future value capture (gated, out of scope).** A borrow-rate spread, reserve factor, or explicit protocol fee are latent in the rate parameters but not activated. They would only be meaningful at mainnet with real volume and would have to be weighed against the regulatory exposure in §17. Which mechanism, if any, is both viable and regulatorily defensible is an open question, not a decided design. Until a mainnet decision, Stellar Shield captures no value by design.
+### 16.2 Revenue streams, ranked by fit with the shielded design
+
+| # | Stream | Mechanism (code hook) | Who pays | Indicative take | Privacy fit |
+|---|---|---|---|---|---|
+| 1 | **Reserve factor (interest spread)** | `reserve_factor_bps` already wired into `supply_rate = borrow_rate × U × (1 − reserve_factor)` (`rate.rs:54-68`, `state.rs:76`). | Borrowers, implicitly, via lower supplier yield. | 10–20% of interest paid | ✅ Native — aggregate only |
+| 2 | **Origination fee** | Baked into denomination math at borrow: record debt as `loan_amount × (1 + fee)` against the borrow index. | Borrower, at open | 0.10–0.50% | ✅ Native |
+| 3 | **Liquidation-bounty cut** | Mint a marginally smaller bounty in `liquidate_shielded`; residual to treasury. | Liquidated collateral | slice of bounty | ⚠️ Weakens the external-liquidator incentive the design relies on |
+| 4 | **Latent repay retention** | `repay_shielded` already retains forfeited-deposit-value minus accrued debt (`lib.rs:1054+`). | Repayer, unpredictably | rounding-scale | ❌ Opaque, un-auditable — do **not** monetize |
+
+**Stream 1 is the answer; the rest are marginal.** The reserve factor is the Aave/Compound standard, it is *already implemented in the contract*, and it is the only mechanism that collects in aggregate without ever touching a user identity: the borrow index grows faster than the supply index, and the arithmetic wedge between them accrues to the protocol. No per-user accounting, no deanonymization. Stream 4 exists in code but is a fixed-denomination rounding artifact — monetizing it deliberately would be a hidden, un-auditable tax; it should be made explicit or refunded, never built into a revenue line.
+
+**One piece of net-new code is required.** Today `reserve_factor_bps` only *lowers* the supply rate; no protocol-owned position yet captures the wedge. A treasury sink note is the single missing implementation — everything else is parameter-setting.
+
+### 16.3 Comparable benchmarks
+
+| Protocol | Parameter | Value |
+|---|---|---|
+| Aave V3 (USDC) | Reserve factor | 10% of interest |
+| Aave V3 (volatile assets) | Reserve factor | up to ~35% |
+| Blend (Stellar) | Backstop take rate | 25% (per-pool at creation) |
+| Compound V3 | Reserve factor | ~10–25% band |
+
+Aave protocol revenue, for scale, ran ~$140M/yr pre-2025 and ~$907M in 2025 [Aave/TokenTerminal]. **Defensible target for a fledgling shielded pool: 10–15% reserve factor on stablecoins (USDC, EURC), 15–20% on XLM**, zero origination fee at launch — matching Aave's stablecoin floor keeps supplier yield competitive while trust is still being built.
+
+### 16.4 Revenue arithmetic (illustrative)
+
+Protocol revenue is the reserve-factor complement of interest paid:
+
+```
+annual_revenue ≈ TVL × U × borrow_APR × reserve_factor
+```
+
+where `U` = utilization (`borrow/(deposit+borrow)`, `rate.rs:26`), `borrow_APR = base + slope·U` (`rate.rs:44`), all observable as public aggregates. **Illustrative** scenarios (not forecasts):
+
+| TVL | U | borrow APR | RF | Interest/yr | **Protocol rev/yr** |
+|---|---|---|---|---|---|
+| $1M | 40% | 5% | 10% | $20k | **~$2,000** |
+| $5M | 50% | 6.5% | 15% | $162.5k | **~$24,000** |
+| $25M | 50% | 6.5% | 15% | $812.5k | **~$122,000** |
+| $25M | 60% | 8% | 20% | $1.2M | **~$240,000** |
+
+Rule of thumb across the plausible band: **revenue ≈ 0.5%–1.0% of TVL per year**. Order-of-magnitude break-even therefore sits at **~$10M TVL** for lean solo operation and **~$40–110M TVL** once a third-party audit and a small team are amortized in. A single revenue lever makes lean operation the only realistic pre-traction path.
+
+**Sensitivity.** Revenue is linear in all four levers, but they are not equal in practice: **TVL and utilization dominate** (they range over orders of magnitude), while reserve factor and APR are policy-clamped in narrow bands. Reserve factor is not a free lever — raising it lowers supplier yield, drives liquidity out, and shrinks TVL. Priority order: **grow TVL → push utilization toward ~80% optimal → tune reserve factor last.**
+
+### 16.5 Observability — revenue without deanonymization
+
+Because positions are shielded, most per-user analytics are impossible *by design* — and that is a feature, not a gap, for the metric that matters. Revenue is an **aggregate** (the reserve balance / index growth), so it is directly observable on-chain without touching any user's privacy.
+
+- **Measurable (aggregate):** `total_deposit`/`total_borrow` per asset → TVL and utilization; borrow-index growth → realized interest → **reserve accrual = revenue**; deposit/spend/liquidation counts.
+- **Impossible by design:** per-user revenue, per-user LTV/health, LTV distribution, whale concentration, DAU/retention (nullifiers ≠ users), borrower identity.
+
+### 16.6 Solvency incentive (not revenue)
+
+The liquidation **bounty** is a fixed-denomination collateral note paid to whoever liquidates an underwater position. It aligns a third party's incentive with pool solvency and pays *external* liquidators — it does **not** accrue to the protocol. The rate/risk levers (borrow index, max LTV, min health factor) are solvency controls, not a business model.
+
+### 16.7 Token and value-capture stance — the honest answer
+
+**Do not launch a token; route fees to a treasury-owned note (fee-to-treasury).** A token stacks a securities-law surface on top of the money-transmitter exposure a fee-taking privacy protocol already carries — the Tornado Cash record (§17.4: Storm's unlicensed-money-transmission conviction) establishes that operating *and profiting from* a privacy protocol draws direct regulatory fire. A system that both shields flows and skims a fee is precisely the silhouette prosecutors targeted. Value capture stays minimal, transparent, and non-tokenized until real adoption justifies it and counsel clears the model.
+
+### 16.8 When revenue turns on (phase-gated)
+
+Fees are **designed in Phase 1, tested on testnet in Phase 2, governed and legally cleared in Phase 3, and only *activated* in Phase 4** — reserve factor first (smallest surface, borrower-funded), and likely after a deliberate **fee holiday** to let the anonymity set grow before it is taxed. A nonzero reserve factor requires all three of: an audited contract, a decentralized-enough treasury (a single key taking fees is the loudest possible red flag), and a written money-transmission position. Charging before those exist is not a business — it is the liability in §17.4. Until that Phase-4 decision, **Stellar Shield captures no value by design.**
 
 ---
 

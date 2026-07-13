@@ -265,11 +265,31 @@ position). That is a solvency-incentive mechanism, not a protocol revenue
 stream — it pays third-party liquidators, it does not accrue value to the
 protocol or its operator.
 
-Plausible future value-capture models (borrow-rate spread, reserve factor,
-protocol fee) **exist in the rate parameters but are not activated as a
-business model** and would only be meaningful at mainnet with real volume. Any
-such model is out of scope until Stage 2 and would need to be weighed against
-the regulatory exposure described in §9.
+**Where revenue would come from (designed, not active).** The governing
+constraint is that a shielded pool cannot bill an identity — so a fee can only
+be baked into the interest index or note math, never charged per account. That
+narrows the answer to essentially one mechanism: a **reserve factor** — the
+protocol keeps a fraction (benchmark: Aave 10% on stablecoins, 10–35% on
+volatile assets) of the interest borrowers pay. It is the Aave/Compound
+standard, it is *already implemented* in the contract's rate math
+(`reserve_factor_bps`), and it collects in aggregate — the borrow index grows
+faster than the supply index and the wedge accrues to the protocol — without
+ever deanonymizing a user. Illustratively, revenue runs **~0.5–1.0% of TVL per
+year**, putting order-of-magnitude break-even near **~$10M TVL** for lean solo
+operation (see WHITEPAPER.md §16 for the scenario math). Origination fees, a
+liquidation-bounty cut, and the latent repay-retention are marginal or fight
+the design and are not the plan.
+
+**Two deliberate business decisions.** (1) **No token** — route fees to a
+treasury-owned position, because a token stacks securities-law exposure on top
+of the money-transmitter exposure a fee-taking privacy protocol already carries
+(§9). (2) **Fees are the last thing switched on** — designed now, tested on
+testnet during the audit stage, governed and legally cleared before mainnet,
+and activated only at mainnet (reserve factor first, likely after a fee holiday
+so the anonymity set grows before it is taxed). The one piece of net-new code
+required is a treasury sink to capture the wedge; everything else is
+parameter-setting. Until that mainnet decision, Stellar Shield captures no
+value by design. See OQ-4.
 
 ## 7. Scope (Business Capabilities)
 
