@@ -333,33 +333,35 @@ Because note openings live only client-side, the wallet must *reconstruct* the u
 6. **Hydrate from chain** — bulk-query `nullifiers_used` for surviving deposit notes, catching notes spent by old borrow events that predate the nullifier-tail upgrade.
 7. **Merge and store** — merge with the prior cache to preserve mint-time Merkle witnesses and keep just-minted notes that RPC lag hasn't surfaced yet.
 
-```
-   Soroban pool contract events (public)
-   ┌────────────┬───────────┬───────────┬──────────┬───────────┐
-   │  deposit   │  borrow   │ withdraw  │  repay   │ liquidat  │
-   └─────┬──────┴─────┬─────┴─────┬─────┴────┬─────┴─────┬─────┘
-         │  mint      │  mint     │  spend   │  spend    │  spend
-         ▼ (leaf+memo)▼(leaf+memo)▼(nullif.) ▼(nullif.)  ▼(nullif.)
-   ┌──────────────────────────┐   ┌───────────────────────────────┐
-   │ decode + trial-decrypt   │   │ collect spent-nullifier set    │
-   │ memo vs all identities   │   └───────────────┬───────────────┘
-   │ → reconstruct opening    │                   │
-   │   with matching sk       │                   │
-   └────────────┬─────────────┘                   │
-                ▼                                  │
-   ┌──────────────────────────┐                    │
-   │ candidate notes          │◄── filterSpent ────┘
-   │ {amount,asset,index,     │◄── hydrate: nullifiers_used view
-   │  salt,sk,tree,bond?}     │      (catches pre-upgrade spends)
-   └────────────┬─────────────┘
-                ▼
-   ┌──────────────────────────┐   ┌──────────────────────────────┐
-   │ merge w/ cache: preserve │   │ encrypted backup file (older  │
-   │ mint-time witnesses,     │◄──┤ than RPC retention window)    │
-   │ keep RPC-lagged mints    │   │ deriveBackupKey(identity)     │
-   └────────────┬─────────────┘   └──────────────────────────────┘
-                ▼
-          local note store  ──►  balances, borrow eligibility, spends
+```mermaid
+flowchart TD
+    subgraph events["Soroban pool contract events (public)"]
+        deposit["deposit<br/>(mint: leaf+memo)"]
+        borrow["borrow<br/>(mint: leaf+memo)"]
+        withdraw["withdraw<br/>(spend: nullifier)"]
+        repay["repay<br/>(spend: nullifier)"]
+        liquidat["liquidat<br/>(spend: nullifier)"]
+    end
+
+    deposit --> decrypt
+    borrow --> decrypt
+    withdraw --> spent
+    repay --> spent
+    liquidat --> spent
+
+    decrypt["decode + trial-decrypt memo vs all identities<br/>&rarr; reconstruct opening with matching sk"]
+    spent["collect spent-nullifier set"]
+
+    decrypt --> candidates
+    spent -- filterSpent --> candidates
+    hydrate["hydrate: nullifiers_used view<br/>(catches pre-upgrade spends)"] --> candidates
+
+    candidates["candidate notes<br/>{amount, asset, index, salt, sk, tree, bond?}"]
+    backup["encrypted backup file<br/>(older than RPC retention window)<br/>deriveBackupKey(identity)"] --> merge
+
+    candidates --> merge
+    merge["merge w/ cache: preserve mint-time witnesses,<br/>keep RPC-lagged mints"]
+    merge --> store["local note store<br/>&rarr; balances, borrow eligibility, spends"]
 ```
 
 **Recovery model and its bound.** Because every commitment and every encrypted memo is on chain, a user on a fresh browser recovers their entire *live* inventory from public chain data plus their wallet — no indexer, no server account. But recovery is **bounded by RPC event retention**: `LEDGER_LOOKBACK = 10,000` ledgers (`scanner.ts:37`) ≈ **~14 hours** at 5 s/ledger, and the public endpoint silently returns zero events past its on-disk window. A note minted and never spent, older than that window, can no longer be reconstructed from events — the commitment lives on the tree forever, but the memo opening needed to *spend* it has aged out of the event stream. The **encrypted backup file** (`features/notes/backup.ts`, sealed under a key derived from the shielded identity) is the honest counter and the only recovery path beyond the window; `backup-state.ts` tracks un-backed notes and the UI nudges the user to export. Backup is not optional convenience — it is the recovery path for notes older than ~14 h.
