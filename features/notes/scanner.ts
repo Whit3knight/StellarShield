@@ -78,6 +78,7 @@ export type ScanIdentity = {
  */
 export async function scanShieldedNotes(
   identity: ScanIdentity,
+  legacyIdentities: ScanIdentity[] = [],
   signal?: AbortSignal
 ): Promise<ShieldedNote[]> {
   if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
@@ -192,15 +193,26 @@ export async function scanShieldedNotes(
   const notes: ShieldedNote[] = []
   const spentNullifiers = new Set<bigint>()
 
-  // Legacy compatibility: notes deposited before commit `2f789df`
-  // were encrypted to a double-derived identity
-  // (`deriveShieldedIdentity(identity.secretKey)`). Try the current
-  // identity first; if that fails, try the legacy derivation. Old
-  // notes materialise with their legacy `sk` so subsequent spend
-  // paths (withdraw / repay) reproduce the same nullifier the
-  // original circuit did.
-  const legacyIdentity = deriveShieldedIdentity(identity.secretKey)
-  const legacySkField = uintToBigint(legacyIdentity.secretKey)
+  // Trial-decrypt each memo against every identity that could have
+  // minted a note for this wallet, newest scheme first:
+  //   - the current (v2, signature-derived) identity;
+  //   - any legacy identities (R1: the pre-migration address-derived
+  //     identity, so notes minted before the signature scheme still
+  //     decrypt and spend);
+  //   - and each one's double-derivation, for notes deposited before
+  //     commit `2f789df`.
+  // A note materialises with the `sk` of whichever identity decrypted
+  // it, so its spend path (withdraw / repay) reproduces the same
+  // nullifier the original mint circuit did.
+  const trialIdentities: { secretKey: Uint8Array; skField: bigint }[] = []
+  for (const id of [identity, ...legacyIdentities]) {
+    trialIdentities.push({ secretKey: id.secretKey, skField: id.skField })
+    const doubled = deriveShieldedIdentity(id.secretKey)
+    trialIdentities.push({
+      secretKey: doubled.secretKey,
+      skField: uintToBigint(doubled.secretKey),
+    })
+  }
 
   for (const event of events) {
     const topic = decodeTopicSymbol(sdk, event)
@@ -234,20 +246,20 @@ export async function scanShieldedNotes(
     const decoded = decodeIndexedEvent(sdk, event)
     if (!decoded) continue
 
-    let plaintext = tryDecryptAnyMemo({
-      raw: decoded.memo,
-      recipientSk: identity.secretKey,
-    })
+    let plaintext: ReturnType<typeof tryDecryptAnyMemo> = null
     let skForNote = identity.skField
     let usedLegacy = false
-    if (!plaintext) {
-      plaintext = tryDecryptAnyMemo({
+    for (let i = 0; i < trialIdentities.length; i++) {
+      const trial = trialIdentities[i]
+      const decryptedMemo = tryDecryptAnyMemo({
         raw: decoded.memo,
-        recipientSk: legacyIdentity.secretKey,
+        recipientSk: trial.secretKey,
       })
-      if (plaintext) {
-        skForNote = legacySkField
-        usedLegacy = true
+      if (decryptedMemo) {
+        plaintext = decryptedMemo
+        skForNote = trial.skField
+        usedLegacy = i > 0 // index 0 is the current identity
+        break
       }
     }
     if (!plaintext) continue

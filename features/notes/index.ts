@@ -42,7 +42,7 @@ export {
 } from "./backup"
 export { useNotesBackup } from "./use-notes-backup"
 export {
-  shieldedIdentityFromAddress,
+  legacyIdentityFromAddress,
   useShieldedIdentity,
 } from "./use-shielded-identity"
 export {

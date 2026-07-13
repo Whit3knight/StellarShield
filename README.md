@@ -208,12 +208,13 @@ stellar contract invoke \
 
 Testnet stage. These are honest limitations, not solved problems:
 
-- **Shielded identity is currently derived from the public wallet address**
-  (`features/notes/use-shielded-identity.ts` — SHA-256 of the G-address).
-  Anyone who knows a user's address can recompute their memo-decryption key and
-  note spending key. The intended signature-based derivation is not yet
-  shipped. Do not treat memo encryption as private against an observer who has
-  linked any note to a wallet.
+- **Shielded identity is derived from a Freighter signature** (a secret),
+  `features/notes/use-shielded-identity.ts` — signed once per browser profile,
+  seed cached in localStorage. The old address-derived scheme (which anyone
+  could recompute from a public G-address) is retained only as a legacy
+  decrypt/spend fallback for notes minted before the migration; new notes are
+  never minted under it. Note that residual privacy is still bounded by the
+  anonymity set below.
 - **The liquidation-service operator sees every position.** Borrow memos are
   dual-encrypted to the borrower and the service key, so an operator holding
   `LIQUIDATION_SERVICE_SK` decrypts every borrower's collateral, loan size, and

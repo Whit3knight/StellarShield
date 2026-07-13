@@ -8,6 +8,7 @@ import {
   onRepayConfirmed,
 } from "@/features/borrow-flow/borrow-events"
 import {
+  legacyIdentityFromAddress,
   scanShieldedNotes,
   useShieldedIdentity,
   type ScanIdentity,
@@ -35,12 +36,15 @@ export function useShieldedPool(account: string | null): {
   }, [])
 
   React.useEffect(() => {
-    if (!identity) return
+    if (!identity || !account) return
     const controller = new AbortController()
     void (async () => {
       setIsScanning(true)
       try {
-        await scanShieldedNotes(identity, controller.signal)
+        // Legacy address-derived identity lets notes minted before the
+        // R1 signature migration still decrypt and spend.
+        const legacyIdentities = [await legacyIdentityFromAddress(account)]
+        await scanShieldedNotes(identity, legacyIdentities, controller.signal)
       } catch {
         // swallow; retry on next confirm
       } finally {
@@ -60,7 +64,7 @@ export function useShieldedPool(account: string | null): {
       offRepay()
       offDeposit()
     }
-  }, [identity, refreshToken])
+  }, [identity, account, refreshToken])
 
   return { identity, isScanning, refresh }
 }
