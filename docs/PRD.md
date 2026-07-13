@@ -1,6 +1,6 @@
 # Product Requirements Document (PRD)
 
-## Stellar Shield — Shielded Lending Dashboard & Protocol
+## Stellar Shield — Borrow in the Open, Keep Your Positions in the Dark
 
 **Version:** 1.0 | **Date:** 2026-07-13 | **Status:** Draft for review
 **Companion doc:** [BRD.md](./BRD.md) (business context, risks R1–R16, open questions)
