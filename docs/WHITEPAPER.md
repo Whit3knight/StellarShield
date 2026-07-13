@@ -569,9 +569,11 @@ The liquidation **bounty** is a fixed-denomination collateral note paid to whoev
 
 **Do not launch a token; route fees to a treasury-owned note (fee-to-treasury).** A token stacks a securities-law surface on top of the money-transmitter exposure a fee-taking privacy protocol already carries — the Tornado Cash record (§17.4: Storm's unlicensed-money-transmission conviction) establishes that operating *and profiting from* a privacy protocol draws direct regulatory fire. A system that both shields flows and skims a fee is precisely the silhouette prosecutors targeted. Value capture stays minimal, transparent, and non-tokenized until real adoption justifies it and counsel clears the model.
 
+> **Precondition for this entire section.** Everything in §16 assumes the protocol may lawfully take a fee at all. Per §17.4 that assumption is **unresolved and may fail**: the legal-viability gate is now a *Phase-1* go/no-go, ahead of any audit spend, and one of its two outcomes (Fork A — credibly-neutral, fee-less, decentralized from day one) **eliminates the reserve-factor revenue model entirely**, leaving only grants, ecosystem funding, or the unproven viewing-key primitive (§16.9 ①). Read §16 as *"the revenue model that exists if, and only if, the legal gate clears a fee-taking structure"* — not as a settled plan.
+
 ### 16.8 When revenue turns on (phase-gated)
 
-Fees are **designed in Phase 1, tested on testnet in Phase 2, governed and legally cleared in Phase 3, and only *activated* in Phase 4** — reserve factor first (smallest surface, borrower-funded), and likely after a deliberate **fee holiday** to let the anonymity set grow before it is taxed. A nonzero reserve factor requires all three of: an audited contract, a decentralized-enough treasury (a single key taking fees is the loudest possible red flag), and a written money-transmission position. Charging before those exist is not a business — it is the liability in §17.4. Until that Phase-4 decision, **Stellar Shield captures no value by design.**
+The legal-viability determination comes **first (Phase 1)**, before the ceremony and audit are funded (§17.4). *If and only if* that gate clears a fee-taking structure, fees are then **designed in Phase 1, tested on testnet in Phase 2, and only *activated* in Phase 4** — reserve factor first (smallest surface, borrower-funded), and likely after a deliberate **fee holiday** to let the anonymity set grow before it is taxed. A nonzero reserve factor requires all of: a favorable legal determination, an audited contract, and a decentralized-enough treasury (a single key taking fees is the loudest possible red flag). Charging before those exist is not a business — it is the liability in §17.4. Until that Phase-4 decision, and only if the legal gate permits it, **Stellar Shield captures no value by design.**
 
 ### 16.9 Exploratory value capture (research-stage)
 
@@ -622,32 +624,47 @@ Full shielded lifecycle (deposit → borrow → claim → repay → liquidate) w
 
 ### 17.3 Phased roadmap
 
-The path from a working testnet artifact to a launched product runs through four gated phases. Each gate is a hard exit criterion, not a date: a phase does not begin until the prior gate is met. This staging is deliberate — it front-loads the two blockers that make privacy *real* (a proper trusted setup and a meaningful anonymity set) and refuses to custody real value before an audit clears it. Only at the end of Phase 4 does the paper's central claim — *your positions stay hidden* — hold for a real user, because only then does the anonymity set exist to back it.
+The path from a working testnet artifact to a launched product runs through four gated phases. Each gate is a hard exit criterion, not a date: a phase does not begin until the prior gate is met.
+
+**A legal-viability determination is the first gate, ahead of all engineering spend.** An earlier draft of this roadmap deferred the legal/compliance question to Phase 3, after the trusted-setup ceremony and audit. That ordering is wrong and is corrected here: spending six figures on a ceremony and an audit to harden a structure that may be *legally non-viable in its current form* is irrational. The money-transmitter question (§17.4) is therefore a **Phase-1 exit gate** — a go/no-go that either clears the current design or forces a redesign — evaluated *before* Phase-2 capital is committed. This staging front-loads the blockers that actually decide the project: first whether it can lawfully exist as designed, then the two that make privacy *real* (a proper trusted setup and a meaningful anonymity set). Only at the end of Phase 4 does the paper's central claim — *your positions stay hidden* — hold for a real user, because only then does the anonymity set exist to back it.
 
 ```mermaid
 flowchart LR
     P1["Phase 1 — Development &rarr; Testnet<br/><b>DONE</b><br/>Full shielded lifecycle,<br/>on-chain proof verify"]
+    LEGAL{"Legal viability<br/>go / no-go<br/>(money transmission)"}
+    REDESIGN["Redesign: fee-less,<br/>credibly-neutral,<br/>decentralized day-one"]
     P2["Phase 2 — Security Audit<br/>Trusted-setup ceremony,<br/>3rd-party audit, oracle<br/>cross-check, Rust tests"]
-    P3["Phase 3 — Partnership / Ecosystem<br/>Oracle fallback, wallet +<br/>liquidator integrations,<br/>demand + legal position"]
+    P3["Phase 3 — Partnership / Ecosystem<br/>Oracle fallback, wallet +<br/>liquidator integrations,<br/>demand signal"]
     P4["Phase 4 — Mainnet Launch<br/>Decentralized admin,<br/>anonymity set, value<br/>capture activated"]
 
-    P1 -->|Gate: lifecycle validated| P2
+    P1 -->|Gate: lifecycle validated| LEGAL
+    LEGAL -->|structure viable| P2
+    LEGAL -->|non-viable as designed| REDESIGN
+    REDESIGN --> P2
     P2 -->|Gate: audit clean +<br/>toxic waste destroyed| P3
-    P3 -->|Gate: demand proven +<br/>legal position + partners| P4
+    P3 -->|Gate: demand proven +<br/>partners live| P4
     P4 -->|<b>Privacy delivered</b>| DONE([Live product])
 ```
 
 | Phase | Status | Goal | Exit criteria (gate) | Clears |
 |---|---|---|---|---|
-| **1 — Development → Testnet** | **Done** | Prove privacy-preserving lending is technically viable on Stellar. | Full shielded lifecycle (deposit → borrow → claim → repay → liquidate) runs end-to-end with on-chain Groth16 verification; signature-derived identity; artifact pinning; e2e testnet harness green. | §17.1 |
-| **2 — Security Audit & Hardening** | Gated on P1 | Make the system safe to hold real value. | Multi-party trusted-setup ceremony (toxic waste destroyed); third-party audit across circuits, contract, oracle, and in-browser proving, findings closed; on-chain oracle-price cross-check shipped; Rust contract unit tests unblocked. | R5, R6, R7, R14, limitations 1·2·8·11 |
-| **3 — Partnership & Ecosystem** | Gated on P2 | Validate demand and remove single-point dependencies. | Oracle fallback/cross-check partner (second SEP-40 feed); wallet + liquidation-service integrations live; documented legal/compliance position covering money-transmitter status (not only sanctions, see §17.4); a real external demand signal. | R13, BR2, BR5, BR6, limitations 3·7 |
+| **1 — Development → Testnet + Legal Go/No-Go** | Tech **done**; legal gate **open** | Prove technical viability *and* determine whether the design can lawfully exist as structured. | Full shielded lifecycle runs end-to-end with on-chain Groth16 verification; signature-derived identity; artifact pinning; e2e harness green — **and** a documented money-transmitter/compliance determination (§17.4) that either clears the current fee-taking single-operator structure or mandates the redesign fork, *before any Phase-2 capital is spent*. | §17.1, BR2 |
+| **2 — Security Audit & Hardening** | Gated on P1 **legal go** | Make the system safe to hold real value — only if P1 cleared or redesigned the structure. | Multi-party trusted-setup ceremony (toxic waste destroyed); third-party audit across circuits, contract, oracle, and in-browser proving, findings closed; on-chain oracle-price cross-check shipped; Rust contract unit tests unblocked. | R5, R6, R7, R14, limitations 1·2·8·11 |
+| **3 — Partnership & Ecosystem** | Gated on P2 | Validate demand and remove single-point dependencies. | Oracle fallback/cross-check partner (second SEP-40 feed); wallet + liquidation-service integrations live; a real external demand signal. | R13, BR5, BR6, limitations 3·7 |
 | **4 — Mainnet Launch** | Gated on P3 | Deliver *meaningful* privacy to real users and launch. | Administrative decentralization (multisig/timelock/governance); a meaningful anonymity set from real pool volume; recent-roots window for spend liveness; value-capture mechanism activated. | R4, R12, BR3, limitations 4·6·9 |
 
 The USP is only fully realized at Phase 4. Phases 1–3 build the trust and the crowd that "keep your positions in the dark" requires: the cryptography (Phase 1) is necessary but not sufficient; the audit and ceremony (Phase 2) make it safe; partners and demand (Phase 3) supply the anonymity set (Phase 4) that turns *working cryptography* into *delivered privacy*. Each gate reaching Phase 4 depends on validated external demand and real pool volume — neither of which exists today.
 
-### 17.4 Regulatory note
+### 17.4 Regulatory note — the first gate, not the last
+
 The Tornado Cash record makes the legal gate concrete: OFAC sanctioned the contracts on 2022-08-08 [S11]; the Fifth Circuit ruled in Nov 2024 that OFAC overstepped and Treasury delisted the addresses on 2025-03-21 [S15, S16]; yet co-founder Roman Storm was convicted on 2025-08-06 of conspiracy to operate an unlicensed money-transmitting business [S17]. Lawful code does not shield an operator from money-transmission liability. Aztec Connect's sunset [S14] is a parallel precedent for the difficulty of decentralizing a single-operator system after the fact.
+
+**This paper takes that precedent as directed at its own current shape.** Stellar Shield as designed for revenue is a *single operator*, *taking a fee*, on a *privacy pool* that *moves value* — the exact silhouette that produced a conviction. The honest reading is that the current fee-taking single-operator structure is **presumptively non-viable for a US-touching mainnet**, and that this must be resolved *before* the Phase-2 ceremony and audit are funded — spending on hardening a structure that may be unlawful is spending in the wrong order. Two forks resolve the Phase-1 legal gate:
+
+- **Fork A — credibly-neutral, fee-less, decentralized from day one.** No operator-collected fee, no single admin, no operator-held viewing capability at launch; the protocol is infrastructure no one "operates for profit." This is the most defensible posture — and it **guts §16**: with no fee there is no reserve-factor revenue, so the economic model collapses to grants, ecosystem funding, or the optional user-consented viewing-key primitive (§16.9 ①), whose revenue is unproven. Privacy survives; the business model does not.
+- **Fork B — licensed/regulated entity.** Obtain money-transmitter licensure (per-US-state) or structure a defensible regulated vehicle. This *preserves* the §16 revenue model but is a multi-year, six-to-seven-figure legal undertaking — a cost that, by the §16.4 arithmetic, exceeds years of the revenue it would unlock at any TVL this chain can plausibly supply. The regulatory gate and the revenue floor are in tension: the fee that funds the license is smaller than the license.
+
+There is no third fork in which a solo operator quietly takes a spread on a privacy pool and is fine. Which fork Stellar Shield takes is an **open, unresolved decision** (BR2), and it gates everything downstream — including whether the §16 revenue model has any legal path to exist at all.
 
 ---
 

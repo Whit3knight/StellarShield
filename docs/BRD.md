@@ -280,16 +280,30 @@ operation (see WHITEPAPER.md §16 for the scenario math). Origination fees, a
 liquidation-bounty cut, and the latent repay-retention are marginal or fight
 the design and are not the plan.
 
-**Two deliberate business decisions.** (1) **No token** — route fees to a
-treasury-owned position, because a token stacks securities-law exposure on top
-of the money-transmitter exposure a fee-taking privacy protocol already carries
-(§9). (2) **Fees are the last thing switched on** — designed now, tested on
-testnet during the audit stage, governed and legally cleared before mainnet,
-and activated only at mainnet (reserve factor first, likely after a fee holiday
-so the anonymity set grows before it is taxed). The one piece of net-new code
-required is a treasury sink to capture the wedge; everything else is
-parameter-setting. Until that mainnet decision, Stellar Shield captures no
-value by design. See OQ-4.
+**This revenue model is conditional on a legal gate that may fail.** The
+money-transmitter question (§9) is a **first-order go/no-go, evaluated before
+any audit or ceremony spend** — not a late-stage checkbox. A fee-taking,
+single-operator privacy pool is the Tornado Cash silhouette; the honest reading
+is that the current structure is presumptively non-viable for a US-touching
+mainnet. One of the two resolving forks — *credibly-neutral, fee-less,
+decentralized from day one* — **eliminates this revenue model entirely**,
+leaving grants, ecosystem funding, or an unproven user-consented viewing-key
+primitive. The other — *licensed/regulated entity* — preserves the model but
+costs more than the fee it unlocks at any plausible Stellar TVL. Which fork is
+taken is unresolved (BR2, OQ-4) and gates everything below.
+
+**Two deliberate business decisions (if the fee-taking fork survives the legal
+gate).** (1) **No token** — route fees to a treasury-owned position, because a
+token stacks securities-law exposure on top of the money-transmitter exposure a
+fee-taking privacy protocol already carries (§9). (2) **Fees are the last thing
+switched on** — the legal determination comes first, then fees are designed,
+tested on testnet during the audit stage, and activated only at mainnet
+(reserve factor first, likely after a fee holiday so the anonymity set grows
+before it is taxed). Note precisely what exists today: `reserve_factor_bps`
+only *lowers* supplier yield in the rate math — no protocol-owned position
+captures the wedge, so **revenue capture is not built**; a treasury sink is
+net-new code. Until that mainnet decision, and only if the legal gate permits a
+fee, Stellar Shield captures no value by design. See OQ-4.
 
 ## 7. Scope (Business Capabilities)
 
