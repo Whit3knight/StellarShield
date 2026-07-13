@@ -1,0 +1,35 @@
+# Caddyfile — Stellar Shield web tier.
+# Caddy auto-provisions + auto-renews Let's Encrypt TLS. Replace the domain.
+#
+# Two paths:
+#   /circuits-circom/*  -> served straight off disk (the 77 MB of ZK artifacts),
+#                          long-cached + immutable so Cloudflare caches them and
+#                          origin egress collapses to ~zero after warm-up.
+#   everything else     -> reverse-proxied to `next start` on :3000, which sets
+#                          the COOP/COEP cross-origin-isolation headers the WASM
+#                          prover needs (see next.config.ts).
+#
+# NOTE on cross-origin isolation: the app documents are COEP: require-corp.
+# Same-origin subresources (the zkeys, served from this same domain) load fine,
+# but we set Cross-Origin-Resource-Policy explicitly so it stays correct even
+# behind Cloudflare. If you ever move artifacts to a SEPARATE cdn subdomain,
+# they become cross-origin and you must switch CORP to "cross-origin" and serve
+# proper CORS — keeping them same-domain (CF proxied) is the lazy correct choice.
+
+example.com {
+	encode zstd gzip
+
+	# Static ZK proving artifacts (borrow.zkey 31MB, etc.)
+	handle_path /circuits-circom/* {
+		root * /srv/stellar-shield/current/public/circuits-circom
+		header Cache-Control "public, max-age=31536000, immutable"
+		header Cross-Origin-Resource-Policy "same-origin"
+		header Cross-Origin-Embedder-Policy "require-corp"
+		file_server
+	}
+
+	# The Next.js app (sets COOP/COEP on documents itself)
+	handle {
+		reverse_proxy 127.0.0.1:3000
+	}
+}

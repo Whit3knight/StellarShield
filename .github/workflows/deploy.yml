@@ -1,0 +1,80 @@
+name: Deploy
+
+# Build in CI (network available for next/font Google Fonts + the RAM spike
+# stays off the tiny prod box), then rsync the built app to the VPS and restart.
+# Manual by default; flip the push filter on once you trust it.
+
+on:
+  workflow_dispatch:
+  # push:
+  #   branches: [main]
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Build and ship
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Restore Bun and Next.js cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.bun/install/cache
+            ${{ github.workspace }}/.next/cache
+          key: ${{ runner.os }}-deploy-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-deploy-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build
+        # NEXT_PUBLIC_* are inlined here — set them as repo variables/secrets.
+        env:
+          NEXT_PUBLIC_STELLAR_NETWORK: ${{ vars.NEXT_PUBLIC_STELLAR_NETWORK }}
+          NEXT_PUBLIC_STELLAR_HORIZON_URL: ${{ vars.NEXT_PUBLIC_STELLAR_HORIZON_URL }}
+          NEXT_PUBLIC_STELLAR_SOROBAN_RPC_URL: ${{ vars.NEXT_PUBLIC_STELLAR_SOROBAN_RPC_URL }}
+          NEXT_PUBLIC_STELLAR_SHIELD_CONTRACT_ID: ${{ vars.NEXT_PUBLIC_STELLAR_SHIELD_CONTRACT_ID }}
+          NEXT_PUBLIC_STELLAR_REFLECTOR_CEX_CONTRACT_ID: ${{ vars.NEXT_PUBLIC_STELLAR_REFLECTOR_CEX_CONTRACT_ID }}
+          NEXT_PUBLIC_STELLAR_REFLECTOR_FX_CONTRACT_ID: ${{ vars.NEXT_PUBLIC_STELLAR_REFLECTOR_FX_CONTRACT_ID }}
+          NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID: ${{ secrets.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID }}
+        run: bun run build
+
+      - name: Set up SSH
+        # Inline (no third-party action) to keep the supply chain small.
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Ship to VPS
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          TARGET="$DEPLOY_USER@$DEPLOY_HOST:/srv/stellar-shield/current"
+          SSH="ssh -i ~/.ssh/deploy_key"
+          # Build output + what `next start` needs at runtime. node_modules is
+          # (re)installed on the box, so it is NOT shipped.
+          rsync -az --delete -e "$SSH" .next/  "$TARGET/.next/"
+          rsync -az --delete -e "$SSH" public/ "$TARGET/public/"
+          rsync -az        -e "$SSH" package.json bun.lock next.config.ts "$TARGET/"
+          # Install prod deps and restart. Requires a sudoers rule allowing the
+          # deploy user to restart just this unit (see deploy/README.md).
+          $SSH "$DEPLOY_USER@$DEPLOY_HOST" \
+            'cd /srv/stellar-shield/current && ~/.bun/bin/bun install --frozen-lockfile --production && sudo systemctl restart stellar-shield'

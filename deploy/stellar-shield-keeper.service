@@ -1,0 +1,33 @@
+# systemd unit — Stellar Shield liquidation keeper (ONE-SHOT).
+# scan-underwater.ts does a single scan pass and exits, so it is a Type=oneshot
+# service driven by the paired .timer — NOT a long-running Restart=always daemon.
+#
+# SECURITY: with --trigger this process holds HOT KEYS
+# (LIQUIDATION_SERVICE_SK + LIQUIDATOR_SECRET). Keep those in a root-owned,
+# chmod-600 EnvironmentFile, never in git, never in the app bundle. The lazy-safe
+# posture is to run this on a SEPARATE box from the public web tier so a web
+# compromise never sees the liquidation key. Fund LIQUIDATOR_SECRET minimally.
+#
+# Install:  sudo cp deploy/stellar-shield-keeper.service /etc/systemd/system/
+#           sudo cp deploy/stellar-shield-keeper.timer   /etc/systemd/system/
+#           sudo install -m600 deploy/keeper.env.example /etc/stellar-shield/keeper.env  # then edit
+#           sudo systemctl daemon-reload && sudo systemctl enable --now stellar-shield-keeper.timer
+#
+# Drop --trigger for read-only watchlist mode (then LIQUIDATOR_SECRET is unused).
+
+[Unit]
+Description=Stellar Shield liquidation keeper (one scan pass)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=keeper
+WorkingDirectory=/srv/stellar-shield/current
+EnvironmentFile=/etc/stellar-shield/keeper.env
+ExecStart=%h/.bun/bin/bun contracts/scripts/scan-underwater.ts --trigger
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true

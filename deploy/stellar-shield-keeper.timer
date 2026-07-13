@@ -1,0 +1,14 @@
+# systemd timer — runs the liquidation keeper every 3 minutes.
+# Tune OnUnitActiveSec to how fast you need to catch underwater positions.
+
+[Unit]
+Description=Run Stellar Shield liquidation keeper periodically
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=3min
+# Skip a run if the previous one is somehow still going.
+AccuracySec=15s
+
+[Install]
+WantedBy=timers.target
