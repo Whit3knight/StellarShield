@@ -3,7 +3,7 @@
 ## Stellar Shield — Borrow in the Open, Keep Your Positions in the Dark
 
 **Version:** 1.1 | **Date:** 2026-07-13 | **Status:** Remediation M1–M3 applied
-**Companion docs:** [BRD.md](./BRD.md) (business context, risks R1–R16), [REMEDIATION.md](./REMEDIATION.md)
+**Companion docs:** [BRD.md](./BRD.md) (business context), [REMEDIATION.md](./REMEDIATION.md) (engineering risk register R1–R16)
 
 **Legend:** `[IMPLEMENTED]` = live in code, testnet-real · `[PLANNED]` = roadmap
 · `[DROPPED]` = explicitly abandoned · `[GAP]` = claim the code once contradicted
@@ -29,21 +29,21 @@ encrypted memos (ChaCha20-Poly1305 over X25519 ECDH) let a browser rebuild the
 note inventory from public chain events **within the RPC retention window**
 (see NFR-R1).
 
-- **Testnet contract (README):** `CBJZP45HUUVXWDSEUIQPDJD4RZPTUJUG6IGVM7HQPHRK74SHKPXF4N7L`
-  — note `.env.local` currently targets a different ID; canonical ID must be
-  declared (BRD OQ / R16).
+- **Canonical testnet contract:** `CATPLYDPXDFBSLOUP4YQK5BZLGRBYTUXSTZMIXLMBHAPAR6K4JEP52YX`
+  (declared across README/.env/CLI; R16 resolved — an earlier `CBJZP45H…`
+  deployment is retired).
 - **Registered markets:** USDC/XLM, XLM/USDC, EURC/USDC, USDC/EURC, EURC/XLM, XLM/EURC.
 
 ## 2. User Personas
 
 1. **Priya, depositor** — parks testnet XLM/USDC in the shielded pool, later
-   withdraws. Wants deposit and withdrawal unlinkable (currently limited — BRD
-   R1/R4).
+   withdraws. Wants deposit and withdrawal unlinkable (identity now
+   signature-derived; residual limit is the ~0 anonymity set — REMEDIATION R4).
 2. **Boris, borrower** — deposits ≥4 collateral notes, borrows, claims loan,
    repays with interest. Wants loan size and liquidation level private.
 3. **Lena, liquidation operator** — runs `bun run scan:underwater` (optionally
    `--trigger`) for the bounty. Never holds borrower *spending* keys (v2
-   circuit), but **does** decrypt all borrowers' position openings (BRD R3).
+   circuit), but **does** decrypt all borrowers' position openings (REMEDIATION R3).
 4. **Devon, developer/admin** — deploys/upgrades contract, sets params,
    registers markets, maintains circuits.
 
@@ -51,9 +51,8 @@ note inventory from public chain events **within the RPC retention window**
 
 ### P0 — core lifecycle `[IMPLEMENTED]`
 
-- Connect Freighter on testnet; derive a shielded identity so my notes are
-  discoverable by me. *(Currently derivable by anyone knowing my address —
-  R1.)*
+- Connect Freighter on testnet; derive a shielded identity (from a signature)
+  so only I can discover my notes.
 - Deposit a fixed-denomination note; contract pulls tokens, appends the
   commitment, emits an encrypted memo.
 - With ≥4 unspent collateral notes of one asset, generate a Groth16 borrow
@@ -83,10 +82,10 @@ note inventory from public chain events **within the RPC retention window**
 - Positions and activity derived from chain events. `[IMPLEMENTED]`
 - Export/import encrypted notes backup (`features/notes/backup.ts`).
   `[IMPLEMENTED]` — should be promoted from optional to recommended while
-  recovery is window-bounded (BRD R2).
+  recovery is window-bounded (REMEDIATION R2).
 - Repay returns collateral notes to the deposit tree. `[PLANNED — v2 repay circuit; v1 burns collateral]`
 - Multi-note deposit in one proof. `[STATUS UNCLEAR — `shielded-deposit-quad`
-  circuit + `deposit-quad-prover.ts` exist but are in no roadmap track; BRD OQ-4]`
+  circuit + `deposit-quad-prover.ts` exist but are in no roadmap track; REMEDIATION OQ-4]`
 
 ### P2 — future
 
@@ -333,7 +332,7 @@ their async progress. Errors flow through `AdapterResult`/`AdapterError`
 
 ## 10. Open Questions
 
-Product/business questions live in BRD §10 (OQ-1…OQ-8). PRD-level additions:
+Business questions live in BRD §12; engineering remediation questions in REMEDIATION.md. PRD-level additions:
 
 1. Delete dead code: legacy `borrow-eligibility-circom` dir, the stale
    mock-adapter `ProtocolAdapter` type in `features/protocol/types.ts`, and the
