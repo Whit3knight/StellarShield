@@ -86,26 +86,17 @@ Shielded pool primitives:
 
 Data flow, top → bottom:
 
-```
-Freighter connect → deriveShieldedIdentity(sig(seed_message))
-       │
-       ▼
-Scanner (features/notes/scanner.ts) → getEvents(deposit|borrow|withdraw|repay)
-       │                                    tryDecrypt each memo
-       ▼
-Note store (features/notes/note-store.ts) → useNotes()
-       │
-       ▼
-Shielded drawer → deposit / borrow / withdraw / repay hooks
-       │
-       ▼
-snarkjs Groth16 prover (public/circuits-circom/shielded/{deposit,borrow,withdraw,repay})
-       │
-       ▼
-client.<op>_shielded(...).signAndSend via Freighter
-       │
-       ▼
-contract emits ("<op>", asset, ...) → next scan pass reflects the state change
+```mermaid
+flowchart TD
+    A["Freighter connect &rarr; deriveShieldedIdentity(sig(seed_message))"]
+    B["Scanner (features/notes/scanner.ts)<br/>getEvents(deposit|borrow|withdraw|repay), tryDecrypt each memo"]
+    C["Note store (features/notes/note-store.ts) &rarr; useNotes()"]
+    D["Shielded drawer &rarr; deposit / borrow / withdraw / repay hooks"]
+    E["snarkjs Groth16 prover<br/>public/circuits-circom/shielded/{deposit,borrow,withdraw,repay}"]
+    F["client.&lt;op&gt;_shielded(...).signAndSend via Freighter"]
+    G["contract emits (&quot;&lt;op&gt;&quot;, asset, ...)<br/>&rarr; next scan pass reflects the state change"]
+    A --> B --> C --> D --> E --> F --> G
+    G -. next scan .-> B
 ```
 
 Key boundaries:
