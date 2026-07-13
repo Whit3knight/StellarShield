@@ -2,7 +2,7 @@
 
 ## Stellar Shield — Borrow in the Open, Keep Your Positions in the Dark
 
-**Version:** 2.0 | **Date:** 2026-07-13 | **Stage:** Testnet technical validation (not a market-facing product)
+**Version:** 2.1 | **Date:** 2026-07-13 | **Stage:** Testnet technical validation (not a market-facing product)
 **Companion docs:** [PRD.md](./PRD.md) (product/technical scope), [REMEDIATION.md](./REMEDIATION.md) (engineering risk register)
 
 > **What this document is.** A business-level statement of *why* Stellar Shield
@@ -13,8 +13,17 @@
 > **What this document is not.** A launch plan. Stellar Shield is currently a
 > testnet technical validation — the cryptography works end-to-end, but there is
 > no live user base, no revenue model, and no mainnet deployment. Where a
-> business fact is unknown (market size, demand, willingness to pay), this
+> business fact is unknown (this product's demand, TVL, willingness to pay), this
 > document says so rather than inventing a number.
+>
+> **On the numbers in v2.1.** This version adds real, cited market data (see §2
+> and the [Sources](#sources) list). Every external figure describes the *market
+> and the category* Stellar Shield sits in — Stellar's DeFi growth, the scale of
+> DeFi lending, the demonstrated appetite for on-chain privacy. **None of it is
+> this product's traction.** Stellar Shield has zero users, zero TVL, and zero
+> revenue as of 2026-07-13. A large addressable market with a zero-adoption
+> product is the honest, complete picture, and this document keeps both halves of
+> it visible. Crypto figures move fast; each is date-stamped "as of <date>."
 
 ---
 
@@ -70,6 +79,74 @@ single reason on-chain lending is a non-starter.
   oracle price) inside a zero-knowledge proof is a harder and less-crowded
   problem than shielded payments.
 
+### Market context & evidence
+
+The following figures size the *market and category* Stellar Shield sits in.
+They are supporting evidence for the opportunity thesis, not evidence of this
+product's traction (which is zero — see the v2.1 note above). Every figure is
+cited in [Sources](#sources) with a URL and access date; all were accessed
+2026-07-13.
+
+**1. Stellar's DeFi ecosystem is small but growing fast — and now technically
+capable of on-chain ZK.** Stellar's on-chain DeFi TVL crossed $200M for the
+first time in late April 2026, printing ~$197.4M on 2026-04-24, after sitting
+under $12M in November 2024 and near $46M in May 2025 — roughly 284% YoY growth
+through 2025 [S1, S2]. The growth is led by lending and tokenized real-world
+assets: Blend, Stellar's main lending protocol, holds ~$110M TVL [S1]. Critically
+for this project, Protocol 22 shipped to mainnet on 2024-12-05, introducing the
+CAP-0059 BLS12-381 host functions that make on-chain zk-SNARK verification
+practical [S3, S4]. That capability is roughly 18 months old as of this writing —
+Stellar Shield is building on a primitive that did not exist before late 2024.
+The broader ecosystem is non-trivial (Stellar reports ~10.1M total addresses and
+5.1B operations since 2015 [S13]) and Soroban development is active (54 projects
+in Stellar's Security Audit Bank as of Feb 2026; 160+ funded via the Soroban
+adoption fund [S5]) — but shielded lending is absent from all of it.
+
+**2. DeFi lending is a large, proven category — Stellar Shield's primitive is not
+exotic, only its privacy is.** DeFi lending protocols held roughly $54B in
+deposits as of April 2026, with Aave V3 alone at ~$19.4B; the lending category is
+tracked across 380+ protocols on 80+ chains [S6, S7]. Aave grew from ~$8B (early
+2024) to $40B+ (Aug 2025) [S8]. This matters two ways: the *demand for
+collateralized on-chain borrowing* is established at tens of billions of dollars,
+and Stellar's share of it is tiny — leaving room to compete on a dimension
+(privacy) that no lending incumbent offers.
+
+**3. Demand for on-chain privacy is demonstrated, not hypothetical.** Zcash — the
+note/nullifier design Stellar Shield's shielded pool is modeled on — carried a
+~$9–9.5B market cap (rank ~#14) in May 2026, and, more tellingly, over 30% of ZEC
+supply (>4.9M ZEC) was held in the shielded pool by May 2026, up from ~8% in early
+2024; shielded transactions hit 59.3% of activity in Feb 2026 [S9]. Privacy usage
+is *growing* as a share of a multi-billion-dollar asset. On the professional side,
+Flashbots data put cumulative Ethereum MEV over $1.8B by mid-2025 ($40–60M/month),
+and by mid-2025 more than 50% of high-value Ethereum transactions were routed
+through private channels [S10] — direct evidence that sophisticated actors already
+pay to hide their intent from a transparent chain. The structural argument is
+widely stated: public execution, where strategies and balances are visible to
+competitors before confirmation, is a barrier to institutional participation in
+DeFi [S10]. This substantiates the "professional borrower" segment in §4 as a real
+demand vector — though, per BR1, it remains *unvalidated specifically for Stellar*.
+
+**4. The same evidence carries a cautionary tale — privacy is a regulated and
+commercially hazardous space.** The demand signal above sits next to a hard
+lesson. Tornado Cash peaked near $1.17B TVL (Oct 2021), held ~$460.6M at the time
+of sanctions, and processed over $7B in total volume before being sanctioned by
+OFAC on 2022-08-08 [S11, S12]; its TVL fell ~60% within weeks. And Aztec — a
+better-funded, dedicated privacy team — *sunset* its Aztec Connect privacy rollup
+(sequencer stopped 2024-03-31), explicitly because it could not decentralize a
+single-node system without a massive re-architecture [S14]. Both are direct
+precedents for risks this project already names: regulatory exposure (BR2) and
+the operator-centralization problem (BR6). The market wants privacy; the
+graveyard shows it is hard to deliver in a way that is both decentralized and
+legally durable. Stellar Shield's honest position is that it has *proven the
+cryptography*, not that it has solved either of those problems.
+
+**Net thesis.** A fast-growing but privacy-blind lending ecosystem (Stellar),
+a large and proven lending category (DeFi lending at tens of billions), and a
+demonstrated, growing appetite for on-chain privacy (Zcash shielded-pool growth,
+paid MEV protection) together define a real, unserved opportunity — while the
+Tornado Cash and Aztec precedents keep the risk honest. Stellar Shield is a
+first-mover technical bet on that intersection, not a product with traction.
+
 ## 3. Business Objectives & Goals
 
 Objectives are split by stage. The current stage is validation; product and
@@ -115,6 +192,48 @@ observed yet; validating them is Open Question OQ-1.
 dark.* Users get the economic function of a lending market (collateralized
 borrowing against live oracle prices) without the surveillance cost of a fully
 public position.
+
+### Positioning statement (USP)
+
+> **For** professional and privacy-conscious borrowers on Stellar **who** need
+> collateralized leverage but cannot afford to broadcast their balance sheet,
+> position size, and liquidation level to the entire chain, **Stellar Shield is**
+> a privacy-preserving lending pool **that** lets you prove borrow eligibility and
+> take a loan while your wallet, balances, and position size stay hidden on-chain.
+> **Unlike** transparent Stellar lenders (Blend and every other Stellar lending
+> market), which expose every position publicly, **and unlike** shielded-*transfer*
+> tools (Zcash, Tornado-style pools), which hide payments but offer no borrowing
+> primitive, **Stellar Shield** is the only option that combines shielded privacy
+> *with* a lending market on Stellar — **because** eligibility is enforced by a
+> real zero-knowledge proof verified *on-chain* via Protocol 22 BLS12-381 host
+> functions, proofs are generated *client-side* so no server ever custodies a
+> user's keys, and a user's private position can be rebuilt from public chain data
+> alone.
+
+**What makes it uniquely defensible:**
+
+- **Category of one on Stellar.** It is the only *shielded lending* option in the
+  Stellar ecosystem — a gap, not a head-to-head fight with an incumbent (§2).
+- **On-chain ZK verification, not off-chain trust.** Borrow eligibility is proven
+  with a zk-SNARK verified directly on-chain using Protocol 22 BLS12-381 host
+  functions (live on mainnet since 2024-12-05 [S3]) — solvency is enforced by the
+  chain, not by a trusted server.
+- **Client-side proving, no key custody.** Proofs are generated in the user's
+  browser. No backend server holds spending keys or sees plaintext positions on
+  the user path, which removes an entire class of custody and honeypot risk.
+- **Recover from the chain alone.** A user's private holdings can be reconstructed
+  from public chain data on a fresh device (within the data-retention window),
+  so there is no server-side account a user depends on to access their funds.
+- **The intersection is the moat.** Shielded *and* lending *and* on Stellar *and*
+  on-chain-verified: each dimension has precedent individually, but the
+  combination does not exist elsewhere. Replicating it requires ZK, lending,
+  oracle, and in-browser proving competence in one place.
+
+**Honesty caveat on the USP.** "Only option" and "uniquely defensible" describe
+the *technical and competitive position* today; they are not a claim of delivered
+privacy. Real privacy also requires a large anonymity set (§8, BR3), which
+testnet volume does not provide. The USP is a first-mover technical position, not
+a finished product promise.
 
 ### Versus transparent Stellar lending
 
@@ -216,10 +335,10 @@ not reproduced here.
 | # | Risk | Type | Business impact | Response |
 |---|------|------|-----------------|----------|
 | BR1 | **Unproven demand.** There is no evidence that users on Stellar want on-chain privacy at meaningful scale. Stellar's ecosystem skews compliance-heavy (regulated anchors, KYC'd assets), which is a counter-signal. | Market | The entire product thesis may be wrong. | Treat Stage 2 as a demand-validation experiment before any build-out (OQ-1). |
-| BR2 | **Regulatory exposure of privacy pools.** The Tornado Cash precedent — contract-level sanctions and developer prosecution — is a genuine, not theoretical, risk for any privacy-preserving financial protocol. | Regulatory/legal | Could make mainnet deployment legally unviable or personally risky for the developer. | A documented legal position is a *gating input* to any mainnet decision, not a post-launch add-on (OQ-8). |
+| BR2 | **Regulatory exposure of privacy pools.** The Tornado Cash precedent is genuine, not theoretical, and cuts both ways. OFAC sanctioned the Tornado Cash smart contracts on **2022-08-08** [S11]; the Fifth Circuit ruled in **Nov 2024** that OFAC overstepped (immutable contracts are not "property" under IEEPA) and Treasury **delisted** the addresses on **2025-03-21** [S15, S16] — a partial legal reprieve for the *contracts*. But developer liability remains live: co-founder Roman Storm was **convicted on 2025-08-06** of conspiracy to operate an unlicensed money-transmitting business (jury deadlocked on the money-laundering and sanctions-violation counts) [S17]. The lesson for a single-developer privacy protocol is that code being lawful does not shield the *operator* from money-transmission liability. | Regulatory/legal | Could make mainnet deployment legally unviable or personally risky for the developer. | A documented legal position — covering money-transmitter status, not just sanctions — is a *gating input* to any mainnet decision, not a post-launch add-on (OQ-3). |
 | BR3 | **Privacy that isn't yet private.** At testnet volume the anonymity set is effectively zero, so positions are correlatable despite the cryptography. If launched prematurely, the product would over-promise. | Product credibility | Reputational damage; users assume privacy they don't have. | Do not market as privacy-delivering until anonymity-set KPI (§8) is met. |
 | BR4 | **Single-developer execution capacity.** A lending protocol demands audit-grade rigor across cryptography, smart contracts, oracle integration, and in-browser proving — currently held by one person. | Execution | The system must not custody real value under this model; velocity and bus-factor are constrained. | Keep on testnet; mainnet requires additional people and independent audit. |
-| BR5 | **Sole oracle dependency.** Pricing depends entirely on a single oracle provider (Reflector). | Operational | An oracle outage, mispricing, or discontinuation directly threatens solvency and availability. | Interface is swappable in principle; a fallback source is a mainnet prerequisite. |
+| BR5 | **Sole oracle dependency.** Pricing depends entirely on a single oracle provider — Reflector, a SEP-40-compliant Stellar price oracle run as a P2P consensus of ecosystem-operated nodes [S18]. It is real and widely used Stellar infrastructure (its V3 contract was audited via Code4rena in Oct 2025 [S18]), and SEP-40 is an established interface with multiple providers (e.g. RedStone adopted it in 2026 [S19]) — so the *interface* is not a lock-in, but Stellar Shield currently wires to one feed. | Operational | An oracle outage, mispricing, or discontinuation directly threatens solvency and availability. | Interface is SEP-40-standard and swappable in principle; a cross-checked fallback source is a mainnet prerequisite. |
 | BR6 | **Trusted liquidation operator.** The party running the liquidation service can currently see every borrower's position. | Product/privacy | Weakens the privacy promise against an insider; centralizes a sensitive role. | Disclosed as an accepted limitation; decentralizing it is the only removal path. |
 | BR7 | **First-mover with no proven playbook.** Being early on Stellar ZK means no reference users, no established demand, and no peer protocols to learn from. | Strategic | Higher uncertainty; may be early to a market that doesn't materialize. | Frame as an option/credibility play, not a committed product bet. |
 
@@ -274,3 +393,44 @@ the PRD.
 | OQ-4 | If a revenue model is pursued, which mechanism (rate spread, reserve factor, fee) is both viable and regulatorily defensible? | Product owner |
 | OQ-5 | What is the full mainnet-gate checklist and who owns each item (audit, ceremony, decentralized admin, oracle cross-check, legal position)? | Product owner |
 | OQ-6 | Can the liquidation-operator trust (BR6) be removed, and is doing so a prerequisite for any real launch? | Product owner / operator |
+
+---
+
+## Sources
+
+All URLs accessed **2026-07-13**. Crypto figures are point-in-time and move
+fast; each is date-stamped in-text with "as of / by <date>." Figures are drawn
+from the cited pages; where a primary dashboard (e.g. DefiLlama) could not be
+fetched directly, the figure is taken from reporting that attributes it to that
+dashboard, and this is noted. Nothing here is this product's own traction (§2,
+v2.1 note).
+
+| ID | Claim it supports | Source | URL |
+|----|-------------------|--------|-----|
+| S1 | Stellar DeFi TVL crossed $200M (~$197.4M on 2026-04-24); Blend ~$110M; Aquarius ~$51.69M — attributed to DefiLlama | MEXC News / cryptonews (reporting DefiLlama figures) | https://www.mexc.com/news/1055149 · https://cryptonews.net/news/altcoins/32925950/ |
+| S2 | Stellar TVL under $12M (Nov 2024), ~$46M (May 2025), ~284% YoY 2025; RWA-led | Stellar chain page / cryptonews | https://defillama.com/chain/stellar · https://cryptonews.net/news/altcoins/32760427/ |
+| S3 | Protocol 22 live on mainnet 2024-12-05; CAP-0059 BLS12-381 host functions | Stellar — "Announcing Protocol 22" | https://stellar.org/blog/developers/announcing-protocol-22 |
+| S4 | CAP-0059 host functions for BLS12-381 (technical spec) | stellar-protocol CAP-0059 | https://github.com/stellar/stellar-protocol/blob/master/core/cap-0059.md |
+| S5 | 54 projects in Soroban Security Audit Bank (Feb 2026); 160+ funded via adoption fund | Stellar Audit Bank / State of Stellar Q1 2026 (Messari) | https://stellar.org/audit-bank/projects · https://messari.io/report/state-of-stellar-q1-2026 |
+| S6 | DeFi lending ~$54B deposits (Apr 2026); Aave V3 ~$19.4B; 380+ protocols / 80+ chains | DefiLlama — lending category | https://defillama.com/protocols/lending |
+| S7 | Aave scale / lending category detail | DefiLlama — Aave protocol | https://defillama.com/protocol/aave |
+| S8 | Aave grew ~$8B (early 2024) → $40B+ (Aug 2025) | Yahoo Finance (reporting Aave TVL record) | https://finance.yahoo.com/news/aave-reaches-41-1-billion-221555507.html |
+| S9 | Zcash ~$9–9.5B mcap (May 2026); >30% supply (>4.9M ZEC) shielded; 59.3% shielded tx (Feb 2026), up from ~8% early 2024 | crypto.news (shielded pool) / CoinGecko | https://crypto.news/why-30-of-zcash-supply-is-now-in-the-shielded-pool/ · https://www.coingecko.com/en/coins/zcash |
+| S10 | Ethereum cumulative MEV >$1.8B by mid-2025 ($40–60M/mo); >50% high-value tx via private channels; privacy as institutional barrier | Cahill "Crypto Dark Pools" / COTI (Flashbots & Blocknative data cited) | https://static.cahill.com/docs/Crypto%20Under%20the%20Hood%20-%20The%20Case%20for%20Crypto%20Dark%20Pools%20or%20Not.pdf · https://cotinetwork.medium.com/private-defi-has-arrived-how-privacy-will-prevent-front-running-and-unlock-institutional-liquidity-e0b50fffc6e5 |
+| S11 | Tornado Cash OFAC sanctions 2022-08-08; ~$460.6M TVL at sanction; >$7B total volume | TRM Labs / Paul Hastings crypto tracker | https://www.trmlabs.com/resources/blog/tornado-cash-volume-dramatically-reduced-post-sanctions-but-illicit-actors-are-still-using-the-mixer · https://www.paulhastings.com/insights/crypto-policy-tracker/a-whirlwind-of-change-the-delisting-of-tornado-cash |
+| S12 | Tornado Cash peak TVL ~$1.17B (Oct 2021); ~60% TVL drop post-sanction | Stelareum / Nefture Security | https://www.stelareum.io/en/defi-tvl/protocol/torn.html · https://medium.com/nefture/after-the-ban-tornado-cash-6-months-on-5e5968390b00 |
+| S13 | Stellar ~10.1M addresses, 5.1B operations, $33.9B RWA payment volume since 2015 | Stellar — Soroban page | https://stellar.org/soroban |
+| S14 | Aztec Connect sunset (sequencer stopped 2024-03-31); decentralization cited as reason | Aztec Labs — "Sunsetting Aztec Connect" | https://medium.com/aztec-protocol/sunsetting-aztec-connect-a786edce5cae |
+| S15 | Fifth Circuit (Nov 2024): OFAC overstepped; immutable contracts not "property" under IEEPA | BakerHostetler / Fifth Circuit opinion 23-50669 | https://www.bakerlaw.com/insights/victory-for-tornado-cash-as-court-rules-sanctions-were-unlawful/ · https://www.ca5.uscourts.gov/opinions/pub/23/23-50669-CV0.pdf |
+| S16 | OFAC delisted Tornado Cash addresses 2025-03-21 | Venable / Paul Hastings | https://www.venable.com/insights/publications/2025/04/a-legal-whirlwind-settles-treasury-lifts-sanctions |
+| S17 | Roman Storm convicted 2025-08-06 (unlicensed money transmitting); jury deadlocked on laundering & sanctions counts | Mayer Brown / Hodder Law | https://www.mayerbrown.com/en/insights/publications/2025/08/the-tornado-cash-trials-mixed-verdict-implications-for-developer-liability · https://hodder.law/roman-storm-tornado-cash-verdict-crypto-developers/ |
+| S18 | Reflector = SEP-40 oracle, P2P node consensus; V3 audited via Code4rena (Oct 2025) | Reflector docs / Code4rena | https://reflector.network/docs · https://code4rena.com/audits/2025-10-reflector-v3 |
+| S19 | SEP-40 is a multi-provider standard (RedStone adopted it, 2026) | RedStone blog | https://blog.redstone.finance/2026/06/04/reliability-at-scale-redstone-and-the-data-standard-for-stellars-rwa-moment/ |
+
+**Verification note.** The DefiLlama Stellar chain dashboard (S1/S2) returned
+HTTP 403 to automated fetch on 2026-07-13, so its live figure could not be pulled
+first-hand; the $197.4M / $200M and historical TVL figures are taken from
+reporting that explicitly attributes them to DefiLlama. Treat them as
+"reported-as-of" rather than independently re-pulled. Stellar network totals
+(S13) are self-reported by the Stellar Development Foundation. All other figures
+are from the cited pages as accessed.
