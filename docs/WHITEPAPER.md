@@ -458,6 +458,18 @@ The shielded identity is both the note spending key and the memo-decryption key,
 
 **Correlation and fingerprint risks:** timing correlation across deposit→borrow→withdraw sequences; amount correlation (fixed denominations are low-entropy selectors); the fixed-denomination fingerprint (uniformity in a large pool becomes a fingerprint in a small one); and acting-wallet exposure (the wrapping Stellar transaction is signed and paid by a public account, to which wallet-level heuristics apply on top of everything above).
 
+### 14.1 The bootstrap paradox — the deepest unsolved problem
+
+The anonymity-set caveat has a sharper edge than ordinary network effects, and this paper names it rather than hiding it. In a social network the tenth user still gets utility; here the value *is* the crowd, so the first users get a product that provably does not deliver its one feature — and are **de-anonymized precisely because they were early.** A privacy-motivated user therefore has a rational reason *not* to go first, which is exactly the population the pool needs first. Volume requires privacy; privacy requires volume; the Phase-4 gate ("a meaningful anonymity set from real pool volume") is circular. This is the single most serious threat to the thesis, and it is **not solved** — no mechanism in this paper closes it.
+
+Candidate cold-start levers exist, all unproven and disclosed as such:
+
+- **A hard `k`-anonymity gate.** Do not open shielded borrows to users until the set reaches a minimum size `N`, filled first by protocol-funded or partner-supplied decoy deposits — so no user is ever the identifiable early one. Cost: capital to seed the set and to sustain the decoys.
+- **Anchor a partner's real volume.** Route an existing Stellar flow (a payroll app, a DEX's settlement) through the pool so the set is populated by non-speculative activity from day one — a demand partnership, gated to Phase 3, and one whose regulatory shape (moving third-party funds) collides with §17.4.
+- **Delay privacy claims to match reality.** Market the system as *shielded-capable* rather than *private* until an independently measurable anonymity-set threshold is met, so no user is sold protection the current volume cannot provide.
+
+None of these has been implemented or validated. Absent a working bootstrap, the honest position is that Stellar Shield's privacy is a *capability* awaiting an adoption event with no proven trigger — the gap between the working cryptography and a product a privacy-motivated user should rationally join first.
+
 ---
 
 ## 15. Threat Model
@@ -506,9 +518,9 @@ Transparent lenders can bill an identity: origination fees per account, KYC tier
 | 3 | **Liquidation-bounty cut** | Mint a marginally smaller bounty in `liquidate_shielded`; residual to treasury. | Liquidated collateral | slice of bounty | ⚠️ Weakens the external-liquidator incentive the design relies on |
 | 4 | **Latent repay retention** | `repay_shielded` already retains forfeited-deposit-value minus accrued debt (`lib.rs:1054+`). | Repayer, unpredictably | rounding-scale | ❌ Opaque, un-auditable — do **not** monetize |
 
-**Stream 1 is the answer; the rest are marginal.** The reserve factor is the Aave/Compound standard, it is *already implemented in the contract*, and it is the only mechanism that collects in aggregate without ever touching a user identity: the borrow index grows faster than the supply index, and the arithmetic wedge between them accrues to the protocol. No per-user accounting, no deanonymization. Stream 4 exists in code but is a fixed-denomination rounding artifact — monetizing it deliberately would be a hidden, un-auditable tax; it should be made explicit or refunded, never built into a revenue line.
+**Stream 1 is the answer; the rest are marginal.** The reserve factor is the Aave/Compound standard, and it is the only mechanism that could collect in aggregate without ever touching a user identity: the borrow index grows faster than the supply index, and the arithmetic wedge between them can be made to accrue to the protocol. No per-user accounting, no deanonymization. Stream 4 exists in code but is a fixed-denomination rounding artifact — monetizing it deliberately would be a hidden, un-auditable tax; it should be made explicit or refunded, never built into a revenue line.
 
-**One piece of net-new code is required.** Today `reserve_factor_bps` only *lowers* the supply rate; no protocol-owned position yet captures the wedge. A treasury sink note is the single missing implementation — everything else is parameter-setting.
+**To be precise about what exists: revenue capture is *not* built.** Today `reserve_factor_bps` appears in exactly one place — the `supply_rate` computation (`rate.rs:59`), where it only *lowers* supplier yield. No protocol-owned position captures the wedge; as written, the reserve factor is a tax that currently benefits no one. Turning it into revenue requires net-new code — a reserve-accrued counter and a treasury sink note that mints the wedge into a protocol-owned position. The rate *split* is implemented; the *revenue* is not. Everything downstream in §16.4 is therefore illustrative arithmetic over a mechanism that has yet to be written.
 
 ### 16.3 Comparable benchmarks
 
