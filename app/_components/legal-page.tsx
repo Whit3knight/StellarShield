@@ -1,9 +1,7 @@
-import { TriangleAlertIcon } from "lucide-react"
 import Link from "next/link"
 import type * as React from "react"
 
 import { BrandLogo } from "@/components/brand-logo"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 
 export type LegalSection = {
   heading: string
@@ -37,12 +35,6 @@ export function LegalPage({
 
       <main className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-3xl px-4 py-8 md:px-6 md:py-12">
-          <Alert className="mb-8" variant="warning">
-            <TriangleAlertIcon aria-hidden="true" />
-            <AlertTitle>Testnet — no real value</AlertTitle>
-            <AlertDescription>Draft pending legal counsel.</AlertDescription>
-          </Alert>
-
           <div className="mb-8">
             <h1 className="font-heading font-semibold text-2xl text-foreground tracking-tight">
               {title}

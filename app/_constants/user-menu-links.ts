@@ -1,6 +1,7 @@
 import {
   ActivityIcon,
   BookOpenIcon,
+  FileCheckIcon,
   FileTextIcon,
   LifeBuoyIcon,
   ShieldCheckIcon,
@@ -43,6 +44,11 @@ export const userResourceLinks: UserMenuLink[] = [
     href: appRoutes.privacySecurity,
     icon: ShieldCheckIcon,
     label: "Privacy & Security",
+  },
+  {
+    href: appRoutes.audit,
+    icon: FileCheckIcon,
+    label: "Security Audit",
   },
   {
     href: appRoutes.support,

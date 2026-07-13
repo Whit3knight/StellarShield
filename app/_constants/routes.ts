@@ -1,4 +1,5 @@
 export const appRoutes = {
+  audit: "#",
   borrow: "#borrow",
   docs: "#",
   activity: "#",
