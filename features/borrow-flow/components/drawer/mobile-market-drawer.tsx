@@ -8,7 +8,7 @@ import { Drawer, DrawerClose, DrawerTrigger } from "@/components/ui/drawer"
 import type { MarketCardData } from "@/features/markets"
 
 import { useShieldedBorrowFlow } from "../../hooks/use-shielded-borrow-flow"
-import { canSubmitTransaction } from "../../gates"
+import { shouldShowTransaction } from "../../gates"
 import { isSubmitPending, isVerificationPending } from "../../steps"
 import { MarketDrawerFooter } from "./market-drawer-footer"
 import { MarketDrawerPopup } from "./market-drawer-popup"
@@ -111,7 +111,11 @@ function MobileVerificationDrawer({
   position,
 }: BorrowFlowDrawerProps): React.ReactElement {
   const isChecking = isVerificationPending(flow.verification.status)
-  const canSubmit = canSubmitTransaction({
+  // Keep the transaction drawer mounted once the tx leaves Draft —
+  // gating the mount on `canSubmit` alone unmounted it the moment
+  // Submit flipped the status to Signing, bouncing the user back to
+  // the verification step mid-submit.
+  const showTransaction = shouldShowTransaction({
     metrics,
     status: flow.verification.status,
     transaction: flow.transaction,
@@ -137,7 +141,7 @@ function MobileVerificationDrawer({
       >
         <MarketDrawerFooter>
           <MobileDrawerBackButton />
-          {canSubmit ? (
+          {showTransaction ? (
             <MobileTransactionDrawer
               account={account}
               activity={activity}
