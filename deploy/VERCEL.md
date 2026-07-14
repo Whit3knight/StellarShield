@@ -111,7 +111,7 @@ of these and tick **both** *Preview* and *Production* (Development optional):
 | `NEXT_PUBLIC_STELLAR_NETWORK` | `testnet` |
 | `NEXT_PUBLIC_STELLAR_HORIZON_URL` | `https://horizon-testnet.stellar.org` |
 | `NEXT_PUBLIC_STELLAR_SOROBAN_RPC_URL` | `https://soroban-testnet.stellar.org` |
-| `NEXT_PUBLIC_STELLAR_SHIELD_CONTRACT_ID` | `CATPLYDPXDFBSLOUP4YQK5BZLGRBYTUXSTZMIXLMBHAPAR6K4JEP52YX` |
+| `NEXT_PUBLIC_STELLAR_SHIELD_CONTRACT_ID` | `CBVBVB6LGQJYO2KTIHB6VMJEZ3CHHC4KPIJ7EATV4SR7CTC7TUE6PM2P` |
 | `NEXT_PUBLIC_STELLAR_REFLECTOR_CEX_CONTRACT_ID` | **fill in** (Reflector CEX/DEX oracle contract id) |
 | `NEXT_PUBLIC_STELLAR_REFLECTOR_FX_CONTRACT_ID` | **fill in** (Reflector FX oracle contract id) |
 | `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | **fill in** (from cloud.walletconnect.com) |

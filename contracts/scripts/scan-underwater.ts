@@ -47,7 +47,7 @@ import { proveLiquidateV2 } from "@/features/shielded-pool/liquidate-v2-prover"
 const CONTRACT =
   process.env.STELLAR_SHIELD_CONTRACT_ID ??
   process.env.NEXT_PUBLIC_STELLAR_SHIELD_CONTRACT_ID ??
-  "CATPLYDPXDFBSLOUP4YQK5BZLGRBYTUXSTZMIXLMBHAPAR6K4JEP52YX"
+  "CBVBVB6LGQJYO2KTIHB6VMJEZ3CHHC4KPIJ7EATV4SR7CTC7TUE6PM2P"
 const RPC_URL =
   process.env.STELLAR_SOROBAN_RPC_URL ?? "https://soroban-testnet.stellar.org"
 const NETWORK_PASSPHRASE = "Test SDF Network ; September 2015"
