@@ -4,6 +4,7 @@ export {
   computeCommitment,
   computeNullifier,
   DENOMINATION,
+  isSpentNote,
   randomFieldElement,
   SUPPORTED_ASSETS,
   type NoteTree,
@@ -24,23 +25,17 @@ export {
   type MemoPlaintext,
 } from "./memo"
 export {
+  configureNotePersistence,
   groupByAsset,
   replaceNotes,
   resetNotes,
+  snapshotLiveNotes,
   snapshotNotes,
   subscribeNotes,
   upsertNote,
 } from "./note-store"
 export { useNotes } from "./use-notes"
 export { scanShieldedNotes, type ScanIdentity } from "./scanner"
-export {
-  backupBundleToDownload,
-  decodeNotesBackup,
-  encodeNotesBackup,
-  parseBackupJson,
-  restoreNotesBackup,
-} from "./backup"
-export { useNotesBackup } from "./use-notes-backup"
 export {
   legacyIdentityFromAddress,
   useShieldedIdentity,

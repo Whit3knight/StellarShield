@@ -68,6 +68,13 @@ export type ShieldedNote = {
     collateralAsset?: ShieldedAsset
   }
   /**
+   * Marked once this note's nullifier is seen on-chain (or locally
+   * right after a successful spend). Spent notes are kept — not
+   * dropped — because their commitments backfill Merkle tree rebuilds
+   * after the enabling events expire from RPC retention.
+   */
+  spent?: boolean
+  /**
    * Merkle inclusion witness cached at deposit-time. Populated by
    * `prepareDeposit` after it fetches the pre-tx `deposit_frontier`
    * from the contract. Downstream spend paths (borrow / withdraw /
@@ -80,6 +87,16 @@ export type ShieldedNote = {
     pathBits: number[]
     root: bigint
   }
+}
+
+/**
+ * True when a note is no longer spendable. `amount === 0n` covers
+ * legacy local tombstones written before the `spent` flag existed.
+ */
+export function isSpentNote(
+  note: Pick<ShieldedNote, "amount" | "spent">
+): boolean {
+  return note.spent === true || note.amount === 0n
 }
 
 /**

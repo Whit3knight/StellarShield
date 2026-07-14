@@ -79,9 +79,14 @@ export async function prepareBorrow(
     (max, note) => Math.max(max, note.index),
     -1
   )
+  const wantedIndices = new Set(params.collateralNotes.map((n) => n.index))
   let fallbackWitnesses: Awaited<ReturnType<typeof fetchDepositWitnesses>> = []
   for (let attempt = 0; attempt < 4; attempt++) {
-    fallbackWitnesses = await fetchDepositWitnesses(params.collateralAsset)
+    fallbackWitnesses = await fetchDepositWitnesses(
+      params.collateralAsset,
+      undefined,
+      wantedIndices
+    )
     const highestSeen = fallbackWitnesses.reduce(
       (max, w) => Math.max(max, w.leafIndex),
       -1

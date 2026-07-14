@@ -2,8 +2,8 @@
 // tries to decrypt each attached memo with the wallet's shielded
 // identity, and rebuilds the user's note inventory. Runs on wallet
 // connect and whenever a new confirmation lands via the borrow-events
-// bus, so notes survive fresh browsers / cleared localStorage without
-// any explicit backup step.
+// bus, so notes survive fresh browsers / cleared localStorage while
+// events are still within RPC retention.
 //
 // Event layout (matches contracts/borrow-pool/src/lib.rs):
 //   ("deposit", asset)  -> (leafIndex: u64, memoBytes: Bytes)
@@ -17,32 +17,18 @@ import {
   SUPPORTED_ASSETS,
   computeCommitment,
   computeNullifier,
+  isSpentNote,
   type ShieldedAsset,
   type ShieldedNote,
 } from "./note"
 import { replaceNotes, snapshotNotes } from "./note-store"
+import { fetchAllContractEvents, type RpcEvent } from "./rpc-events"
 
 import {
   getConfiguredContractId,
   getConfiguredNetworkPassphrase,
   getConfiguredSorobanRpcUrl,
 } from "@/features/wallet/network"
-
-// Testnet event retention ≈ 24h @ 5s ledgers. Stay just under.
-// Testnet event retention is nominally 24h (~17k ledgers @ 5s each)
-// but the public RPC quietly returns 0 events once startLedger falls
-// past the actual on-disk window (empirical: ~8k on the SDF testnet
-// endpoint). Cap safely under that so scans never come back empty
-// just because we overshot the retention edge.
-const LEDGER_LOOKBACK = 10_000
-
-type RpcEvent = {
-  contractId?: string
-  topic?: unknown[]
-  topics?: unknown[]
-  value?: unknown
-  ledgerClosedAt?: string
-}
 
 export function eventOpenedAt(event: {
   ledgerClosedAt?: string
@@ -54,13 +40,36 @@ export function eventOpenedAt(event: {
 }
 
 /**
- * Drop notes whose nullifier appears in `spent`. Pure so it can be
- * exercised without spinning up an rpc mock.
+ * Flag notes whose nullifier appears in `spent`. Spent notes are kept
+ * as tombstones (not dropped) because their commitments backfill
+ * Merkle rebuilds once the enabling events roll off RPC retention.
+ * Pure so it can be exercised without spinning up an rpc mock.
  */
-export function filterSpentNotes<
-  T extends { sk: bigint; index: number }
->(notes: T[], spent: Set<bigint>): T[] {
-  return notes.filter((note) => !spent.has(computeNullifier(note.sk, note.index)))
+export function markSpentNotes<
+  T extends { sk: bigint; index: number; spent?: boolean }
+>(notes: T[], spent: Set<bigint>): (T & { spent?: boolean })[] {
+  return notes.map((note) =>
+    spent.has(computeNullifier(note.sk, note.index)) && note.spent !== true
+      ? { ...note, spent: true }
+      : note
+  )
+}
+
+/**
+ * Previous-cache notes not surfaced by this scan pass. Kept so a
+ * persisted inventory (localStorage) survives events
+ * expiring from RPC retention; notes whose nullifier is now spent are
+ * tombstoned instead of dropped.
+ */
+export function carryOverNotes(
+  previous: ShieldedNote[],
+  seen: Set<string>,
+  spentNullifiers: Set<bigint>
+): ShieldedNote[] {
+  return markSpentNotes(
+    previous.filter((p) => !seen.has(`${p.asset}:${p.tree}:${p.index}`)),
+    spentNullifiers
+  )
 }
 
 export type ScanIdentity = {
@@ -71,10 +80,11 @@ export type ScanIdentity = {
 
 /**
  * Fetch every deposit + borrow + withdraw event on the pool contract,
- * decrypt the memos addressed to `identity`, and replace the local
- * note store with the combined inventory. Withdraw + repay events
- * mark their nullifiers so the matching deposit / borrow notes get
- * removed automatically.
+ * decrypt the memos addressed to `identity`, and merge the result into
+ * the local note store. Withdraw + repay events mark their nullifiers
+ * so the matching deposit / borrow notes get tombstoned (`spent`)
+ * automatically; previously known notes the scan can no longer see
+ * are carried over rather than dropped.
  */
 export async function scanShieldedNotes(
   identity: ScanIdentity,
@@ -86,8 +96,7 @@ export async function scanShieldedNotes(
   const contractId = getConfiguredContractId()
   if (!contractId) {
     console.warn("[scanner] no contract id configured — skipping scan")
-    replaceNotes([])
-    return []
+    return snapshotNotes()
   }
   console.log(
     "[scanner] starting",
@@ -106,10 +115,6 @@ export async function scanShieldedNotes(
   const server = new rpc.Server(getConfiguredSorobanRpcUrl(), {
     allowHttp: getConfiguredSorobanRpcUrl().startsWith("http://"),
   })
-  const latest = await server.getLatestLedger()
-  if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
-
-  const startLedger = Math.max(1, latest.sequence - LEDGER_LOOKBACK)
   const depositTopic = sdk.xdr.ScVal.scvSymbol("deposit").toXDR("base64")
   const borrowTopic = sdk.xdr.ScVal.scvSymbol("borrow").toXDR("base64")
   const withdrawTopic = sdk.xdr.ScVal.scvSymbol("withdraw").toXDR("base64")
@@ -160,35 +165,21 @@ export async function scanShieldedNotes(
     },
   ]
 
-  let response: unknown
+  let events: RpcEvent[]
   try {
-    console.log(
-      "[scanner] getEvents startLedger=",
-      startLedger,
-      "filtersA=",
-      JSON.stringify(filtersA)
-    )
-    const [respA, respB] = await Promise.all([
-      server.getEvents({ filters: filtersA, startLedger, limit: 500 }),
-      server.getEvents({ filters: filtersB, startLedger, limit: 500 }),
+    const [eventsA, eventsB] = await Promise.all([
+      fetchAllContractEvents({ server, filters: filtersA, signal }),
+      fetchAllContractEvents({ server, filters: filtersB, signal }),
     ])
-    console.log(
-      "[scanner] fetch A=",
-      ((respA as { events?: unknown[] }).events ?? []).length,
-      "B=",
-      ((respB as { events?: unknown[] }).events ?? []).length
-    )
-    const eventsA = (respA as { events?: unknown[] }).events ?? []
-    const eventsB = (respB as { events?: unknown[] }).events ?? []
-    response = { events: [...eventsA, ...eventsB] }
+    console.log("[scanner] fetch A=", eventsA.length, "B=", eventsB.length)
+    events = [...eventsA, ...eventsB]
   } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") throw err
     console.error("[scanner] getEvents threw", err)
-    replaceNotes([])
-    return []
+    return snapshotNotes()
   }
   if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
 
-  const events = extractEvents(response)
   console.log("[scanner] events fetched:", events.length)
   const notes: ShieldedNote[] = []
   const spentNullifiers = new Set<bigint>()
@@ -344,25 +335,22 @@ export async function scanShieldedNotes(
   // publish the four nullifiers in their event body). One bulk RPC
   // per rescan.
   await hydrateSpentFromChain(deduped, spentNullifiers)
-  const live = filterSpentNotes(deduped, spentNullifiers)
+  const marked = markSpentNotes(deduped, spentNullifiers)
 
   // Merge with prior cache so:
   //   1. Scan-rebuilt notes inherit any Merkle inclusion witness that
   //      `prepareDeposit` pinned at mint-time — the scanner only sees
   //      event topics + memos, not Merkle state.
-  //   2. Cache notes not present in this scan are kept ONLY when they
-  //      still carry a witness, still have a positive amount (skip
-  //      the local spent tombstones useBorrow writes on success),
-  //      AND their nullifier hasn't appeared in the spent set. Soroban
-  //      RPC lags a few seconds behind the ledger, so a note minted
-  //      just before this rescan may not surface yet — dropping it
-  //      would strand a fresh deposit between `useDeposit`'s upsert
-  //      and the next-tick rescan, mid-flow.
+  //   2. Cache notes not present in this scan are kept (persisted /
+  //      restored notes outlive RPC retention; a just-minted note may
+  //      lag the RPC event index by a few seconds). Ones whose
+  //      nullifier appears in the spent set become tombstones instead
+  //      of being dropped.
   const previous = snapshotNotes()
   const seen = new Set(
-    live.map((n) => `${n.asset}:${n.tree}:${n.index}`)
+    marked.map((n) => `${n.asset}:${n.tree}:${n.index}`)
   )
-  const withWitness = live.map((note) => {
+  const withWitness = marked.map((note) => {
     if (note.witness) return note
     const carry = previous.find(
       (p) =>
@@ -375,16 +363,7 @@ export async function scanShieldedNotes(
     )
     return carry ? { ...note, witness: carry.witness } : note
   })
-  const carriedOver = previous.filter((p) => {
-    if (!p.witness) return false
-    if (p.amount <= 0n) return false
-    if (seen.has(`${p.asset}:${p.tree}:${p.index}`)) return false
-    if (p.tree === "deposit") {
-      const nullifier = computeNullifier(p.sk, p.index)
-      if (spentNullifiers.has(nullifier)) return false
-    }
-    return true
-  })
+  const carriedOver = carryOverNotes(previous, seen, spentNullifiers)
   const merged = [...withWitness, ...carriedOver]
   merged.sort((a, b) => b.index - a.index)
   console.log(
@@ -392,7 +371,7 @@ export async function scanShieldedNotes(
     JSON.stringify({
       decrypted: notes.length,
       deduped: deduped.length,
-      live: live.length,
+      live: merged.filter((n) => !isSpentNote(n)).length,
       carriedOver: carriedOver.length,
       preservedWitnesses: merged.filter((n) => n.witness).length,
       spentNullifiers: spentNullifiers.size,
@@ -577,12 +556,6 @@ function decodeTopicSymbol(
   } catch {
     return null
   }
-}
-
-function extractEvents(response: unknown): RpcEvent[] {
-  if (!response || typeof response !== "object") return []
-  const list = (response as { events?: unknown }).events
-  return Array.isArray(list) ? (list as RpcEvent[]) : []
 }
 
 function decodeIndexedEvent(

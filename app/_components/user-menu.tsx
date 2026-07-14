@@ -3,12 +3,10 @@
 import {
   ActivityIcon,
   ArrowUpRightIcon,
-  DownloadIcon,
   ExternalLinkIcon,
   LayersIcon,
   LogOutIcon,
   ShieldCheckIcon,
-  UploadIcon,
   WalletCardsIcon,
   WalletIcon,
 } from "lucide-react"
@@ -31,7 +29,6 @@ import {
   MenuTrigger,
 } from "@/components/ui/menu"
 import { WalletDetailPanel } from "@/components/organisms/wallet-detail-panel"
-import { useNotesBackup } from "@/features/notes"
 import { getStellarExpertAccountUrl } from "@/features/wallet/network"
 
 import type { ConnectedAccount } from "../_constants/account"
@@ -54,23 +51,9 @@ export function UserMenu({
     walletMenu,
   } = useNavMenus()
   const explorerUrl = getStellarExpertAccountUrl(account.wallet.address)
-  const backup = useNotesBackup()
-  const importInputRef = React.useRef<HTMLInputElement | null>(null)
 
   return (
-    <>
-      <input
-        accept="application/json"
-        className="hidden"
-        onChange={(event) => {
-          const file = event.target.files?.[0]
-          if (file) void backup.importNotes(file)
-          event.target.value = ""
-        }}
-        ref={importInputRef}
-        type="file"
-      />
-      <Menu onOpenChange={walletMenu.setOpen} open={walletMenu.open}>
+    <Menu onOpenChange={walletMenu.setOpen} open={walletMenu.open}>
       <MenuTrigger
         data-tour="wallet"
         render={
@@ -135,31 +118,6 @@ export function UserMenu({
         </MenuGroup>
         <MenuSeparator />
         <MenuGroup>
-          <MenuGroupLabel>Backup</MenuGroupLabel>
-          <MenuItem
-            closeOnClick
-            disabled={!backup.canBackup}
-            onClick={backup.exportNotes}
-          >
-            <DownloadIcon aria-hidden="true" />
-            Export notes
-            {backup.unbackedCount > 0 ? (
-              <span className="ml-auto text-xs text-amber-600 dark:text-amber-500">
-                {backup.unbackedCount} unsaved
-              </span>
-            ) : null}
-          </MenuItem>
-          <MenuItem
-            closeOnClick
-            disabled={!backup.canBackup}
-            onClick={() => importInputRef.current?.click()}
-          >
-            <UploadIcon aria-hidden="true" />
-            Import notes
-          </MenuItem>
-        </MenuGroup>
-        <MenuSeparator />
-        <MenuGroup>
           <MenuGroupLabel>Resources</MenuGroupLabel>
           {userResourceLinks.map((link) => {
             const Icon = link.icon
@@ -191,6 +149,5 @@ export function UserMenu({
         </MenuItem>
       </MenuPopup>
     </Menu>
-    </>
   )
 }

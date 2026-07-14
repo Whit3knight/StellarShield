@@ -29,7 +29,7 @@ encrypted memos (ChaCha20-Poly1305 over X25519 ECDH) let a browser rebuild the
 note inventory from public chain events **within the RPC retention window**
 (see NFR-R1).
 
-- **Canonical testnet contract:** `CATPLYDPXDFBSLOUP4YQK5BZLGRBYTUXSTZMIXLMBHAPAR6K4JEP52YX`
+- **Canonical testnet contract:** `CBVBVB6LGQJYO2KTIHB6VMJEZ3CHHC4KPIJ7EATV4SR7CTC7TUE6PM2P`
   (declared across README/.env/CLI; R16 resolved — an earlier `CBJZP45H…`
   deployment is retired).
 - **Registered markets:** USDC/XLM, XLM/USDC, EURC/USDC, USDC/EURC, EURC/XLM, XLM/EURC.
@@ -80,9 +80,9 @@ note inventory from public chain events **within the RPC retention window**
 - Live health factors on loan notes (`LoanHealthBadge`, cached prices). `[IMPLEMENTED]`
 - Privacy mode: addresses, proof IDs, hashes, balances masked via `PrivateValue`. `[IMPLEMENTED]`
 - Positions and activity derived from chain events. `[IMPLEMENTED]`
-- Export/import encrypted notes backup (`features/notes/backup.ts`).
-  `[IMPLEMENTED]` — should be promoted from optional to recommended while
-  recovery is window-bounded (REMEDIATION R2).
+- Export/import encrypted notes backup. `[REMOVED — 2026-07]` — testnet
+  accepts post-retention note loss; persisted local store + event scan is
+  the recovery model.
 - Repay returns collateral notes to the deposit tree. `[PLANNED — v2 repay circuit; v1 burns collateral]`
 - Multi-note deposit in one proof. `[STATUS UNCLEAR — `shielded-deposit-quad`
   circuit + `deposit-quad-prover.ts` exist but are in no roadmap track; REMEDIATION OQ-4]`
@@ -129,10 +129,10 @@ note inventory from public chain events **within the RPC retention window**
   `useNotes()`.
 - **FR-N4:** Poseidon commitments + Merkle paths client-side (`poseidon.ts`,
   `merkle.ts` — tested against fixtures shared with the contract).
-- **FR-N5:** Encrypted backup export/import (`backup.ts`, `use-notes-backup`).
-  Tracks which note keys have been exported per wallet and surfaces an
-  "N unsaved" nudge (`backup-state.ts`); import retries the legacy identity so
-  pre-R1 backups still restore (R2).
+- **FR-N5:** Removed: encrypted backup export/import (testnet accepts
+  post-retention loss). Recovery is the persisted local note store plus the
+  ~7-day chain-event scan; reintroduction path is an indexer, gated on
+  mainnet.
 
 ### 4.4 Shielded pool operations (`features/shielded-pool/`) `[IMPLEMENTED]`
 
@@ -214,7 +214,7 @@ note inventory from public chain events **within the RPC retention window**
 | NFR-S2 | Security | Oracle price *commitment* cross-checked on-chain | **Gap — planned (R7)** |
 | NFR-S3 | Security | Production trusted setup | **Gap — mainnet blocker (R5)** |
 | NFR-S4 | Security | Circuit artifacts in `public/` integrity-pinned; proving deps reviewed | Artifacts SHA-256-pinned via committed manifest + CI check; `circomlibjs` removed, `snarkjs` pinned (R8). Deep dep audit still gated |
-| NFR-R1 | Reliability | Note inventory recoverable from chain events **within scanner lookback (10,000 ledgers ≈ 14h) and RPC event retention** | Window-bounded; app now nudges unsaved-note backup and imports legacy-identity backups (R2). Older notes need the backup file |
+| NFR-R1 | Reliability | Note inventory recoverable from chain events **within RPC event retention (~7 days)** | Window-bounded; persisted local note store is the only recovery path after retention (backup export/import removed 2026-07) |
 | NFR-Q1 | Quality | lint/typecheck/test/build green; TS fixture harness covers circuit/contract primitives | Implemented; Rust tests blocked on soroban-sdk 23 |
 
 ## 6. Acceptance Criteria (P0)
@@ -271,9 +271,9 @@ QA-derived, Given/When/Then. These are the verifiable form of the P0 stories.
 
 ## 7. Test Coverage Gaps (ranked by risk)
 
-Current suite: 23 TS test files, 165 tests. Recently closed: `quote.ts` math,
+Current suite: 23 TS test files, 170 tests. Recently closed: `quote.ts` math,
 artifact-integrity loader, memo ephemeral-key freshness, R1 legacy-identity
-backward-compat, backup-state. Remaining gaps:
+backward-compat. Remaining gaps:
 
 1. **Zero Rust contract tests** — nullifier/proof replay, oracle staleness,
    auth gating unverified except manually. Blocked on soroban-sdk 23; revisit.
@@ -302,12 +302,12 @@ backward-compat, backup-state. Remaining gaps:
 |---|---|---|
 | Network | Stellar testnet, single upgradeable contract | Mainnet gated on audit + ceremony + multisig + oracle cross-check + legal position (BRD P2) |
 | Identity | **Signature-derived, cached (R1 done)**; address scheme kept as legacy fallback | — |
-| Recovery | 10k-ledger window + backup nudge + legacy-identity import (R2 done) | Indexer/archive only if backup UX proves insufficient |
+| Recovery | Persisted local note store + ~7-day event scan (backup export removed 2026-07) | Indexer/archive, gated on mainnet |
 | Proving | Real in-browser Groth16, artifacts hash-pinned (R8); dev trusted setup | Production ceremony / universal setup |
 | Repay | Burns collateral notes; interest accrual live | v2 repay circuit: collateral recovery |
 | Liquidation | v1 + v2 shipped; autonomous loop shipped-unconfigured; single trusted operator | Activate service; decentralization dropped (FROST) — operator trust stays unless revisited |
 | Oracle | Reflector freshness check only (live-price strkey bug fixed) | On-chain commitment cross-check |
-| Testing | TS unit (165) + fixture harness + **e2e testnet harness in CI (R6)** | Rust tests post soroban-sdk 23 |
+| Testing | TS unit (170) + fixture harness + **e2e testnet harness in CI (R6)** | Rust tests post soroban-sdk 23 |
 | Docs | README + CLAUDE.md refreshed; canonical contract ID declared; BRD/PRD/REMEDIATION maintained | — |
 
 ## 9. Lifecycle (as implemented)
@@ -338,7 +338,8 @@ Business questions live in BRD §12; engineering remediation questions in REMEDI
    mock-adapter `ProtocolAdapter` type in `features/protocol/types.ts`, and the
    unused `circomlib` dependency? (Deferred — flagged, not blockers.)
 2. ✅ Done — `e2e-borrow.ts` wired to a scheduled CI job (`test:e2e`).
-3. ✅ Done — backup promoted with an unsaved-note nudge (R2).
+3. Superseded — backup feature deleted 2026-07; persisted note store +
+   ~7-day event scan is the accepted recovery model.
 4. Add a timed proof-generation benchmark so NFR-P1 becomes measured?
 5. Degraded-privacy banner for wallets lacking `signMessage`? (Freighter has
    it; WalletConnect is scaffolding-only.)

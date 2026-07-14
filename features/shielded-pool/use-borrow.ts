@@ -6,6 +6,7 @@ import { toastManager } from "@/components/ui/toast"
 import {
   COLLATERAL_NOTES_PER_BORROW,
   computeNullifier,
+  isSpentNote,
   upsertNote,
   useNotes,
   type ShieldedAsset,
@@ -63,13 +64,11 @@ export function useBorrow(
   const [message, setMessage] = React.useState<string | null>(null)
 
   const availableCollateral = React.useMemo(
-    // Exclude notes with `amount === 0`: those are the local
-    // "spent" tombstones this hook itself writes after a successful
-    // borrow. Scanner drops them once the corresponding withdraw /
-    // borrow nullifier lands, but until then a subsequent borrow that
-    // picked them up again would fail
-    // `collateral amount mismatch: expected N, saw 0` in the prover.
-    () => notes.filter((note) => note.tree === "deposit" && note.amount > 0n),
+    // Exclude spent notes: the local tombstones this hook itself
+    // writes after a successful borrow. A subsequent borrow that
+    // picked one up again would trip ProofReplayed at simulation.
+    () =>
+      notes.filter((note) => note.tree === "deposit" && !isSpentNote(note)),
     [notes]
   )
 
@@ -98,11 +97,11 @@ export function useBorrow(
         return null
       }
 
-      // Fresh cache view — filter by asset + `amount > 0n` (tombstones
-      // land at zero after a successful borrow) and hand off the top
+      // Fresh cache view — filter by asset (spent tombstones already
+      // excluded upstream) and hand off the top
       // `COLLATERAL_NOTES_PER_BORROW`.
       const assetPool = availableCollateral.filter(
-        (note) => note.asset === collateralAsset
+        (note) => note.asset === collateralAsset && !isSpentNote(note)
       )
       let collateralNotes = assetPool.slice(0, COLLATERAL_NOTES_PER_BORROW)
 
@@ -279,10 +278,11 @@ export function useBorrow(
         )
 
         const stored: ShieldedNote = { ...prepared.note, index: loanIndex }
-        // Collateral notes are now spent — drop them from local
-        // inventory so the deposit balance updates immediately.
+        // Collateral notes are now spent — tombstone them (amount
+        // preserved so Merkle rebuilds can recompute their leaves) and
+        // the deposit balance updates immediately.
         for (const spent of collateralNotes) {
-          upsertNote({ ...spent, tree: "deposit", amount: 0n })
+          upsertNote({ ...spent, tree: "deposit", spent: true })
         }
         upsertNote(stored)
 

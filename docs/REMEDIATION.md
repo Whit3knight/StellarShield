@@ -95,6 +95,8 @@ Goal: close the two "code contradicts the claim" criticals. After M3 the
 
 ### R2 — Recovery bounded by RPC retention [CRITICAL]
 
+> Superseded 2026-07: backup feature deleted; persisted note store + 7-day scan is the accepted recovery model.
+
 **Root cause.** `scanner.ts:37` `LEDGER_LOOKBACK = 10_000` (~14h); RPC quietly returns 0 events past retention. `README.md:187` claims "No client-side backup needed" — false.
 
 **Recommendation: promote the backup flow, do not build an indexer** (new always-on service = out of scope for single-dev testnet). `backup.ts`/`use-notes-backup.ts`/`backup.test.ts` already built + wired into `user-menu.tsx`. Gap is only that it's optional/invisible.

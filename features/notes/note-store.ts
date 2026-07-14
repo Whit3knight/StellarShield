@@ -1,22 +1,89 @@
 // Client-side inventory of shielded notes the current wallet owns.
 // Populated by scanning deposit / borrow / repay events on the
 // deployed shielded pool contract, attempting to decrypt each memo
-// with the wallet's shielded identity secret.
+// with the wallet's shielded identity.
 //
 // The store is a module-level cache + subscriber list, mirroring the
-// pattern in `features/markets/price-cache.ts`.
+// pattern in `features/markets/price-cache.ts`. Once
+// `configureNotePersistence` runs, every mutation is mirrored to
+// localStorage so notes (including spent tombstones needed for Merkle
+// tree rebuilds) survive a page reload even after the enabling chain
+// events expire from RPC retention.
+// ponytail: plaintext at rest; encrypt at rest before mainnet
 
-import type { ShieldedNote } from "./note"
+import { isSpentNote, type ShieldedNote } from "./note"
+import { deserializeNote, serializeNote, type SerializedNote } from "./note-serde"
 
 let cache: ShieldedNote[] = []
 const listeners = new Set<() => void>()
+let storageKey: string | null = null
+
+/**
+ * Point the store at a per-(contract, account) localStorage slot and
+ * hydrate the cache from it. Safe to call repeatedly — same key is a
+ * no-op so rescans don't clobber in-memory witnesses with the
+ * witness-stripped persisted copy.
+ */
+export function configureNotePersistence(
+  contractId: string,
+  account: string
+): void {
+  if (typeof window === "undefined") return
+  const key = `stellar-shield:notes:v1:${contractId}:${account}`
+  if (key === storageKey) return
+  storageKey = key
+  cache = readPersisted(key)
+  for (const listener of listeners) listener()
+}
+
+function readPersisted(key: string): ShieldedNote[] {
+  try {
+    const raw = window.localStorage.getItem(key)
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as unknown
+    return Array.isArray(parsed)
+      ? (parsed as SerializedNote[]).map(deserializeNote)
+      : []
+  } catch {
+    return []
+  }
+}
+
+function persist(): void {
+  if (storageKey === null || typeof window === "undefined") return
+  try {
+    // Witnesses are dropped: they dominate the payload, go stale on
+    // every tree append, and spend paths recompute them per op.
+    const rows = cache.map((note) => serializeNote({ ...note, witness: undefined }))
+    window.localStorage.setItem(storageKey, JSON.stringify(rows))
+  } catch {
+    // Quota / privacy-mode failures degrade to in-memory behavior.
+  }
+}
 
 export function snapshotNotes(): ShieldedNote[] {
   return cache
 }
 
+let liveView: ShieldedNote[] = []
+let liveViewSource: ShieldedNote[] | null = null
+
+/**
+ * Unspent notes only — the view UI consumers want. Result is cached
+ * per underlying cache reference so `useSyncExternalStore` sees a
+ * stable snapshot between mutations.
+ */
+export function snapshotLiveNotes(): ShieldedNote[] {
+  if (liveViewSource !== cache) {
+    liveView = cache.filter((note) => !isSpentNote(note))
+    liveViewSource = cache
+  }
+  return liveView
+}
+
 export function replaceNotes(next: ShieldedNote[]): void {
   cache = next
+  persist()
   for (const listener of listeners) listener()
 }
 
@@ -33,6 +100,7 @@ export function upsertNote(note: ShieldedNote): void {
   } else {
     cache = [note, ...cache]
   }
+  persist()
   for (const listener of listeners) listener()
 }
 
@@ -72,6 +140,7 @@ function notesEqual(a: ShieldedNote, b: ShieldedNote): boolean {
     a.asset === b.asset &&
     a.amount === b.amount &&
     a.salt === b.salt &&
-    a.sk === b.sk
+    a.sk === b.sk &&
+    a.spent === b.spent
   )
 }

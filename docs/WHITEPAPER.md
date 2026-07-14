@@ -377,14 +377,14 @@ flowchart TD
     hydrate["hydrate: nullifiers_used view<br/>(catches pre-upgrade spends)"] --> candidates
 
     candidates["candidate notes<br/>{amount, asset, index, salt, sk, tree, bond?}"]
-    backup["encrypted backup file<br/>(older than RPC retention window)<br/>deriveBackupKey(identity)"] --> merge
+    cache["persisted local note store<br/>(localStorage, per contract+account)"] --> merge
 
     candidates --> merge
     merge["merge w/ cache: preserve mint-time witnesses,<br/>keep RPC-lagged mints"]
     merge --> store["local note store<br/>&rarr; balances, borrow eligibility, spends"]
 ```
 
-**Recovery model and its bound.** Because every commitment and every encrypted memo is on chain, a user on a fresh browser recovers their entire *live* inventory from public chain data plus their wallet — no indexer, no server account. But recovery is **bounded by RPC event retention**: `LEDGER_LOOKBACK = 10,000` ledgers (`scanner.ts:37`) ≈ **~14 hours** at 5 s/ledger, and the public endpoint silently returns zero events past its on-disk window. A note minted and never spent, older than that window, can no longer be reconstructed from events — the commitment lives on the tree forever, but the memo opening needed to *spend* it has aged out of the event stream. The **encrypted backup file** (`features/notes/backup.ts`, sealed under a key derived from the shielded identity) is the honest counter and the only recovery path beyond the window; `backup-state.ts` tracks un-backed notes and the UI nudges the user to export. Backup is not optional convenience — it is the recovery path for notes older than ~14 h.
+**Recovery model and its bound.** Because every commitment and every encrypted memo is on chain, a user on a fresh browser recovers their entire *live* inventory from public chain data plus their wallet — no indexer, no server account. But recovery is **bounded by RPC event retention**: the scanner sweeps the full retention window (**~7 days** on the public testnet endpoint), and the endpoint silently returns zero events past its on-disk window. A note minted and never spent, older than that window, can no longer be reconstructed from events — the commitment lives on the tree forever, but the memo opening needed to *spend* it has aged out of the event stream. The **persisted local note store** (localStorage, keyed per contract and account) is the only recovery path beyond the window. If browser storage is cleared after the enabling events expire, those notes are permanently unspendable — an accepted loss on testnet; the reintroduction path is an indexer, gated on mainnet.
 
 ---
 
@@ -406,7 +406,7 @@ The privacy boundary is exactly the line between commitment and opening. The cha
 | Note openings (`amount, salt, sk`, bond openings) | Off-chain (browser) | No | The preimages. |
 | Spend keys / shielded identity | Off-chain (from wallet signature) | No | Reproducible only by the wallet holder. |
 | Merkle inclusion witnesses | Off-chain (client-maintained) | No | Contract never serves them. |
-| Encrypted backup bundle | Off-chain (user file) | No | Sealed under the identity key. |
+| Persisted note store | Off-chain (browser localStorage) | No | Plaintext at rest; per contract and account. |
 
 An observer learns from the chain alone: how many deposit and loan notes exist per asset, that spends happened, pool-level totals, and loan-withdrawal amounts. They cannot learn who owns any note, how much any note is worth, which deposit funded which borrow, or whether two notes share an owner. The anonymity set for any spend is the set of unspent leaves in that asset's tree at the attested root — which is exactly why fixed denominations and a shared, growing tree matter, and why the single-live-root constraint is the sharpest edge of the current design.
 
@@ -444,7 +444,7 @@ The shielded identity is both the note spending key and the memo-decryption key,
 | No double-spend of any note | Nullifier uniqueness + Poseidon resistance + secret `sk` |
 | Amounts and wallet↔note linkage hidden from outside observers | Memo secrecy + secret identity + **sufficient anonymity set** (not met, §14) |
 | Loan positions correct (LTV/HF enforced) | Circuit constraints + **honest oracle price commitment** (not cross-checked on-chain today, §9) |
-| A fresh browser can recover inventory | Encrypted memos + RPC event retention **or** an exported backup (bounded, §11) |
+| A fresh browser can recover inventory | Encrypted memos + RPC event retention (~7 days) **or** the persisted local note store (bounded, §11) |
 
 ---
 
@@ -492,7 +492,7 @@ Tampers with client-fetched `.wasm`/`.zkey` or the `snarkjs` dependency to weake
 Holds the secret randomness from the development setup; can forge accepting proofs for arbitrary statements — **breaks soundness entirely**. **Gated (R5):** no mitigation without a proper ceremony; acceptable only because testnet holds no value. Hard mainnet blocker.
 
 ### 15.6 RPC-retention-bounded recovery (availability)
-Not adversarial. Past RPC retention (~14 h), a fresh browser rebuilding from events silently gets a partial inventory that can look complete. **Mitigated by disclosure + backup flow (R2):** an encrypted backup restores older notes, the scanner flags a clamped window, and a staleness badge prompts backup. Not building an always-on indexer is an explicit scope decision for a single-dev testnet.
+Not adversarial. Past RPC retention (~7 days), a fresh browser rebuilding from events silently gets a partial inventory that can look complete. **Mitigated by disclosure + the persisted local note store**, which survives event expiry as long as browser storage is intact; post-retention loss after cleared storage is accepted on testnet. Not building an always-on indexer is an explicit scope decision for a single-dev testnet.
 
 ### 15.7 Other adversaries
 - **Admin-key compromise / malicious upgrade** — single key, in-place upgrade, no multisig/timelock. **Gated** (R12, mainnet).
@@ -617,7 +617,7 @@ Full shielded lifecycle (deposit → borrow → claim → repay → liquidate) w
 7. **Single-oracle dependency.** One Reflector feed; SEP-40 is swappable but no fallback/cross-check is deployed (R13, BR5).
 8. **Single-developer, unaudited.** No third-party audit across cryptography, contracts, oracle, and in-browser proving; no real value custodied under this model (R6-audit, R14, BR4).
 9. **Single admin key.** In-place upgradeable by one address; no multisig/timelock/governance (R12).
-10. **Recovery bounded by RPC retention (~14 h)** absent an exported backup (R2, mitigated by backup flow).
+10. **Recovery bounded by RPC retention (~7 days)** absent the persisted local note store; post-retention loss with cleared storage is accepted on testnet.
 11. **No Rust contract unit tests** (blocked on a `soroban-sdk` 23 upstream conflict); TS fixture cross-checks and a testnet e2e harness cover the primitives in the interim.
 12. **Interest accrual is linear, not compounding** (`rate.rs:72`).
 13. **Recent Poseidon assumption** — security leans on a younger algebraic hash than a classical one.

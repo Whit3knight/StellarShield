@@ -319,7 +319,7 @@ technical breakdown (contracts, circuits, tooling).
 - **Liquidation** — keep the pool solvent when a position goes underwater, via a
   path that does not require the borrower's spending keys.
 - **Position recovery** — rebuild a user's private holdings from public chain
-  data on a fresh device (bounded by a data-retention window; backup available).
+  data on a fresh device (bounded by a data-retention window).
 - **Operator tooling** — a watchlist and triage capability for liquidation
   service operators.
 

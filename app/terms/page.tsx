@@ -109,9 +109,9 @@ const sections: LegalSection[] = [
           data.
         </p>
         <p>
-          You are solely responsible for your wallet, your keys, your local
-          storage, and your encrypted backup file. If you lose them, the Service
-          cannot recover them for you, and neither can anyone else.
+          You are solely responsible for your wallet, your keys, and your
+          browser&rsquo;s local storage. If you lose them, the Service cannot
+          recover them for you, and neither can anyone else.
         </p>
       </>
     ),
@@ -155,11 +155,12 @@ const sections: LegalSection[] = [
             changed at any time. Your test state may disappear.
           </li>
           <li>
-            <strong>Recovery risk.</strong> Your note inventory is rebuilt from
-            public chain events, but recovery from events is bounded to roughly a
-            14-hour RPC retention window. Beyond that window, your encrypted local
-            backup is the only recovery path. Lose both, and your notes may be
-            permanently unrecoverable.
+            <strong>Recovery risk.</strong> Your note inventory is persisted in
+            your browser&rsquo;s local storage and can be rebuilt from public
+            chain events, but event-based recovery is bounded to roughly a
+            7-day RPC retention window. Beyond that window, local storage is
+            the only recovery path. Clear it after events expire, and your
+            notes are permanently unspendable.
           </li>
         </ul>
       </>

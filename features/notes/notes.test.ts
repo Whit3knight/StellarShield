@@ -5,6 +5,7 @@ import {
   computeCommitment,
   computeNullifier,
   DENOMINATION,
+  isSpentNote,
   randomFieldElement,
   SUPPORTED_ASSETS,
 } from "./note"
@@ -99,6 +100,13 @@ describe("shielded note primitives", () => {
       expect(output).toBeGreaterThanOrEqual(0n)
       expect(output).toBeLessThan(FR_ORDER)
     }
+  })
+
+  it("isSpentNote flags the spent marker and legacy zero-amount tombstones", () => {
+    expect(isSpentNote({ amount: 100n })).toBe(false)
+    expect(isSpentNote({ amount: 100n, spent: true })).toBe(true)
+    expect(isSpentNote({ amount: 0n })).toBe(true)
+    expect(isSpentNote({ amount: 100n, spent: false })).toBe(false)
   })
 
   it("poseidon rejects unsupported widths", () => {

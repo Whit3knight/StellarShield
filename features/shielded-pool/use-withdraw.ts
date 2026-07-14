@@ -97,10 +97,11 @@ export function useWithdraw(account: string | null): UseWithdrawResult {
             root: note.witness.root,
           }
         } else {
+          const wanted = new Set([note.index])
           const witnesses =
             note.tree === "loan"
-              ? await fetchLoanWitnesses(note.asset)
-              : await fetchDepositWitnesses(note.asset)
+              ? await fetchLoanWitnesses(note.asset, undefined, wanted)
+              : await fetchDepositWitnesses(note.asset, undefined, wanted)
           const commitment = computeCommitment(note)
           witness = witnesses.find(
             (candidate) =>

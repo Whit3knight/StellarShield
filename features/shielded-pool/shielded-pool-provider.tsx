@@ -20,7 +20,7 @@ const ShieldedPoolContext =
 /**
  * Wraps `useShieldedPool` so the shielded identity + note-scan lifecycle
  * runs exactly once per session. Consumers on multiple drawers
- * (market panel, positions, backup) subscribe via
+ * (market panel, positions) subscribe via
  * `useShieldedPoolContext()` instead of each re-invoking the scanner.
  */
 export function ShieldedPoolProvider({

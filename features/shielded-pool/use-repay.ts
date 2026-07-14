@@ -99,8 +99,16 @@ export function useRepay(account: string | null): UseRepayResult {
       try {
         setStatus("reconstructing")
         const [loanWitnesses, depWitnesses] = await Promise.all([
-          fetchLoanWitnesses(loanNote.asset),
-          fetchDepositWitnesses(depositNote.asset),
+          fetchLoanWitnesses(
+            loanNote.asset,
+            undefined,
+            new Set([loanNote.index])
+          ),
+          fetchDepositWitnesses(
+            depositNote.asset,
+            undefined,
+            new Set([depositNote.index])
+          ),
         ])
 
         const loanCommitment = computeCommitment(loanNote)

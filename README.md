@@ -20,7 +20,7 @@ user's note inventory from public events alone.
 
 | Item | Value |
 | --- | --- |
-| Contract ID | `CATPLYDPXDFBSLOUP4YQK5BZLGRBYTUXSTZMIXLMBHAPAR6K4JEP52YX` |
+| Contract ID | `CBVBVB6LGQJYO2KTIHB6VMJEZ3CHHC4KPIJ7EATV4SR7CTC7TUE6PM2P` |
 | Admin | `GCGLOK2DM2Y4NGESNJBTTOHEY7EB3MO35FV5YQSZIOWV6QW6ZNRXGPXK` |
 | Network | Testnet (`Test SDF Network ; September 2015`) |
 | Reflector CEX/DEX | `CCYOZJCOPG34LLQQ7N24YXBM7LL62R7ONMZ3G6WZAAYPB5OYKOMJRN63` |
@@ -29,9 +29,10 @@ user's note inventory from public events alone.
 Registered markets: `USDC/XLM`, `XLM/USDC`, `EURC/USDC`, `USDC/EURC`, `EURC/XLM`, `XLM/EURC`.
 
 The contract ID above is **canonical** — it is what the app routes through
-(`.env.local` / `features/protocol/bindings/borrow-pool.ts`). A second live
-testnet deployment (`CBJZP45H…4N7L`) exists from an earlier deploy with
-identical markets but **separate pool state**; it is retired. Any redeploy must
+(`.env.local` / `features/protocol/bindings/borrow-pool.ts`). Earlier
+deployments (`CBJZP45H…4N7L`, `CATPLYDP…52YX`) still exist with identical
+markets but **separate pool state**; they are retired. After any redeploy,
+users must re-deposit — prior pool state is unreachable. Any redeploy must
 update this table, `.env.example`, and the CLI script fallbacks together, and
 keep them equal.
 
@@ -104,7 +105,7 @@ Key boundaries:
 - `AdapterProvider` at `app/layout.tsx` picks Soroban vs mock adapter based on env.
 - `features/markets/prices.ts` is the only place that talks to Reflector.
 - `features/notes/scanner.ts` is the sole reader for building the user's note inventory; it consumes deposit + borrow (mints notes), withdraw + repay (marks nullifiers spent).
-- `features/notes/note-store.ts` is the in-memory cache surfaced via `useNotes()`; scan replaces it wholesale each pass.
+- `features/notes/note-store.ts` is the localStorage-persisted cache surfaced via `useNotes()`; each scan pass merges into it, tombstoning spent notes instead of dropping them.
 - `features/shielded-pool/` owns the hooks (`useDeposit`, `useBorrow`, `useWithdraw`, `useRepay`) plus the prover wrappers.
 - `features/protocol/risk-params.ts` fetches contract-side risk params once per session and exposes `getRiskParams()` / `useRiskParams()`.
 
@@ -167,7 +168,7 @@ stellar contract install \
 # → prints WASM_HASH
 
 stellar contract invoke \
-  --id CATPLYDPXDFBSLOUP4YQK5BZLGRBYTUXSTZMIXLMBHAPAR6K4JEP52YX \
+  --id CBVBVB6LGQJYO2KTIHB6VMJEZ3CHHC4KPIJ7EATV4SR7CTC7TUE6PM2P \
   --source deployer --network testnet \
   -- upgrade --wasm_hash $WASM_HASH
 
@@ -183,7 +184,7 @@ stellar contract invoke \
 4. On the fresh loan note row, click **Claim** — receives the loan amount into Freighter via `withdraw_loan_shielded`.
 5. Deposit a repay-source note in the loan's asset ≥ loan amount. **Repay** button appears on the loan note. Click → both nullifiers burn, loan note vanishes.
 6. Any Withdraw button on a deposit note calls `withdraw_shielded` and receives the fixed denomination.
-7. Refresh browser (or clear localStorage) → scanner rebuilds inventory from public events **within the RPC event-retention window** (scanner looks back 10,000 ledgers, ~14h). Notes older than that window require the encrypted backup file (user menu → export/import); recovery from chain events alone is not unbounded.
+7. Refresh browser → notes hydrate from the persisted local store; the scanner merges public events over the RPC retention window (~7 days). If browser storage is cleared after events expire, those notes are permanently unspendable (accepted on testnet).
 8. `bun run lint && bun run typecheck && bun run test && bun run build` all green.
 
 ## Deferred
@@ -236,10 +237,10 @@ bun run build
 cd contracts
 stellar contract build
 stellar contract install --wasm target/wasm32v1-none/release/borrow_pool.wasm --source deployer --network testnet
-stellar contract invoke --id CATPLYDPXDFBSLOUP4YQK5BZLGRBYTUXSTZMIXLMBHAPAR6K4JEP52YX --network testnet -- list_markets
+stellar contract invoke --id CBVBVB6LGQJYO2KTIHB6VMJEZ3CHHC4KPIJ7EATV4SR7CTC7TUE6PM2P --network testnet -- list_markets
 
 # Bindings
-stellar contract bindings typescript --contract-id CATPLYDPXDFBSLOUP4YQK5BZLGRBYTUXSTZMIXLMBHAPAR6K4JEP52YX --network testnet --output-dir /tmp/bindings
+stellar contract bindings typescript --contract-id CBVBVB6LGQJYO2KTIHB6VMJEZ3CHHC4KPIJ7EATV4SR7CTC7TUE6PM2P --network testnet --output-dir /tmp/bindings
 
 # Liquidation watchlist / triage (Tracks G-lite + G-full)
 # Watchlist mode — no service key: enumerate every live

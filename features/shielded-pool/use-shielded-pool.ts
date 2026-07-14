@@ -8,11 +8,13 @@ import {
   onRepayConfirmed,
 } from "@/features/borrow-flow/borrow-events"
 import {
+  configureNotePersistence,
   legacyIdentityFromAddress,
   scanShieldedNotes,
   useShieldedIdentity,
   type ScanIdentity,
 } from "@/features/notes"
+import { getConfiguredContractId } from "@/features/wallet/network"
 
 /**
  * Ties the shielded identity + note scanner to wallet connection +
@@ -37,6 +39,10 @@ export function useShieldedPool(account: string | null): {
 
   React.useEffect(() => {
     if (!identity || !account) return
+    // Hydrate the persisted note store BEFORE the first scan so
+    // carried-over notes survive events expiring from RPC retention.
+    const contractId = getConfiguredContractId()
+    if (contractId) configureNotePersistence(contractId, account)
     const controller = new AbortController()
     void (async () => {
       setIsScanning(true)

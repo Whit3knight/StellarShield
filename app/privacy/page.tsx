@@ -142,27 +142,27 @@ const sections: LegalSection[] = [
     ),
   },
   {
-    heading: "Encrypted Memos & Your Backup Responsibility",
+    heading: "Encrypted Memos & Note Recovery",
     body: (
       <>
         <p>
           The Service uses encrypted memos so that a fresh browser can rebuild
           your note inventory from public chain events alone, using your
-          memo-decryption key.
+          memo-decryption key. Rebuilt notes are persisted in your
+          browser&rsquo;s local storage, keyed per contract and account.
         </p>
         <p>
           This recovery-from-events path is <strong>bounded</strong>. Chain
-          events are retained by RPC for only about <strong>14 hours</strong>.
+          events are retained by RPC for roughly <strong>7 days</strong>.
           Beyond that window, event-based recovery is no longer possible.
         </p>
         <p>
-          Past that window, your <strong>encrypted local backup file</strong> is
-          the <strong>only</strong> recovery path — and that file is{" "}
-          <strong>your responsibility</strong>. If you lose your wallet, your
-          local storage, and your backup, your notes may be{" "}
-          <strong>permanently unrecoverable</strong>. No one — not us, not any
-          third party — can restore them for you. Export your backup and store it
-          safely.
+          Past that window, your browser&rsquo;s <strong>local storage</strong>{" "}
+          is the <strong>only</strong> recovery path. If you clear your browser
+          data after the chain events have expired, your notes are{" "}
+          <strong>permanently unspendable</strong>. No one — not us, not any
+          third party — can restore them for you. This loss is accepted on
+          testnet, where no real value is at stake.
         </p>
       </>
     ),
@@ -217,8 +217,8 @@ const sections: LegalSection[] = [
           storage.
         </li>
         <li>
-          Export and safely store your encrypted backup file. It is your only
-          recovery path beyond the ~14-hour event window.
+          Preserve your browser&rsquo;s local storage. Beyond the ~7-day chain
+          event window, it is your only recovery path.
         </li>
         <li>
           Do not assume your positions are private (see{" "}
@@ -256,8 +256,8 @@ const sections: LegalSection[] = [
     body: (
       <p>
         Questions about privacy or security: [PLACEHOLDER: contact email or
-        channel — to be confirmed]. Please do not include private keys, backup
-        files, or secrets in any message. See also our{" "}
+        channel — to be confirmed]. Please do not include private keys or
+        secrets in any message. See also our{" "}
         <Link href={appRoutes.terms}>Terms &amp; Conditions</Link>.
       </p>
     ),
