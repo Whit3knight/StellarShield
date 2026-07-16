@@ -257,3 +257,5 @@ LOOKBACK_LEDGERS=32000 bun run scan:underwater
 # LIQUIDATION_SERVICE_SK must match the on-chain LiquidationServicePk.
 LIQUIDATION_SERVICE_SK=0x... bun run scan:underwater
 ```
+
+DEMO_VIDEO: https://www.youtube.com/watch?v=e36Rj-GE9Yw
