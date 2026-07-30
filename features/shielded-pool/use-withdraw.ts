@@ -7,6 +7,7 @@ import {
   DENOMINATION,
   type ShieldedNote,
   computeCommitment,
+  upsertNote,
 } from "@/features/notes"
 import {
   getConfiguredContractId,
@@ -77,41 +78,27 @@ export function useWithdraw(account: string | null): UseWithdrawResult {
 
       try {
         setStatus("reconstructing")
-        let witness:
-          | {
-              leaf: bigint
-              leafIndex: number
-              pathBits: number[]
-              pathElements: bigint[]
-              root: bigint
-            }
-          | undefined
-        if (note.witness) {
-          // Cache path from deposit-time bypasses event replay + its
-          // ~24h retention cliff.
-          witness = {
-            leaf: computeCommitment(note),
-            leafIndex: note.index,
-            pathBits: note.witness.pathBits,
-            pathElements: note.witness.pathElements,
-            root: note.witness.root,
-          }
-        } else {
-          const wanted = new Set([note.index])
-          const witnesses =
-            note.tree === "loan"
-              ? await fetchLoanWitnesses(note.asset, undefined, wanted)
-              : await fetchDepositWitnesses(note.asset, undefined, wanted)
-          const commitment = computeCommitment(note)
-          witness = witnesses.find(
-            (candidate) =>
-              candidate.leafIndex === note.index && candidate.leaf === commitment
+        // Always rebuild against the CURRENT tree state. The witness
+        // cached at deposit-time carries the root as of that append —
+        // every later deposit shifts the root, and the contract only
+        // accepts the current one, so the cached path fails simulation
+        // with InvalidProof for any note that isn't the newest leaf.
+        // The rebuild path backfills expired events from local notes
+        // and verifies its root against the chain before returning.
+        const wanted = new Set([note.index])
+        const witnesses =
+          note.tree === "loan"
+            ? await fetchLoanWitnesses(note.asset, undefined, wanted)
+            : await fetchDepositWitnesses(note.asset, undefined, wanted)
+        const commitment = computeCommitment(note)
+        const witness = witnesses.find(
+          (candidate) =>
+            candidate.leafIndex === note.index && candidate.leaf === commitment
+        )
+        if (!witness) {
+          throw new Error(
+            `No matching ${note.tree} event found for note #${note.index}. Tree may have advanced beyond RPC retention.`
           )
-          if (!witness) {
-            throw new Error(
-              `No matching ${note.tree} event found for note #${note.index}. Tree may have advanced beyond RPC retention.`
-            )
-          }
         }
         toast.set(
           toastManager.add({
@@ -191,6 +178,10 @@ export function useWithdraw(account: string | null): UseWithdrawResult {
         toast.close()
 
         const hash = sent.sendTransactionResponse?.hash ?? ""
+        // Tombstone locally — the nullifier is burned on-chain, and
+        // without events the scanner can't discover that on its own.
+        // Keeps the balance honest and blocks a ProofReplayed retry.
+        upsertNote({ ...note, spent: true })
         setStatus("success")
         setMessage(hash)
         toastManager.add({

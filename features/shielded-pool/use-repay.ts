@@ -6,6 +6,7 @@ import { toastManager } from "@/components/ui/toast"
 import {
   computeCommitment,
   type ShieldedNote,
+  upsertNote,
 } from "@/features/notes"
 import {
   getConfiguredContractId,
@@ -236,6 +237,11 @@ export function useRepay(account: string | null): UseRepayResult {
         toast.close()
 
         const hash = sent.sendTransactionResponse?.hash ?? ""
+        // Both nullifiers are burned on-chain; without events the
+        // scanner can't see that. Tombstone locally so the loan stops
+        // rendering as open and a retry can't hit ProofReplayed.
+        upsertNote({ ...loanNote, spent: true })
+        upsertNote({ ...depositNote, spent: true })
         setStatus("success")
         setMessage(hash)
         toastManager.add({

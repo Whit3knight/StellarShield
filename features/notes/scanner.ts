@@ -330,11 +330,15 @@ export async function scanShieldedNotes(
 
   const deduped = dedupeNotes(notes)
   // Consult the contract's `nullifiers_used` view for every deposit
-  // note we can see — catches nullifiers spent by borrow events that
-  // predate the borrow-event nullifier-tail upgrade (which don't
-  // publish the four nullifiers in their event body). One bulk RPC
-  // per rescan.
-  await hydrateSpentFromChain(deduped, spentNullifiers)
+  // note we can see — scan-surfaced AND carried-over from the
+  // persisted store. Once the enabling events expire from RPC
+  // retention, this contract read is the only way a carried-over
+  // note's spend ever becomes visible; hydrating only scan results
+  // would leave persisted notes spendable-looking forever.
+  await hydrateSpentFromChain(
+    dedupeNotes([...deduped, ...snapshotNotes()]),
+    spentNullifiers
+  )
   const marked = markSpentNotes(deduped, spentNullifiers)
 
   // Merge with prior cache so:
