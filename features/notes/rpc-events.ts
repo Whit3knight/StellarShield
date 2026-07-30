@@ -77,18 +77,29 @@ async function fetchRpcEvents(
 
   const events: RpcEvent[] = []
   let page = await server.getEvents({ filters, startLedger, limit: PAGE_LIMIT })
+  let previousCursor: string | undefined
   for (;;) {
     throwIfAborted()
     const pageEvents = page.events ?? []
     events.push(...(pageEvents as unknown as RpcEvent[]))
-    if (pageEvents.length < PAGE_LIMIT || !page.cursor) break
-    page = await server.getEvents({
-      filters,
-      cursor: page.cursor,
-      limit: PAGE_LIMIT,
-    })
+    const cursor = page.cursor
+    // stellar-rpc scans at most ~10k ledgers per call and returns an
+    // EMPTY page with a cursor when the scan bound is hit before
+    // `limit` events are found. Breaking on a short/empty page (the
+    // old check) silently truncated every scan to the first ~10k
+    // ledgers of the retention window. Terminate only when the cursor
+    // has reached the chain tip, is missing, or stops advancing.
+    if (!cursor || cursor === previousCursor) break
+    if (cursorLedger(cursor) >= page.latestLedger) break
+    previousCursor = cursor
+    page = await server.getEvents({ filters, cursor, limit: PAGE_LIMIT })
   }
   return events
+}
+
+/** Ledger sequence encoded in a getEvents TOID-style cursor. */
+export function cursorLedger(cursor: string): number {
+  return Number(BigInt(cursor.split("-")[0]) >> 32n)
 }
 
 /**

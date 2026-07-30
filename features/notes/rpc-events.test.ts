@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import type { rpc } from "@stellar/stellar-sdk"
 
 import {
+  cursorLedger,
   fetchAllContractEvents,
   matchesEventFilters,
   mergeById,
@@ -157,5 +158,69 @@ describe("fetchAllContractEvents merge", () => {
         filters,
       })
     ).rejects.toThrow("rpc down")
+  })
+})
+
+describe("getEvents pagination termination", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  const cursorAt = (ledger: number) => `${(BigInt(ledger) << 32n).toString()}-0`
+
+  const makePagedServer = (
+    pages: { events: RpcEvent[]; cursor?: string; latestLedger: number }[]
+  ) => {
+    const getEvents = vi.fn(async () => {
+      const page = pages.shift()
+      if (!page) throw new Error("unexpected extra getEvents call")
+      return page
+    })
+    return {
+      server: {
+        getHealth: async () => ({ oldestLedger: 1, latestLedger: 100_000 }),
+        getEvents,
+      } as unknown as rpc.Server,
+      getEvents,
+    }
+  }
+
+  it("decodes the ledger from a TOID cursor", () => {
+    expect(cursorLedger(cursorAt(3_873_463))).toBe(3_873_463)
+    expect(cursorLedger("0016189170552668159-4294967295")).toBe(3_769_334)
+  })
+
+  it("keeps following the cursor through empty pages until the tip", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ status: 503, json: async () => ({}) })))
+    const { server, getEvents } = makePagedServer([
+      { events: [], cursor: cursorAt(10_000), latestLedger: 100_000 },
+      { events: [], cursor: cursorAt(20_000), latestLedger: 100_000 },
+      {
+        events: [{ id: "a", topics: ["dep", "XLM"] }],
+        cursor: cursorAt(100_000),
+        latestLedger: 100_000,
+      },
+    ])
+    const events = await fetchAllContractEvents({
+      server,
+      filters: [filter([["dep", "*"]])],
+    })
+    expect(events.map((e) => e.id)).toEqual(["a"])
+    expect(getEvents).toHaveBeenCalledTimes(3)
+  })
+
+  it("stops when the cursor stops advancing", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ status: 503, json: async () => ({}) })))
+    const stuck = cursorAt(50_000)
+    const { server, getEvents } = makePagedServer([
+      { events: [], cursor: stuck, latestLedger: 100_000 },
+      { events: [], cursor: stuck, latestLedger: 100_000 },
+    ])
+    const events = await fetchAllContractEvents({
+      server,
+      filters: [filter([["dep", "*"]])],
+    })
+    expect(events).toEqual([])
+    expect(getEvents).toHaveBeenCalledTimes(2)
   })
 })
