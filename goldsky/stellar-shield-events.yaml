@@ -12,6 +12,7 @@ sources:
 
 transforms:
   shield_events:
+    type: sql
     primary_key: id
     sql: >
       SELECT
@@ -30,3 +31,4 @@ sinks:
     table: stellar_shield_events
     schema: public
     secret_name: NEON_STELLAR_SHIELD
+    primary_key: id

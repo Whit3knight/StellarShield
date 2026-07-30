@@ -162,12 +162,16 @@ Optional — without it the app scans RPC only (the `/api/events` route
 returns 503 and clients fall back). Setup:
 
 ```bash
-goldsky login
-goldsky secret create --name NEON_STELLAR_SHIELD \
-  --value '{type:postgres,host:<direct-host>,port:5432,user:goldsky_writer,password:...,databaseName:neondb}'
-# Run db/schema.sql on the Neon database, then:
-goldsky pipeline apply goldsky/stellar-shield-events.yaml
-goldsky pipeline monitor stellar-shield-events
+curl https://goldsky.com | sh   # install CLI (macOS/Linux)
+goldsky login                   # opens browser auth
+
+# Turbo postgres sinks take a JDBC-style secret (note "type":"jdbc"):
+goldsky secret create --name NEON_STELLAR_SHIELD --value \
+  '{"type":"jdbc","protocol":"postgresql","host":"<direct-host>","port":5432,"databaseName":"neondb","user":"goldsky_writer","password":"..."}'
+
+# Run db/schema.sql on the Neon database, then (turbo, not pipeline):
+goldsky turbo apply goldsky/stellar-shield-events.yaml
+goldsky turbo inspect stellar-shield-events
 ```
 
 The Goldsky sink needs the **direct** (non-pooler) Neon host with a role
