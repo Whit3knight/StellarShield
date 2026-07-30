@@ -166,7 +166,7 @@ curl https://goldsky.com | sh   # install CLI (macOS/Linux)
 goldsky login                   # opens browser auth
 
 # Turbo postgres sinks take a JDBC-style secret (note "type":"jdbc"):
-goldsky secret create --name NEON_STELLAR_SHIELD --value \
+goldsky secret create --name POSTGRES_SECRET_CMS4PVCAP0 --value \
   '{"type":"jdbc","protocol":"postgresql","host":"<direct-host>","port":5432,"databaseName":"neondb","user":"goldsky_writer","password":"..."}'
 
 # Run db/schema.sql on the Neon database, then (turbo, not pipeline):

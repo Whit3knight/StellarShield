@@ -30,5 +30,5 @@ sinks:
     from: shield_events
     table: stellar_shield_events
     schema: public
-    secret_name: NEON_STELLAR_SHIELD
+    secret_name: POSTGRES_SECRET_CMS4PVCAP0
     primary_key: id
