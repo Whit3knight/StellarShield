@@ -115,6 +115,7 @@ of these and tick **both** *Preview* and *Production* (Development optional):
 | `NEXT_PUBLIC_STELLAR_REFLECTOR_CEX_CONTRACT_ID` | **fill in** (Reflector CEX/DEX oracle contract id) |
 | `NEXT_PUBLIC_STELLAR_REFLECTOR_FX_CONTRACT_ID` | **fill in** (Reflector FX oracle contract id) |
 | `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | **fill in** (from cloud.walletconnect.com) |
+| `DATABASE_URL` | *optional* — Neon **pooled** connection string for the `/api/events` indexer route. **Server-only** (no `NEXT_PUBLIC_` prefix): it is read at request time by the route handler and is **not** inlined into the client bundle, unlike the vars above. Unset → the route returns 503 and the app stays RPC-only. |
 
 > The two **Reflector** contract ids and the **WalletConnect** id are blank in
 > `build.env.example`. If you leave the Reflector ids empty the app has **no
@@ -237,6 +238,7 @@ project's production domain (`*.vercel.app` or your custom domain).
 | **`vercel` auth / "project not found" in Actions** | Missing/wrong `VERCEL_TOKEN` / `VERCEL_ORG_ID` / `VERCEL_PROJECT_ID`, or secrets on the wrong repo | Re-verify Step 5 values against `.vercel/project.json`; ensure secrets live on the repo you push to. |
 | **Browser blocks the WASM prover / borrow fails to prove** | A cross-origin subresource broke `Cross-Origin-Embedder-Policy: require-corp` | Keep every subresource same-origin (no external CDN/analytics/image host). See `deploy/README.md`. |
 | **`bun run build` fails on `next/font`** | `next/font` fetches Google Fonts at build; needs network | GitHub Actions has network, so this normally passes; only relevant for offline/self-host builds. |
+| **`/api/events` returns 503 "indexer not configured"** | `DATABASE_URL` unset for that environment | Expected dark-launch behavior — the app falls back to RPC-only event scans. Set `DATABASE_URL` (Neon pooled string) in Vercel to enable the indexer. |
 
 ---
 

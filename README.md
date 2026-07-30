@@ -156,6 +156,27 @@ stellar contract invoke --id $CONTRACT_ID --source deployer --network testnet --
 # Same for each supported asset. Then register markets + bindings as before.
 ```
 
+### Event indexing (Goldsky → Neon)
+
+Optional — without it the app scans RPC only (the `/api/events` route
+returns 503 and clients fall back). Setup:
+
+```bash
+goldsky login
+goldsky secret create --name NEON_STELLAR_SHIELD \
+  --value '{type:postgres,host:<direct-host>,port:5432,user:goldsky_writer,password:...,databaseName:neondb}'
+# Run db/schema.sql on the Neon database, then:
+goldsky pipeline apply goldsky/stellar-shield-events.yaml
+goldsky pipeline monitor stellar-shield-events
+```
+
+The Goldsky sink needs the **direct** (non-pooler) Neon host with a role
+scoped `GRANT INSERT, UPDATE ON stellar_shield_events`; the app's
+`DATABASE_URL` uses the **pooled** host. On a contract redeploy, add the
+new contract ID to the `IN` list in `goldsky/stellar-shield-events.yaml`
+and re-apply the pipeline. On a testnet reset, `TRUNCATE
+stellar_shield_events`.
+
 Subsequent changes: use the in-place upgrade path (same contract id, same
 state) so the frontend contract id keeps working and live positions survive.
 
@@ -247,7 +268,7 @@ stellar contract bindings typescript --contract-id CBVBVB6LGQJYO2KTIHB6VMJEZ3CHH
 # LiquidationBond (skipping ones already burned by liquidate events)
 # sorted oldest first. Read-only; does not touch memo openings.
 bun run scan:underwater
-LOOKBACK_LEDGERS=32000 bun run scan:underwater
+EVENTS_API_URL=https://<app>/api/events bun run scan:underwater
 
 # Authenticated triage — service key set: also decrypt each borrow
 # memo with the service X25519 sk, fetch the current Reflector price,
