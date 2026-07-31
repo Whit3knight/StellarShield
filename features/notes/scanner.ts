@@ -329,7 +329,7 @@ export async function scanShieldedNotes(
   }
 
   const deduped = dedupeNotes(notes)
-  // Consult the contract's `nullifiers_used` view for every deposit
+  // Consult the contract's per-tree spent-nullifier views for every
   // note we can see — scan-surfaced AND carried-over from the
   // persisted store. Once the enabling events expire from RPC
   // retention, this contract read is the only way a carried-over
@@ -386,12 +386,29 @@ export async function scanShieldedNotes(
 }
 
 /**
- * Query the contract's `nullifiers_used` view for every note we hold
- * — deposit AND loan. The contract keeps one global nullifier set
- * (withdraw / borrow-collateral / withdraw_loan / repay / liquidate
- * all burn into it, lib.rs `PersistentKey::Nullifier`), so this one
- * bulk read marks claimed loans and repaid/withdrawn deposits spent
- * even when the recording events are outside every event source.
+ * Compute each note's nullifier and bucket it by tree. The contract
+ * keeps two spent-nullifier namespaces — `PersistentKey::Nullifier`
+ * for deposit notes, `PersistentKey::LoanNullifierUsed` for loan
+ * notes — so each bucket must be checked against its own view.
+ */
+export function nullifiersByTree(
+  notes: Array<Pick<ShieldedNote, "sk" | "index" | "tree">>
+): { deposit: bigint[]; loan: bigint[] } {
+  const out = { deposit: [] as bigint[], loan: [] as bigint[] }
+  for (const n of notes) {
+    out[n.tree].push(computeNullifier(n.sk, n.index))
+  }
+  return out
+}
+
+/**
+ * Query the contract's spent-nullifier views for every note we hold.
+ * Deposit notes go to `nullifiers_used`, loan notes to
+ * `loan_nullifiers_used` — the contract keeps a separate namespace
+ * per tree, so a deposit nullifier and a loan nullifier that share
+ * bytes no longer collide. These bulk reads mark claimed loans and
+ * repaid/withdrawn deposits spent even when the recording events are
+ * outside every event source.
  */
 async function hydrateSpentFromChain(
   notes: ShieldedNote[],
@@ -410,15 +427,24 @@ async function hydrateSpentFromChain(
       rpcUrl: getConfiguredSorobanRpcUrl(),
       publicKey: sdkForPk.StrKey.encodeEd25519PublicKey(Buffer.alloc(32)),
     })
-    const nullifiers = candidates.map((n) => computeNullifier(n.sk, n.index))
-    const nulBuffers = nullifiers.map((n) => Buffer.from(bigintTo32BytesBE(n)))
-    const tx = await client.nullifiers_used({ nullifiers: nulBuffers })
-    const flags = (tx.result ?? []) as boolean[]
+    const byTree = nullifiersByTree(candidates)
     let flagged = 0
-    for (let i = 0; i < flags.length; i++) {
-      if (flags[i]) {
-        spentNullifiers.add(nullifiers[i])
-        flagged++
+    for (const tree of ["deposit", "loan"] as const) {
+      const nullifiers = byTree[tree]
+      if (nullifiers.length === 0) continue
+      const nulBuffers = nullifiers.map((n) =>
+        Buffer.from(bigintTo32BytesBE(n))
+      )
+      const tx =
+        tree === "deposit"
+          ? await client.nullifiers_used({ nullifiers: nulBuffers })
+          : await client.loan_nullifiers_used({ nullifiers: nulBuffers })
+      const flags = (tx.result ?? []) as boolean[]
+      for (let i = 0; i < flags.length; i++) {
+        if (flags[i]) {
+          spentNullifiers.add(nullifiers[i])
+          flagged++
+        }
       }
     }
     console.log("[scanner] hydrate", {

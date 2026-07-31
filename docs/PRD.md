@@ -29,7 +29,7 @@ encrypted memos (ChaCha20-Poly1305 over X25519 ECDH) let a browser rebuild the
 note inventory from public chain events **within the RPC retention window**
 (see NFR-R1).
 
-- **Canonical testnet contract:** `CBVBVB6LGQJYO2KTIHB6VMJEZ3CHHC4KPIJ7EATV4SR7CTC7TUE6PM2P`
+- **Canonical testnet contract:** `CDYTGIGPCTYKTNYFVN2MUAKNMX5VO6RHP6HQQKWZOGXWKNKBQJWKJABU`
   (declared across README/.env/CLI; R16 resolved — an earlier `CBJZP45H…`
   deployment is retired).
 - **Registered markets:** USDC/XLM, XLM/USDC, EURC/USDC, USDC/EURC, EURC/XLM, XLM/EURC.
@@ -210,7 +210,7 @@ note inventory from public chain events **within the RPC retention window**
 | NFR-C1 | Correctness | All asset math bigint fixed-point (`features/shared/money`); no float drift | Implemented + tested |
 | NFR-PR1 | Privacy | Wallet↔note unlinkability via denominations, nullifiers, memo encryption | Identity now signature-derived (R1 fixed); UI masking implemented. Residual limit is the ~0 anonymity set (R4), not the key scheme |
 | NFR-PR2 | Privacy | Liquidation service never holds *spending* keys (ivk/nk split, v2 circuit) | Implemented at design level; no enforcing test. Service does hold *viewing* capability pool-wide (R3) |
-| NFR-S1 | Security | On-chain nullifier replay guard; Groth16 via Protocol 22 host fns; proof replay rejection; oracle freshness window | Implemented (no Rust unit tests — §7 gap #1) |
+| NFR-S1 | Security | On-chain nullifier replay guard (per-tree namespaces: deposit vs loan, so cross-tree byte collisions cannot block a legitimate spend); Groth16 via Protocol 22 host fns; proof replay rejection; oracle freshness window | Implemented (no Rust unit tests — §7 gap #1) |
 | NFR-S2 | Security | Oracle price *commitment* cross-checked on-chain | **Gap — planned (R7)** |
 | NFR-S3 | Security | Production trusted setup | **Gap — mainnet blocker (R5)** |
 | NFR-S4 | Security | Circuit artifacts in `public/` integrity-pinned; proving deps reviewed | Artifacts SHA-256-pinned via committed manifest + CI check; `circomlibjs` removed, `snarkjs` pinned (R8). Deep dep audit still gated |

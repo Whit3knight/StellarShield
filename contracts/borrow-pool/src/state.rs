@@ -48,6 +48,11 @@ pub enum PersistentKey {
     // to compute the accrued debt the repayer must cover. Absent for
     // pre-D loans → repay treats them as zero-interest.
     BorrowIndexAtOpen(BytesN<32>),
+    // Loan-tree spent-nullifier namespace. `Nullifier` above is the
+    // deposit-tree namespace; keeping them separate means a deposit
+    // nullifier and a loan nullifier that happen to share bytes never
+    // collide. (Distinct from `LoanNullifier`, the Track A sidecar.)
+    LoanNullifierUsed(BytesN<32>),
 }
 
 /// Public commitment tuple pinned at borrow-time so a liquidator can
@@ -170,16 +175,28 @@ pub fn set_markets(env: &Env, markets: &Vec<MarketMeta>) {
 
 // --- Nullifier set ------------------------------------------------------
 
-pub fn nullifier_used(env: &Env, nullifier: &BytesN<32>) -> bool {
+pub fn deposit_nullifier_used(env: &Env, nullifier: &BytesN<32>) -> bool {
     env.storage()
         .persistent()
         .has(&PersistentKey::Nullifier(nullifier.clone()))
 }
 
-pub fn mark_nullifier_used(env: &Env, nullifier: &BytesN<32>) {
+pub fn mark_deposit_nullifier_used(env: &Env, nullifier: &BytesN<32>) {
     env.storage()
         .persistent()
         .set(&PersistentKey::Nullifier(nullifier.clone()), &true);
+}
+
+pub fn loan_nullifier_used(env: &Env, nullifier: &BytesN<32>) -> bool {
+    env.storage()
+        .persistent()
+        .has(&PersistentKey::LoanNullifierUsed(nullifier.clone()))
+}
+
+pub fn mark_loan_nullifier_used(env: &Env, nullifier: &BytesN<32>) {
+    env.storage()
+        .persistent()
+        .set(&PersistentKey::LoanNullifierUsed(nullifier.clone()), &true);
 }
 
 // --- Liquidation bond registry (Track L) -------------------------------

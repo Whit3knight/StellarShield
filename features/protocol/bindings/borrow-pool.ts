@@ -36,7 +36,7 @@ if (typeof window !== "undefined") {
 export const networks = {
   testnet: {
     networkPassphrase: "Test SDF Network ; September 2015",
-    contractId: "CBVBVB6LGQJYO2KTIHB6VMJEZ3CHHC4KPIJ7EATV4SR7CTC7TUE6PM2P",
+    contractId: "CDYTGIGPCTYKTNYFVN2MUAKNMX5VO6RHP6HQQKWZOGXWKNKBQJWKJABU",
   }
 } as const
 
@@ -362,6 +362,13 @@ export interface Client {
   nullifiers_used: ({nullifiers}: {nullifiers: Array<Buffer>}, options?: MethodOptions) => Promise<AssembledTransaction<Array<boolean>>>
 
   /**
+   * Construct and simulate a loan_nullifiers_used transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   * Loan-tree counterpart of `nullifiers_used` — reads the loan
+   * nullifier namespace (withdraw_loan / repay / liquidate marks).
+   */
+  loan_nullifiers_used: ({nullifiers}: {nullifiers: Array<Buffer>}, options?: MethodOptions) => Promise<AssembledTransaction<Array<boolean>>>
+
+  /**
    * Construct and simulate a register_market transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    * Admin-gated. Appends `market` to the registry — no-op if a
    * market with the same `key` already exists.
@@ -589,6 +596,7 @@ export class Client extends ContractClient {
         "AAAAAAAAAAAAAAAPbGlxdWlkaXR5X2luZGV4AAAAAAEAAAAAAAAABWFzc2V0AAAAAAAAEQAAAAEAAAfQAAAADUluZGV4U25hcHNob3QAAAA=",
         "AAAAAAAAAAAAAAAPbG9hbl9uZXh0X2luZGV4AAAAAAEAAAAAAAAABWFzc2V0AAAAAAAAEQAAAAEAAAAG",
         "AAAAAAAAARpCdWxrIG51bGxpZmllci11c2VkIGNoZWNrLiBSZXR1cm5zIGEgYm9vbGVhbiBwZXIgaW5wdXQgaW4gdGhlCnNhbWUgb3JkZXIg4oCUIGB0cnVlYCBtZWFucyB0aGUgbnVsbGlmaWVyIGhhcyBhbHJlYWR5IGJlZW4gbWFya2VkCnNwZW50IGJ5IGEgcHJpb3Igd2l0aGRyYXcgLyBib3Jyb3cgLyByZXBheSAvIGxpcXVpZGF0ZS4gS2VwdCBhcwphIGJhdGNoIHZpZXcgc28gYSBjbGllbnQgc2Nhbm5pbmcgbWFueSBub3RlcyBhdCBvbmNlIHBheXMgb25lClJQQyByb3VuZCB0cmlwIGluc3RlYWQgb2YgTi4AAAAAAA9udWxsaWZpZXJzX3VzZWQAAAAAAQAAAAAAAAAKbnVsbGlmaWVycwAAAAAD6gAAA+4AAAAgAAAAAQAAA+oAAAAB",
+        "AAAAAAAAAHxMb2FuLXRyZWUgY291bnRlcnBhcnQgb2YgYG51bGxpZmllcnNfdXNlZGAg4oCUIHJlYWRzIHRoZSBsb2FuCm51bGxpZmllciBuYW1lc3BhY2UgKHdpdGhkcmF3X2xvYW4gLyByZXBheSAvIGxpcXVpZGF0ZSBtYXJrcykuAAAAFGxvYW5fbnVsbGlmaWVyc191c2VkAAAAAQAAAAAAAAAKbnVsbGlmaWVycwAAAAAD6gAAA+4AAAAgAAAAAQAAA+oAAAAB",
         "AAAAAAAAAGdBZG1pbi1nYXRlZC4gQXBwZW5kcyBgbWFya2V0YCB0byB0aGUgcmVnaXN0cnkg4oCUIG5vLW9wIGlmIGEKbWFya2V0IHdpdGggdGhlIHNhbWUgYGtleWAgYWxyZWFkeSBleGlzdHMuAAAAAA9yZWdpc3Rlcl9tYXJrZXQAAAAAAQAAAAAAAAAGbWFya2V0AAAAAAfQAAAACk1hcmtldE1ldGEAAAAAAAEAAAPpAAAD7QAAAAAAAAAD",
         "AAAAAAAAAAAAAAAPc2V0X3JhdGVfcGFyYW1zAAAAAAEAAAAAAAAABnBhcmFtcwAAAAAH0AAAAApSYXRlUGFyYW1zAAAAAAABAAAD6QAAA+0AAAAAAAAAAw==",
         "AAAAAAAAAAAAAAAPc2V0X3Jpc2tfcGFyYW1zAAAAAAEAAAAAAAAABnBhcmFtcwAAAAAH0AAAAApSaXNrUGFyYW1zAAAAAAABAAAD6QAAA+0AAAAAAAAAAw==",
@@ -644,6 +652,7 @@ export class Client extends ContractClient {
         liquidity_index: this.txFromJSON<IndexSnapshot>,
         loan_next_index: this.txFromJSON<u64>,
         nullifiers_used: this.txFromJSON<Array<boolean>>,
+        loan_nullifiers_used: this.txFromJSON<Array<boolean>>,
         register_market: this.txFromJSON<Result<void>>,
         set_rate_params: this.txFromJSON<Result<void>>,
         set_risk_params: this.txFromJSON<Result<void>>,

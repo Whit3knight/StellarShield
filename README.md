@@ -20,7 +20,7 @@ user's note inventory from public events alone.
 
 | Item | Value |
 | --- | --- |
-| Contract ID | `CBVBVB6LGQJYO2KTIHB6VMJEZ3CHHC4KPIJ7EATV4SR7CTC7TUE6PM2P` |
+| Contract ID | `CDYTGIGPCTYKTNYFVN2MUAKNMX5VO6RHP6HQQKWZOGXWKNKBQJWKJABU` |
 | Admin | `GCGLOK2DM2Y4NGESNJBTTOHEY7EB3MO35FV5YQSZIOWV6QW6ZNRXGPXK` |
 | Network | Testnet (`Test SDF Network ; September 2015`) |
 | Reflector CEX/DEX | `CCYOZJCOPG34LLQQ7N24YXBM7LL62R7ONMZ3G6WZAAYPB5OYKOMJRN63` |
@@ -82,7 +82,7 @@ or `stellar keys fund default --network testnet`).
 Shielded pool primitives:
 
 - **Note** = `Poseidon(amount, asset_tag, sk, salt)` commitment on a per-asset incremental Merkle tree (depth 20, 3 deposit + 3 loan trees).
-- **Nullifier** = `Poseidon(sk, index)` posted at spend time; replay-guarded on chain.
+- **Nullifier** = `Poseidon(sk, index)` posted at spend time; replay-guarded on chain in per-tree namespaces (deposit vs loan), so a deposit and a loan nullifier with identical bytes never collide.
 - **Shielded identity** = deterministic X25519 keypair derived from the wallet's Freighter signature. Encrypted memos (ChaCha20-Poly1305 over ECDH) attach the note's `(salt, amount, index)` to each deposit / borrow tx so the user can rebuild inventory by scanning public events.
 
 Data flow, top → bottom:
@@ -193,7 +193,7 @@ stellar contract install \
 # → prints WASM_HASH
 
 stellar contract invoke \
-  --id CBVBVB6LGQJYO2KTIHB6VMJEZ3CHHC4KPIJ7EATV4SR7CTC7TUE6PM2P \
+  --id CDYTGIGPCTYKTNYFVN2MUAKNMX5VO6RHP6HQQKWZOGXWKNKBQJWKJABU \
   --source deployer --network testnet \
   -- upgrade --wasm_hash $WASM_HASH
 
@@ -262,10 +262,10 @@ bun run build
 cd contracts
 stellar contract build
 stellar contract install --wasm target/wasm32v1-none/release/borrow_pool.wasm --source deployer --network testnet
-stellar contract invoke --id CBVBVB6LGQJYO2KTIHB6VMJEZ3CHHC4KPIJ7EATV4SR7CTC7TUE6PM2P --network testnet -- list_markets
+stellar contract invoke --id CDYTGIGPCTYKTNYFVN2MUAKNMX5VO6RHP6HQQKWZOGXWKNKBQJWKJABU --network testnet -- list_markets
 
 # Bindings
-stellar contract bindings typescript --contract-id CBVBVB6LGQJYO2KTIHB6VMJEZ3CHHC4KPIJ7EATV4SR7CTC7TUE6PM2P --network testnet --output-dir /tmp/bindings
+stellar contract bindings typescript --contract-id CDYTGIGPCTYKTNYFVN2MUAKNMX5VO6RHP6HQQKWZOGXWKNKBQJWKJABU --network testnet --output-dir /tmp/bindings
 
 # Liquidation watchlist / triage (Tracks G-lite + G-full)
 # Watchlist mode — no service key: enumerate every live

@@ -6,6 +6,7 @@ import {
   dedupeNotes,
   eventOpenedAt,
   markSpentNotes,
+  nullifiersByTree,
 } from "./scanner"
 
 describe("eventOpenedAt", () => {
@@ -103,6 +104,35 @@ describe("carryOverNotes", () => {
     const carried = carryOverNotes(previous, new Set(), spent)
     expect(carried.map((n) => n.spent)).toEqual([true, true])
     expect(carried.map((n) => n.amount)).toEqual([100n, 100n])
+  })
+})
+
+describe("nullifiersByTree", () => {
+  it("routes each note's nullifier to its own tree bucket", () => {
+    const notes = [
+      { sk: 42n, index: 0, tree: "deposit" as const },
+      { sk: 42n, index: 1, tree: "loan" as const },
+      { sk: 99n, index: 0, tree: "deposit" as const },
+    ]
+    const result = nullifiersByTree(notes)
+    expect(result.deposit).toEqual([
+      computeNullifier(42n, 0),
+      computeNullifier(99n, 0),
+    ])
+    expect(result.loan).toEqual([computeNullifier(42n, 1)])
+  })
+
+  it("keeps a same-bytes nullifier in both buckets — cross-tree collisions are legal now", () => {
+    const notes = [
+      { sk: 42n, index: 3, tree: "deposit" as const },
+      { sk: 42n, index: 3, tree: "loan" as const },
+    ]
+    const result = nullifiersByTree(notes)
+    expect(result.deposit).toEqual(result.loan)
+  })
+
+  it("returns empty buckets for no notes", () => {
+    expect(nullifiersByTree([])).toEqual({ deposit: [], loan: [] })
   })
 })
 

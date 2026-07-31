@@ -175,7 +175,7 @@ On-chain tree state (`state.rs`, `PersistentKey` variants keyed by asset `Symbol
 
 ### 4.4 Nullifier set
 
-Spent notes are recorded in a global nullifier set (`state.rs:171`): `Nullifier(BytesN<32>) -> true` in persistent storage, one slot per spent note. Every spend path checks freshness before verifying the proof and marks the nullifier after. The set is append-only and never pruned — a nullifier, once present, permanently retires its note. The public view `nullifiers_used(Vec<BytesN<32>>) -> Vec<bool>` (`lib.rs:345`) lets a client bulk-query spent status.
+Spent notes are recorded in two per-tree nullifier namespaces (`state.rs`): `Nullifier(BytesN<32>) -> true` for deposit-tree spends and `LoanNullifierUsed(BytesN<32>) -> true` for loan-tree spends, one persistent slot per spent note. Namespacing fixes a cross-tree collision — a deposit nullifier and a loan nullifier that happen to share bytes no longer block each other's legitimate spend. Every spend path checks freshness in its own namespace before verifying the proof and marks the nullifier after. Both sets are append-only and never pruned — a nullifier, once present, permanently retires its note. The public views `nullifiers_used` (deposit) and `loan_nullifiers_used` (loan), each `Vec<BytesN<32>> -> Vec<bool>`, let a client bulk-query spent status.
 
 ### 4.5 Liquidation-bond record and sidecars
 
@@ -350,7 +350,7 @@ Because note openings live only client-side, the wallet must *reconstruct* the u
 3. **Trial-decrypt memos** against a set of identities — the current signature-derived identity, any legacy address-derived identities, and each one's double-derivation (for pre-migration notes) — via `tryDecryptAnyMemo`. A ChaCha20-Poly1305 auth-tag match means "this note is mine."
 4. **Reconstruct with the right `sk`** — the note materializes carrying the `sk` of whichever identity decrypted it, so its later spend reproduces exactly the nullifier the original mint circuit committed to.
 5. **Filter spent** — accumulate every nullifier seen in spend events and in the borrow nullifier tail, then drop any reconstructed note whose `Poseidon(sk, index)` is in it.
-6. **Hydrate from chain** — bulk-query `nullifiers_used` for surviving deposit notes, catching notes spent by old borrow events that predate the nullifier-tail upgrade.
+6. **Hydrate from chain** — bulk-query the per-tree spent views (`nullifiers_used` for deposit notes, `loan_nullifiers_used` for loan notes), catching notes spent by old borrow events that predate the nullifier-tail upgrade.
 7. **Merge and store** — merge with the prior cache to preserve mint-time Merkle witnesses and keep just-minted notes that RPC lag hasn't surfaced yet.
 
 ```mermaid
@@ -374,7 +374,7 @@ flowchart TD
 
     decrypt --> candidates
     spent -- filterSpent --> candidates
-    hydrate["hydrate: nullifiers_used view<br/>(catches pre-upgrade spends)"] --> candidates
+    hydrate["hydrate: per-tree spent views<br/>(catches pre-upgrade spends)"] --> candidates
 
     candidates["candidate notes<br/>{amount, asset, index, salt, sk, tree, bond?}"]
     cache["persisted local note store<br/>(localStorage, per contract+account)"] --> merge

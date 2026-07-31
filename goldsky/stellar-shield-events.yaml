@@ -7,12 +7,13 @@ sources:
     type: dataset
     dataset_name: stellar_testnet.events
     version: 1.2.0
-    # Contract created at ledger 3598133 — nothing before it matters.
+    # Contract created at ledger 3890643 — nothing before it matters.
     # Full "earliest" would chew through ~100M+ irrelevant testnet
     # events before reaching our first ledger. On a testnet reset or
     # a redeploy to a fresh contract, update this to the new creation
-    # ledger.
-    start_at: "3598000"
+    # ledger. (Rows from retired contracts persist in the table and
+    # are filtered out by the /api/events contract param.)
+    start_at: "3890600"
     filter: type = 'contract' AND in_successful_contract_call = true
 
 transforms:
@@ -26,7 +27,7 @@ transforms:
         ledger_sequence, ledger_closed_at
       FROM stellar_testnet_events
       WHERE contract_id IN (
-        'CBVBVB6LGQJYO2KTIHB6VMJEZ3CHHC4KPIJ7EATV4SR7CTC7TUE6PM2P'
+        'CDYTGIGPCTYKTNYFVN2MUAKNMX5VO6RHP6HQQKWZOGXWKNKBQJWKJABU'
       )
 
 sinks:
