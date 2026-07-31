@@ -207,7 +207,7 @@ stellar contract invoke \
 2. Open the shielded drawer, click Deposit on an asset tile. Freighter signs `deposit_shielded`; on confirm the leaf lands and a new deposit note appears (`#index` badge).
 3. Deposit at least 4 collateral notes of one asset; the `Borrow shielded` panel surfaces viable `collateral → borrow` pairs. Trigger a borrow — prover takes ~15-30s.
 4. On the fresh loan note row, click **Claim** — receives the loan amount into Freighter via `withdraw_loan_shielded`.
-5. Deposit a repay-source note in the loan's asset ≥ loan amount. **Repay** button appears on the loan note. Click → both nullifiers burn, loan note vanishes.
+5. **Claim and Repay are mutually exclusive**, not sequential: both spend the same loan nullifier `Poseidon(sk, loan_index)`, so a claimed loan can no longer be repaid (and vice versa). To exercise repay instead, skip step 4, deposit a repay-source note in the loan's asset ≥ the loan amount, then click **Repay** on the unclaimed loan note → both nullifiers burn, loan note vanishes. Note v1 leaves the original collateral burned either way (collateral recovery is deferred — see below), so repay is a position-closing operation, not a way to get collateral back.
 6. Any Withdraw button on a deposit note calls `withdraw_shielded` and receives the fixed denomination.
 7. Refresh browser → notes hydrate from the persisted local store; the scanner merges public events over the RPC retention window (~7 days). If browser storage is cleared after events expire, those notes are permanently unspendable (accepted on testnet).
 8. `bun run lint && bun run typecheck && bun run test && bun run build` all green.
