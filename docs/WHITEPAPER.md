@@ -108,7 +108,7 @@ Symbols used throughout §4–§10. All field elements are over the BLS12-381 sc
 | Symbol | Domain | Meaning | Public? |
 |---|---|---|---|
 | `sk` | `F_r` | Shielded spending key; also the memo-decryption key (§8.2). | private |
-| `amount` | `F_r` | Note value in whole units. | private |
+| `amount` | `F_r` | Note value in raw token units (stroops). | private |
 | `asset_tag` | `{0,1,2}` | Asset index into `SUPPORTED_ASSETS = [XLM, USDC, EURC]`. | public |
 | `salt` | `F_r` | Per-note random field element; unlinks equal-value notes. | private |
 | `index` | `u64` | Leaf position in a Merkle tree, assigned at append. | public |
@@ -129,7 +129,7 @@ The client-side note struct (`features/notes/note.ts:36`) is the full opening:
 
 | Field | Type | Public? | Meaning |
 |---|---|---|---|
-| `amount` | bigint | private | Whole-unit value. Fixed per asset by `DENOMINATION` for deposit notes; variable (oracle × collateral × LTV) for loan notes. |
+| `amount` | bigint | private | Value in RAW token units (stroops; all three SACs are 7-decimal). Fixed per asset by `DENOMINATION` for deposit notes; variable (collateral × cross-asset ratio × LTV, capped at one denomination) for loan notes. |
 | `asset` | `"XLM" \| "USDC" \| "EURC"` | private | Asset symbol. Encoded into the commitment as a numeric `assetTag` (index into `SUPPORTED_ASSETS`, `note.ts:90`). |
 | `index` | number | public | Leaf position in the note's Merkle tree. Assigned by the contract at append time. |
 | `salt` | bigint | private | Per-note random field element (`randomFieldElement`, `note.ts:120`). Breaks commitment linkability across notes of equal value. |
@@ -139,7 +139,7 @@ The client-side note struct (`features/notes/note.ts:36`) is the full opening:
 | `bond` | object? | private | Liquidation-bond openings (salts + collateral value + oracle price), present only on loan notes from a Track-L borrow (`note.ts:51`). |
 | `witness` | object? | derived | Cached Merkle inclusion path pinned at mint time (`note.ts:78`). |
 
-`DENOMINATION` (`note.ts:20`) fixes deposit-note value per asset — `XLM: 100`, `USDC: 10`, `EURC: 10` whole units — and the contract enforces it on every deposit (`notes.rs:22`, checked at `lib.rs:404`). Fixed denominations are what make one deposit commitment indistinguishable from another: every XLM deposit note is worth exactly 100 XLM, so the on-chain leaf leaks nothing beyond "a deposit happened." `COLLATERAL_NOTES_PER_BORROW = 4` (`note.ts:32`) is baked into the borrow circuit's trusted setup; a borrow always spends exactly four collateral notes.
+`DENOMINATION` (`note.ts:20`) fixes deposit-note value per asset, in RAW token units — `XLM: 10_000_000`, `USDC: 5_000_000`, `EURC: 5_000_000`, i.e. 1 XLM / 0.5 USDC / 0.5 EURC at 7 decimals — and the contract enforces it on every deposit (`notes.rs:22`, checked at `lib.rs:404`). These are the amounts handed to `token::transfer` verbatim; treating them as whole units is what once made a borrow request 427M USDC. Fixed denominations are what make one deposit commitment indistinguishable from another: every XLM deposit note is worth exactly 1 XLM, so the on-chain leaf leaks nothing beyond "a deposit happened." `COLLATERAL_NOTES_PER_BORROW = 4` (`note.ts:32`) is baked into the borrow circuit's trusted setup; a borrow always spends exactly four collateral notes.
 
 ### 4.2 Commitment scheme
 

@@ -834,6 +834,18 @@ impl BorrowPool {
             return Err(Error::InvalidProof);
         }
 
+        // THE solvency guard. The circuit's LTV/HF band is decorative:
+        // `oracle_price` is an unconstrained private witness, so nothing
+        // binds it to a real price and a prover can size `borrow_amount`
+        // freely. Capping at one denomination is also what keeps the
+        // loan repayable — repay.circom burns ONE deposit note, so a
+        // loan larger than a single denomination can never be closed.
+        let max_borrow = notes::denomination(&env, &borrow_asset)
+            .ok_or(Error::AssetUnknown)?;
+        if fr_to_i128(&borrow_amount_fr) > max_borrow {
+            return Err(Error::DenominationMismatch);
+        }
+
         // Deposit root sanity: must match the current on-chain state.
         let stored_root = state::deposit_root(&env, &collateral_asset)
             .ok_or(Error::InvalidProof)?;
@@ -907,12 +919,6 @@ impl BorrowPool {
             state::total_borrow(&env, &borrow_asset).saturating_add(1),
         );
         rate::accrue_borrow_index(&env, &borrow_asset);
-
-        let borrow_amount_native = fr_to_i128(&borrow_amount_fr);
-        // Silence unused-var lint until the borrow event carries this
-        // downstream — right now it's redundant with what the memo
-        // encrypts, and public amount would defeat the whole point.
-        let _ = borrow_amount_native;
 
         // Track L: pin the bond keyed by the loan commitment. Absent
         // bond → non-liquidatable (grandfathered). Present bond → a
@@ -1000,6 +1006,14 @@ impl BorrowPool {
         let amount = fr_to_i128(&amount_fr);
         if amount <= 0 {
             return Err(Error::InvalidProof);
+        }
+        // Defense in depth: borrow_shielded already caps the minted
+        // loan note at one denomination, so no legitimate loan note can
+        // ask for more than this on the way out.
+        let max_amount =
+            notes::denomination(&env, &asset).ok_or(Error::AssetUnknown)?;
+        if amount > max_amount {
+            return Err(Error::DenominationMismatch);
         }
 
         let stored_root =
@@ -1193,6 +1207,12 @@ impl BorrowPool {
         let threshold_fr = proof.public_signals.get(5).unwrap();
         let nullifier_fr = proof.public_signals.get(6).unwrap();
 
+        // A zero current_price satisfies the circuit's underwater
+        // inequality for free — every open position becomes liquidatable.
+        if fr_to_u128(&proof.public_signals.get(4).unwrap()) == 0 {
+            return Err(Error::InvalidProof);
+        }
+
         let loan_commit_bytes = loan_commit_fr.to_bytes();
         let bond = state::liquidation_bond(&env, &loan_commit_bytes)
             .ok_or(Error::InvalidProof)?;
@@ -1331,6 +1351,12 @@ impl BorrowPool {
         let collateral_value_commit_fr = proof.public_signals.get(1).unwrap();
         let borrow_price_commit_fr = proof.public_signals.get(2).unwrap();
         let threshold_fr = proof.public_signals.get(4).unwrap();
+
+        // A zero current_price satisfies the circuit's underwater
+        // inequality for free — every open position becomes liquidatable.
+        if fr_to_u128(&proof.public_signals.get(3).unwrap()) == 0 {
+            return Err(Error::InvalidProof);
+        }
 
         let bond = state::liquidation_bond(&env, &loan_commitment)
             .ok_or(Error::InvalidProof)?;

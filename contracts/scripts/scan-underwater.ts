@@ -41,6 +41,8 @@ import {
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 
+import { fetchPriceRatio } from "@/features/markets/prices"
+import type { SupportedAssetSymbol } from "@/features/markets"
 import { computeCommitment, DENOMINATION, randomFieldElement } from "@/features/notes"
 import { deriveShieldedIdentity, encodeMemoBundle, encryptMemo, tryDecryptAnyMemo } from "@/features/notes/memo"
 import { fetchAllContractEvents, type RpcEvent } from "@/features/notes/rpc-events"
@@ -49,14 +51,14 @@ import { proveLiquidateV2 } from "@/features/shielded-pool/liquidate-v2-prover"
 const CONTRACT =
   process.env.STELLAR_SHIELD_CONTRACT_ID ??
   process.env.NEXT_PUBLIC_STELLAR_SHIELD_CONTRACT_ID ??
-  "CDYTGIGPCTYKTNYFVN2MUAKNMX5VO6RHP6HQQKWZOGXWKNKBQJWKJABU"
+  "CBLTPN2JCUHYH35OFGAYQ3NJDJC66IMFPHLOBT6PI2XKNVKPNH4FS6I4"
 const RPC_URL =
   process.env.STELLAR_SOROBAN_RPC_URL ?? "https://soroban-testnet.stellar.org"
 const NETWORK_PASSPHRASE = "Test SDF Network ; September 2015"
 
-const REFLECTOR_CEX =
-  process.env.STELLAR_REFLECTOR_CEX_CONTRACT_ID ??
-  "CCYOZJCOPG34LLQQ7N24YXBM7LL62R7ONMZ3G6WZAAYPB5OYKOMJRN63"
+// Reflector feed IDs now come from features/markets/prices.ts (the one
+// Reflector caller) via NEXT_PUBLIC_STELLAR_REFLECTOR_*, which Bun
+// loads from .env.local.
 
 const TRIGGER = process.argv.includes("--trigger")
 const LIQUIDATOR_SECRET = process.env.LIQUIDATOR_SECRET?.trim()
@@ -170,12 +172,17 @@ async function main(): Promise<void> {
     hfRatio?: number
   }[] = []
 
-  const priceCache = new Map<string, bigint>()
-  const fetchPrice = async (asset: string): Promise<bigint | null> => {
-    if (priceCache.has(asset)) return priceCache.get(asset)!
-    const price = await fetchReflectorPrice(server, asset)
-    if (price !== null) priceCache.set(asset, price)
-    return price
+  // Keyed by pair — the bond pins a cross-asset ratio, not a USD price.
+  const ratioCache = new Map<string, bigint>()
+  const fetchRatio = async (
+    collateral: SupportedAssetSymbol,
+    borrow: SupportedAssetSymbol
+  ): Promise<bigint | null> => {
+    const key = `${collateral}/${borrow}`
+    if (ratioCache.has(key)) return ratioCache.get(key)!
+    const ratio = await fetchPriceRatio(collateral, borrow).catch(() => null)
+    if (ratio !== null) ratioCache.set(key, ratio)
+    return ratio
   }
 
   for (const { commit, memo } of commitments) {
@@ -184,13 +191,15 @@ async function main(): Promise<void> {
     const openedAt = Number(bond.opened_at)
     const borrowAsset =
       SUPPORTED_ASSETS[Number(bond.borrow_asset_tag)] ?? null
+    const collateralAsset =
+      SUPPORTED_ASSETS[Number(bond.collateral_asset_tag)] ?? null
 
     let underwater: boolean | undefined
     let hfRatio: number | undefined
-    if (authenticated && memo && borrowAsset) {
+    if (authenticated && memo && borrowAsset && collateralAsset) {
       const opened = decryptOpenings(memo, serviceSk!)
       if (opened) {
-        const priceNow = await fetchPrice(borrowAsset)
+        const priceNow = await fetchRatio(collateralAsset, borrowAsset)
         if (priceNow !== null) {
           const check = checkUnderwater({
             loanAmount: opened.loanAmount,
@@ -315,7 +324,15 @@ async function triggerAll(
       SUPPORTED_ASSETS[Number(row.bond.collateral_asset_tag)]
     if (!borrowAsset || !collateralAsset) continue
 
-    const priceNow = await fetchReflectorPrice(server, borrowAsset)
+    // ponytail: cross-asset liquidation triggering is dimensionally
+    // inert until a v3 circuit with an explicit divisor + a
+    // contract-read price lands. Fails closed (no feed → skip); the
+    // old code fetched the LOAN asset's USD price to compare against a
+    // collateral-denominated bond, which was fail-open — every
+    // position looked underwater.
+    const priceNow = await fetchPriceRatio(collateralAsset, borrowAsset).catch(
+      () => null
+    )
     if (priceNow === null) {
       console.log(`skip ${commitHex.slice(0, 8)}… — Reflector unavailable`)
       continue
@@ -484,35 +501,6 @@ function checkUnderwater(inputs: {
   //          = rhs / lhs
   const hfRatio = lhs === 0n ? Infinity : Number(rhs) / Number(lhs)
   return { underwater, hfRatio }
-}
-
-async function fetchReflectorPrice(
-  server: rpc.Server,
-  ticker: string
-): Promise<bigint | null> {
-  const source = new Account(SIMULATION_SOURCE, "0")
-  const contract = new Contract(REFLECTOR_CEX)
-  const assetScVal = xdr.ScVal.scvVec([
-    xdr.ScVal.scvSymbol("Other"),
-    xdr.ScVal.scvSymbol(ticker),
-  ])
-  const tx = new TransactionBuilder(source, {
-    fee: BASE_FEE,
-    networkPassphrase: NETWORK_PASSPHRASE,
-  })
-    .addOperation(contract.call("lastprice", assetScVal))
-    .setTimeout(30)
-    .build()
-  try {
-    const sim = await server.simulateTransaction(tx)
-    const retval = (sim as { result?: { retval?: xdr.ScVal } }).result?.retval
-    if (!retval) return null
-    const native = scValToNative(retval) as { price?: bigint } | null
-    if (!native || typeof native.price === "undefined") return null
-    return BigInt(native.price)
-  } catch {
-    return null
-  }
 }
 
 function baseFilter(topic: string): rpc.Api.EventFilter[] {

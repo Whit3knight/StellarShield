@@ -1,3 +1,4 @@
+import { assets } from "./data"
 import type { SupportedAssetSymbol } from "./types"
 
 import {
@@ -148,6 +149,57 @@ async function fetchReflectorDecimals(
 
   decimalsCache.set(contractId, decimals)
   return decimals
+}
+
+/** Fixed-point scale of every cross-asset ratio below. */
+export const PRICE_RATIO_DECIMALS = 14
+export const PRICE_RATIO_SCALE = 10n ** BigInt(PRICE_RATIO_DECIMALS)
+
+/**
+ * Price of one RAW `collateral` unit expressed in RAW `borrow` units,
+ * scaled by `PRICE_RATIO_SCALE`:
+ *
+ *   ratio = P_collateral / P_borrow
+ *         × 10^(dec_borrow − dec_collateral)   ← token decimals
+ *         × 1e14
+ *
+ * Both factors are written out rather than folded into a constant. The
+ * token-decimal factor is exactly 1 today (all three SACs are 7
+ * decimals) and the feed-decimal factor cancels while every feed
+ * reports 14 — keeping them visible is what stops a 6-decimal asset
+ * from silently re-breaking borrow sizing.
+ *
+ * Throws when either leg has no usable feed. Callers that can tolerate
+ * a missing oracle fall back to `PRICE_RATIO_SCALE` (parity) at the
+ * call site; liquidation callers deliberately do not.
+ */
+export async function fetchPriceRatio(
+  collateral: SupportedAssetSymbol,
+  borrow: SupportedAssetSymbol,
+  signal?: AbortSignal
+): Promise<bigint> {
+  if (collateral === borrow) return PRICE_RATIO_SCALE
+
+  const [collateralPrice, borrowPrice] = await Promise.all([
+    fetchReflectorPrice(collateral, signal),
+    fetchReflectorPrice(borrow, signal),
+  ])
+
+  if (!collateralPrice || collateralPrice.price <= 0n) {
+    throw new Error(`Reflector returned no price for ${collateral}`)
+  }
+  if (!borrowPrice || borrowPrice.price <= 0n) {
+    throw new Error(`Reflector returned no price for ${borrow}`)
+  }
+
+  const exponent =
+    PRICE_RATIO_DECIMALS +
+    (borrowPrice.decimals - collateralPrice.decimals) +
+    (assets[borrow].decimals - assets[collateral].decimals)
+
+  return exponent >= 0
+    ? (collateralPrice.price * 10n ** BigInt(exponent)) / borrowPrice.price
+    : collateralPrice.price / (borrowPrice.price * 10n ** BigInt(-exponent))
 }
 
 /**

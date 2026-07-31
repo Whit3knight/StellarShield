@@ -20,7 +20,7 @@ user's note inventory from public events alone.
 
 | Item | Value |
 | --- | --- |
-| Contract ID | `CDYTGIGPCTYKTNYFVN2MUAKNMX5VO6RHP6HQQKWZOGXWKNKBQJWKJABU` |
+| Contract ID | `CBLTPN2JCUHYH35OFGAYQ3NJDJC66IMFPHLOBT6PI2XKNVKPNH4FS6I4` |
 | Admin | `GCGLOK2DM2Y4NGESNJBTTOHEY7EB3MO35FV5YQSZIOWV6QW6ZNRXGPXK` |
 | Network | Testnet (`Test SDF Network ; September 2015`) |
 | Reflector CEX/DEX | `CCYOZJCOPG34LLQQ7N24YXBM7LL62R7ONMZ3G6WZAAYPB5OYKOMJRN63` |
@@ -193,7 +193,7 @@ stellar contract install \
 # → prints WASM_HASH
 
 stellar contract invoke \
-  --id CDYTGIGPCTYKTNYFVN2MUAKNMX5VO6RHP6HQQKWZOGXWKNKBQJWKJABU \
+  --id CBLTPN2JCUHYH35OFGAYQ3NJDJC66IMFPHLOBT6PI2XKNVKPNH4FS6I4 \
   --source deployer --network testnet \
   -- upgrade --wasm_hash $WASM_HASH
 
@@ -262,10 +262,10 @@ bun run build
 cd contracts
 stellar contract build
 stellar contract install --wasm target/wasm32v1-none/release/borrow_pool.wasm --source deployer --network testnet
-stellar contract invoke --id CDYTGIGPCTYKTNYFVN2MUAKNMX5VO6RHP6HQQKWZOGXWKNKBQJWKJABU --network testnet -- list_markets
+stellar contract invoke --id CBLTPN2JCUHYH35OFGAYQ3NJDJC66IMFPHLOBT6PI2XKNVKPNH4FS6I4 --network testnet -- list_markets
 
 # Bindings
-stellar contract bindings typescript --contract-id CDYTGIGPCTYKTNYFVN2MUAKNMX5VO6RHP6HQQKWZOGXWKNKBQJWKJABU --network testnet --output-dir /tmp/bindings
+stellar contract bindings typescript --contract-id CBLTPN2JCUHYH35OFGAYQ3NJDJC66IMFPHLOBT6PI2XKNVKPNH4FS6I4 --network testnet --output-dir /tmp/bindings
 
 # Liquidation watchlist / triage (Tracks G-lite + G-full)
 # Watchlist mode — no service key: enumerate every live

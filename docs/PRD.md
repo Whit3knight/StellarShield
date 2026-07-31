@@ -29,7 +29,7 @@ encrypted memos (ChaCha20-Poly1305 over X25519 ECDH) let a browser rebuild the
 note inventory from public chain events **within the RPC retention window**
 (see NFR-R1).
 
-- **Canonical testnet contract:** `CDYTGIGPCTYKTNYFVN2MUAKNMX5VO6RHP6HQQKWZOGXWKNKBQJWKJABU`
+- **Canonical testnet contract:** `CBLTPN2JCUHYH35OFGAYQ3NJDJC66IMFPHLOBT6PI2XKNVKPNH4FS6I4`
   (declared across README/.env/CLI; R16 resolved — an earlier `CBJZP45H…`
   deployment is retired).
 - **Registered markets:** USDC/XLM, XLM/USDC, EURC/USDC, USDC/EURC, EURC/XLM, XLM/EURC.

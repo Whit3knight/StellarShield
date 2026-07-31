@@ -3,6 +3,7 @@
 import * as React from "react"
 
 import { toastManager } from "@/components/ui/toast"
+import { formatRawAmount } from "@/features/markets"
 import {
   DENOMINATION,
   type ShieldedNote,
@@ -187,8 +188,8 @@ export function useWithdraw(account: string | null): UseWithdrawResult {
         toastManager.add({
           title:
             note.tree === "loan"
-              ? `Withdrew loan (${note.amount.toString()} ${note.asset})`
-              : `Withdrew ${DENOMINATION[note.asset]} ${note.asset}`,
+              ? `Withdrew loan (${formatRawAmount(note.amount, note.asset)} ${note.asset})`
+              : `Withdrew ${formatRawAmount(DENOMINATION[note.asset], note.asset)} ${note.asset}`,
           description: `Nullifier posted, note burned.`,
           type: "success",
           timeout: 6_000,

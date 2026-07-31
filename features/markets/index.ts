@@ -1,5 +1,6 @@
 export { assetPricesUsd, assets, marketCards } from "./data"
 export {
+  formatRawAmount,
   formatZeroAssetBalance,
   getAsset,
   getAssetPriceUsd,
@@ -7,7 +8,10 @@ export {
   getMarketSearchValue,
 } from "./utils"
 export {
+  fetchPriceRatio,
   fetchReflectorPrice,
+  PRICE_RATIO_DECIMALS,
+  PRICE_RATIO_SCALE,
   reflectorPriceToUsd,
   type ReflectorPrice,
 } from "./prices"
