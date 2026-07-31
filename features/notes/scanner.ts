@@ -386,10 +386,12 @@ export async function scanShieldedNotes(
 }
 
 /**
- * Query the contract's `nullifiers_used` view once per deposit note
- * we surfaced and drop the ones already flagged spent. Covers borrow
- * events that predate the nullifier-tail upgrade (whose bodies didn't
- * carry the four spent nullifiers publicly).
+ * Query the contract's `nullifiers_used` view for every note we hold
+ * — deposit AND loan. The contract keeps one global nullifier set
+ * (withdraw / borrow-collateral / withdraw_loan / repay / liquidate
+ * all burn into it, lib.rs `PersistentKey::Nullifier`), so this one
+ * bulk read marks claimed loans and repaid/withdrawn deposits spent
+ * even when the recording events are outside every event source.
  */
 async function hydrateSpentFromChain(
   notes: ShieldedNote[],
@@ -397,7 +399,7 @@ async function hydrateSpentFromChain(
 ): Promise<void> {
   const contractId = getConfiguredContractId()
   if (!contractId) return
-  const candidates = notes.filter((n) => n.tree === "deposit")
+  const candidates = notes
   if (candidates.length === 0) return
   try {
     const bindings = await import("@/features/protocol/bindings/borrow-pool")
