@@ -2,13 +2,15 @@
 // event merge in features/notes/rpc-events.ts. Dark-launched: without
 // DATABASE_URL this returns 503 and the client stays RPC-only.
 //
-// Goldsky's exact topics/data encoding is unverified, so the mapping
-// stays a dumb pass-through: topics is parsed only as the outer JSON
-// array (elements untouched), `value` is the raw data column (unwrapped
-// once if it is a JSON-quoted string). The client's toScVal drops
-// anything it cannot decode.
+// Goldsky stores topics/data as DECODED ScVal JSON (verified against
+// live rows: [{"symbol":"borrow"},...] / {"vec":[{"u64":"1"},
+// {"bytes":"<hex>"}]}). The client decoders expect base64 XDR, so each
+// row is re-encoded server-side via scval-json; rows that fail to
+// convert are dropped, degrading to RPC-only rather than corrupting.
 
 import { neon } from "@neondatabase/serverless"
+
+import { scValJsonToBase64 } from "@/features/notes/scval-json"
 
 const CONTRACT_ID_RE = /^C[A-Z2-7]{55}$/
 const NO_STORE = { "Cache-Control": "no-store" }
@@ -50,12 +52,18 @@ export async function GET(request: Request) {
       )
     }
 
-    const events = rows.map((row) => ({
-      id: String(row.id),
-      topics: parseTopics(row.topics),
-      value: parseData(row.data),
-      ledgerClosedAt: toIso(row.ledger_closed_at),
-    }))
+    const events = []
+    for (const row of rows) {
+      const topics = parseTopics(row.topics).map(scValJsonToBase64)
+      const value = scValJsonToBase64(parseData(row.data))
+      if (!value || topics.some((topic) => topic === null)) continue
+      events.push({
+        id: String(row.id),
+        topics,
+        value,
+        ledgerClosedAt: toIso(row.ledger_closed_at),
+      })
+    }
     return Response.json(events, { headers: NO_STORE })
   } catch (cause) {
     console.error("[api/events]", cause)
@@ -82,10 +90,9 @@ function parseTopics(raw: unknown): unknown[] {
 function parseData(raw: unknown): unknown {
   if (typeof raw === "string") {
     try {
-      const parsed = JSON.parse(raw)
-      if (typeof parsed === "string") return parsed
+      return JSON.parse(raw)
     } catch {
-      // raw base64 (not valid JSON) — pass through
+      return null
     }
   }
   return raw
