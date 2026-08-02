@@ -110,7 +110,10 @@ const client = new bindingsModule.Client({
   publicKey: stellarAddr,
 })
 const buffers = owned.map((o) => Buffer.from(bigintTo32BytesBE(o.nullifier)))
-const tx = await client.nullifiers_used({ nullifiers: buffers })
+const tx = await client.nullifiers_used({
+  asset: COLLATERAL_ASSET,
+  nullifiers: buffers,
+})
 const flags = (tx.result ?? []) as boolean[]
 console.log("index | nullifier(hex prefix) | spent?")
 for (let i = 0; i < owned.length; i++) {

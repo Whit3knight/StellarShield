@@ -27,7 +27,7 @@ transforms:
         ledger_sequence, ledger_closed_at
       FROM stellar_testnet_events
       WHERE contract_id IN (
-        'CBLTPN2JCUHYH35OFGAYQ3NJDJC66IMFPHLOBT6PI2XKNVKPNH4FS6I4'
+        'CCNLBMUTHMO5SXRBJ5DIKZDSS3J3OEW4PB5UFWATEXWLEDBGOBIEAEIZ'
       )
 
 sinks:

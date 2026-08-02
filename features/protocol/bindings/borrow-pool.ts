@@ -36,7 +36,7 @@ if (typeof window !== "undefined") {
 export const networks = {
   testnet: {
     networkPassphrase: "Test SDF Network ; September 2015",
-    contractId: "CBLTPN2JCUHYH35OFGAYQ3NJDJC66IMFPHLOBT6PI2XKNVKPNH4FS6I4",
+    contractId: "CCNLBMUTHMO5SXRBJ5DIKZDSS3J3OEW4PB5UFWATEXWLEDBGOBIEAEIZ",
   }
 } as const
 
@@ -158,7 +158,7 @@ export interface IndexSnapshot {
   value: u128;
 }
 
-export type PersistentKey = {tag: "DepositRoot", values: readonly [string]} | {tag: "DepositFrontier", values: readonly [string]} | {tag: "DepositNextIndex", values: readonly [string]} | {tag: "LoanRoot", values: readonly [string]} | {tag: "LoanFrontier", values: readonly [string]} | {tag: "LoanNextIndex", values: readonly [string]} | {tag: "Nullifier", values: readonly [Buffer]} | {tag: "BorrowIndex", values: readonly [string]} | {tag: "LiquidityIndex", values: readonly [string]} | {tag: "TotalDeposit", values: readonly [string]} | {tag: "TotalBorrow", values: readonly [string]} | {tag: "LiquidationBond", values: readonly [Buffer]} | {tag: "LoanNullifier", values: readonly [Buffer]} | {tag: "BorrowIndexAtOpen", values: readonly [Buffer]};
+export type PersistentKey = {tag: "DepositRoot", values: readonly [string]} | {tag: "DepositFrontier", values: readonly [string]} | {tag: "DepositNextIndex", values: readonly [string]} | {tag: "LoanRoot", values: readonly [string]} | {tag: "LoanFrontier", values: readonly [string]} | {tag: "LoanNextIndex", values: readonly [string]} | {tag: "DepositNullifier", values: readonly [string, Buffer]} | {tag: "BorrowIndex", values: readonly [string]} | {tag: "LiquidityIndex", values: readonly [string]} | {tag: "TotalDeposit", values: readonly [string]} | {tag: "TotalBorrow", values: readonly [string]} | {tag: "LiquidationBond", values: readonly [Buffer]} | {tag: "LoanNullifier", values: readonly [Buffer]} | {tag: "BorrowIndexAtOpen", values: readonly [Buffer]} | {tag: "LoanNullifierUsed", values: readonly [string, Buffer]};
 
 
 /**
@@ -359,14 +359,7 @@ export interface Client {
    * a batch view so a client scanning many notes at once pays one
    * RPC round trip instead of N.
    */
-  nullifiers_used: ({nullifiers}: {nullifiers: Array<Buffer>}, options?: MethodOptions) => Promise<AssembledTransaction<Array<boolean>>>
-
-  /**
-   * Construct and simulate a loan_nullifiers_used transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
-   * Loan-tree counterpart of `nullifiers_used` — reads the loan
-   * nullifier namespace (withdraw_loan / repay / liquidate marks).
-   */
-  loan_nullifiers_used: ({nullifiers}: {nullifiers: Array<Buffer>}, options?: MethodOptions) => Promise<AssembledTransaction<Array<boolean>>>
+  nullifiers_used: ({asset, nullifiers}: {asset: string, nullifiers: Array<Buffer>}, options?: MethodOptions) => Promise<AssembledTransaction<Array<boolean>>>
 
   /**
    * Construct and simulate a register_market transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
@@ -463,6 +456,14 @@ export interface Client {
   borrow_index_at_open: ({loan_commitment}: {loan_commitment: Buffer}, options?: MethodOptions) => Promise<AssembledTransaction<Option<u128>>>
 
   /**
+   * Construct and simulate a loan_nullifiers_used transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   * Loan-tree counterpart of `nullifiers_used` — reads the loan
+   * nullifier namespace (withdraw_loan / repay / liquidate marks)
+   * for `asset`'s loan tree.
+   */
+  loan_nullifiers_used: ({asset, nullifiers}: {asset: string, nullifiers: Array<Buffer>}, options?: MethodOptions) => Promise<AssembledTransaction<Array<boolean>>>
+
+  /**
    * Construct and simulate a positions_by_account transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    */
   positions_by_account: ({account}: {account: string}, options?: MethodOptions) => Promise<AssembledTransaction<Array<BorrowReceipt>>>
@@ -472,7 +473,7 @@ export interface Client {
    * Quad-deposit variant that ships FOUR leaves under one Groth16
    * proof. Public signals order (snarkjs outputs first):
    * [0..3] commitment[0..3]
-   * [4]    amount     (fixed denomination in whole units)
+   * [4]    amount     (fixed denomination, RAW token units)
    * [5]    asset_tag  (0 = XLM, 1 = USDC, 2 = EURC)
    * The circuit constrains each `commitment[i] == Poseidon(amount,
    * asset_tag, sk, salt_i)` for a shared `sk`. One pairing check on
@@ -595,8 +596,7 @@ export class Client extends ContractClient {
         "AAAAAAAAAatTaGllbGRlZCBib3Jyb3cuIENvbnN1bWVzIE49NCBjb2xsYXRlcmFsIG5vdGVzIHZpYSBudWxsaWZpZXJzLAphcHBlbmRzIGEgbmV3IGxvYW4tbm90ZSBjb21taXRtZW50IHRvIHRoZSBsb2FuIHRyZWUsIGVtaXRzIGFuCmVuY3J5cHRlZCBtZW1vIGF0dGFjaGluZyB0aGUgbm90ZSBtZXRhZGF0YSBmb3IgdGhlIGJvcnJvd2VyLgoKUHVibGljIHNpZ25hbHMgb3JkZXIgKG11c3QgbWF0Y2ggdGhlIGJvcnJvdyBjaXJjdWl0KToKWzBdICAgICBib3Jyb3dfYW1vdW50ClsxXSAgICAgYm9ycm93X2Fzc2V0X3RhZwpbMl0gICAgIGNvbGxhdGVyYWxfYXNzZXRfdGFnClszXSAgICAgaGZfbWluX2JwcwpbNF0gICAgIG1heF9sdHZfYnBzCls1XSAgICAgZGVwb3NpdF9yb290Cls2XSAgICAgYm9ycm93X2NvbW1pdG1lbnQKWzcuLjExXSBudWxsaWZpZXJzWzAuLjRdAAAAAA9ib3Jyb3dfc2hpZWxkZWQAAAAABQAAAAAAAAAEZnJvbQAAABMAAAAAAAAAEGNvbGxhdGVyYWxfYXNzZXQAAAARAAAAAAAAAAxib3Jyb3dfYXNzZXQAAAARAAAAAAAAAAVwcm9vZgAAAAAAB9AAAAALQm9ycm93UHJvb2YAAAAAAAAAAARtZW1vAAAADgAAAAEAAAPpAAAABgAAAAM=",
         "AAAAAAAAAAAAAAAPbGlxdWlkaXR5X2luZGV4AAAAAAEAAAAAAAAABWFzc2V0AAAAAAAAEQAAAAEAAAfQAAAADUluZGV4U25hcHNob3QAAAA=",
         "AAAAAAAAAAAAAAAPbG9hbl9uZXh0X2luZGV4AAAAAAEAAAAAAAAABWFzc2V0AAAAAAAAEQAAAAEAAAAG",
-        "AAAAAAAAARpCdWxrIG51bGxpZmllci11c2VkIGNoZWNrLiBSZXR1cm5zIGEgYm9vbGVhbiBwZXIgaW5wdXQgaW4gdGhlCnNhbWUgb3JkZXIg4oCUIGB0cnVlYCBtZWFucyB0aGUgbnVsbGlmaWVyIGhhcyBhbHJlYWR5IGJlZW4gbWFya2VkCnNwZW50IGJ5IGEgcHJpb3Igd2l0aGRyYXcgLyBib3Jyb3cgLyByZXBheSAvIGxpcXVpZGF0ZS4gS2VwdCBhcwphIGJhdGNoIHZpZXcgc28gYSBjbGllbnQgc2Nhbm5pbmcgbWFueSBub3RlcyBhdCBvbmNlIHBheXMgb25lClJQQyByb3VuZCB0cmlwIGluc3RlYWQgb2YgTi4AAAAAAA9udWxsaWZpZXJzX3VzZWQAAAAAAQAAAAAAAAAKbnVsbGlmaWVycwAAAAAD6gAAA+4AAAAgAAAAAQAAA+oAAAAB",
-        "AAAAAAAAAHxMb2FuLXRyZWUgY291bnRlcnBhcnQgb2YgYG51bGxpZmllcnNfdXNlZGAg4oCUIHJlYWRzIHRoZSBsb2FuCm51bGxpZmllciBuYW1lc3BhY2UgKHdpdGhkcmF3X2xvYW4gLyByZXBheSAvIGxpcXVpZGF0ZSBtYXJrcykuAAAAFGxvYW5fbnVsbGlmaWVyc191c2VkAAAAAQAAAAAAAAAKbnVsbGlmaWVycwAAAAAD6gAAA+4AAAAgAAAAAQAAA+oAAAAB",
+        "AAAAAAAAARpCdWxrIG51bGxpZmllci11c2VkIGNoZWNrLiBSZXR1cm5zIGEgYm9vbGVhbiBwZXIgaW5wdXQgaW4gdGhlCnNhbWUgb3JkZXIg4oCUIGB0cnVlYCBtZWFucyB0aGUgbnVsbGlmaWVyIGhhcyBhbHJlYWR5IGJlZW4gbWFya2VkCnNwZW50IGJ5IGEgcHJpb3Igd2l0aGRyYXcgLyBib3Jyb3cgLyByZXBheSAvIGxpcXVpZGF0ZS4gS2VwdCBhcwphIGJhdGNoIHZpZXcgc28gYSBjbGllbnQgc2Nhbm5pbmcgbWFueSBub3RlcyBhdCBvbmNlIHBheXMgb25lClJQQyByb3VuZCB0cmlwIGluc3RlYWQgb2YgTi4AAAAAAA9udWxsaWZpZXJzX3VzZWQAAAAAAgAAAAAAAAAFYXNzZXQAAAAAAAARAAAAAAAAAApudWxsaWZpZXJzAAAAAAPqAAAD7gAAACAAAAABAAAD6gAAAAE=",
         "AAAAAAAAAGdBZG1pbi1nYXRlZC4gQXBwZW5kcyBgbWFya2V0YCB0byB0aGUgcmVnaXN0cnkg4oCUIG5vLW9wIGlmIGEKbWFya2V0IHdpdGggdGhlIHNhbWUgYGtleWAgYWxyZWFkeSBleGlzdHMuAAAAAA9yZWdpc3Rlcl9tYXJrZXQAAAAAAQAAAAAAAAAGbWFya2V0AAAAAAfQAAAACk1hcmtldE1ldGEAAAAAAAEAAAPpAAAD7QAAAAAAAAAD",
         "AAAAAAAAAAAAAAAPc2V0X3JhdGVfcGFyYW1zAAAAAAEAAAAAAAAABnBhcmFtcwAAAAAH0AAAAApSYXRlUGFyYW1zAAAAAAABAAAD6QAAA+0AAAAAAAAAAw==",
         "AAAAAAAAAAAAAAAPc2V0X3Jpc2tfcGFyYW1zAAAAAAEAAAAAAAAABnBhcmFtcwAAAAAH0AAAAApSaXNrUGFyYW1zAAAAAAABAAAD6QAAA+0AAAAAAAAAAw==",
@@ -610,8 +610,9 @@ export class Client extends ContractClient {
         "AAAAAAAAAAAAAAAScmVmbGVjdG9yX2NvbnRyYWN0AAAAAAAAAAAAAQAAA+gAAAAT",
         "AAAAAAAAAAAAAAATaW5pdGlhbGl6ZV9zaGllbGRlZAAAAAADAAAAAAAAAAlyZWZsZWN0b3IAAAAAAAATAAAAAAAAAARyYXRlAAAH0AAAAApSYXRlUGFyYW1zAAAAAAAAAAAABHJpc2sAAAfQAAAAClJpc2tQYXJhbXMAAAAAAAEAAAPpAAAD7QAAAAAAAAAD",
         "AAAAAAAAAAAAAAAUYm9ycm93X2luZGV4X2F0X29wZW4AAAABAAAAAAAAAA9sb2FuX2NvbW1pdG1lbnQAAAAD7gAAACAAAAABAAAD6AAAAAo=",
+        "AAAAAAAAAJRMb2FuLXRyZWUgY291bnRlcnBhcnQgb2YgYG51bGxpZmllcnNfdXNlZGAg4oCUIHJlYWRzIHRoZSBsb2FuCm51bGxpZmllciBuYW1lc3BhY2UgKHdpdGhkcmF3X2xvYW4gLyByZXBheSAvIGxpcXVpZGF0ZSBtYXJrcykKZm9yIGBhc3NldGAncyBsb2FuIHRyZWUuAAAAFGxvYW5fbnVsbGlmaWVyc191c2VkAAAAAgAAAAAAAAAFYXNzZXQAAAAAAAARAAAAAAAAAApudWxsaWZpZXJzAAAAAAPqAAAD7gAAACAAAAABAAAD6gAAAAE=",
         "AAAAAAAAAAAAAAAUcG9zaXRpb25zX2J5X2FjY291bnQAAAABAAAAAAAAAAdhY2NvdW50AAAAABMAAAABAAAD6gAAB9AAAAANQm9ycm93UmVjZWlwdAAAAA==",
-        "AAAAAAAAAtBRdWFkLWRlcG9zaXQgdmFyaWFudCB0aGF0IHNoaXBzIEZPVVIgbGVhdmVzIHVuZGVyIG9uZSBHcm90aDE2CnByb29mLiBQdWJsaWMgc2lnbmFscyBvcmRlciAoc25hcmtqcyBvdXRwdXRzIGZpcnN0KToKWzAuLjNdIGNvbW1pdG1lbnRbMC4uM10KWzRdICAgIGFtb3VudCAgICAgKGZpeGVkIGRlbm9taW5hdGlvbiBpbiB3aG9sZSB1bml0cykKWzVdICAgIGFzc2V0X3RhZyAgKDAgPSBYTE0sIDEgPSBVU0RDLCAyID0gRVVSQykKVGhlIGNpcmN1aXQgY29uc3RyYWlucyBlYWNoIGBjb21taXRtZW50W2ldID09IFBvc2VpZG9uKGFtb3VudCwKYXNzZXRfdGFnLCBzaywgc2FsdF9pKWAgZm9yIGEgc2hhcmVkIGBza2AuIE9uZSBwYWlyaW5nIGNoZWNrIG9uCmNoYWluIGNvdmVycyBhbGwgZm91ciwgc28gdGhlIHBlci10eCBDUFUgYnVkZ2V0IG9ubHkgcGF5cyBmb3IKdmVyaWZpY2F0aW9uIG9uY2Ug4oCUIGFuIG9yZGluYXJ5IGBkZXBvc2l0X3NoaWVsZGVkX2JhdGNoYCBhdCBOPTQKcnVucyA0IHZlcmlmaWVzICh+MjQwTSBDUFUpIHdoaWNoIHRyaXBzIHRoZSBuZXR3b3JrJ3MgMTAwTSBjYXAuCkNvbnRyYWN0IHN0aWxsIHRyYW5zZmVycyB0aGUgZGVub21pbmF0aW9uIGZvdXIgdGltZXMgYW5kCmFwcGVuZHMgZm91ciBsZWF2ZXMsIHNvIHRoZSBjYWxsZXIgcHVzaGVzIGA0ICogZGVub21pbmF0aW9uYAp3b3J0aCBvZiB0aGUgdW5kZXJseWluZyB0b2tlbiBpbiBvbmUgc2hvdC4AAAAVZGVwb3NpdF9zaGllbGRlZF9xdWFkAAAAAAAABAAAAAAAAAAEZnJvbQAAABMAAAAAAAAABWFzc2V0AAAAAAAAEQAAAAAAAAAFcHJvb2YAAAAAAAfQAAAAC0JvcnJvd1Byb29mAAAAAAAAAAAFbWVtb3MAAAAAAAPqAAAADgAAAAEAAAPpAAAD6gAAAAYAAAAD",
+        "AAAAAAAAAtJRdWFkLWRlcG9zaXQgdmFyaWFudCB0aGF0IHNoaXBzIEZPVVIgbGVhdmVzIHVuZGVyIG9uZSBHcm90aDE2CnByb29mLiBQdWJsaWMgc2lnbmFscyBvcmRlciAoc25hcmtqcyBvdXRwdXRzIGZpcnN0KToKWzAuLjNdIGNvbW1pdG1lbnRbMC4uM10KWzRdICAgIGFtb3VudCAgICAgKGZpeGVkIGRlbm9taW5hdGlvbiwgUkFXIHRva2VuIHVuaXRzKQpbNV0gICAgYXNzZXRfdGFnICAoMCA9IFhMTSwgMSA9IFVTREMsIDIgPSBFVVJDKQpUaGUgY2lyY3VpdCBjb25zdHJhaW5zIGVhY2ggYGNvbW1pdG1lbnRbaV0gPT0gUG9zZWlkb24oYW1vdW50LAphc3NldF90YWcsIHNrLCBzYWx0X2kpYCBmb3IgYSBzaGFyZWQgYHNrYC4gT25lIHBhaXJpbmcgY2hlY2sgb24KY2hhaW4gY292ZXJzIGFsbCBmb3VyLCBzbyB0aGUgcGVyLXR4IENQVSBidWRnZXQgb25seSBwYXlzIGZvcgp2ZXJpZmljYXRpb24gb25jZSDigJQgYW4gb3JkaW5hcnkgYGRlcG9zaXRfc2hpZWxkZWRfYmF0Y2hgIGF0IE49NApydW5zIDQgdmVyaWZpZXMgKH4yNDBNIENQVSkgd2hpY2ggdHJpcHMgdGhlIG5ldHdvcmsncyAxMDBNIGNhcC4KQ29udHJhY3Qgc3RpbGwgdHJhbnNmZXJzIHRoZSBkZW5vbWluYXRpb24gZm91ciB0aW1lcyBhbmQKYXBwZW5kcyBmb3VyIGxlYXZlcywgc28gdGhlIGNhbGxlciBwdXNoZXMgYDQgKiBkZW5vbWluYXRpb25gCndvcnRoIG9mIHRoZSB1bmRlcmx5aW5nIHRva2VuIGluIG9uZSBzaG90LgAAAAAAFWRlcG9zaXRfc2hpZWxkZWRfcXVhZAAAAAAAAAQAAAAAAAAABGZyb20AAAATAAAAAAAAAAVhc3NldAAAAAAAABEAAAAAAAAABXByb29mAAAAAAAH0AAAAAtCb3Jyb3dQcm9vZgAAAAAAAAAABW1lbW9zAAAAAAAD6gAAAA4AAAABAAAD6QAAA+oAAAAGAAAAAw==",
         "AAAAAAAAAxJTaGllbGRlZCBsaXF1aWRhdGlvbiB2MiAoVHJhY2sgQSkuIFVzZXMgdGhlIHByZS1wdWJsaXNoZWQgbG9hbgpudWxsaWZpZXIgZnJvbSB0aGUgTG9hbk51bGxpZmllciBzaWRlY2FyIHNvIGEgc2VydmljZSB3b3JrZXIKaG9sZGluZyBvbmx5IHRoZSBtZW1vIG9wZW5pbmdzIOKAlCBuZXZlciB0aGUgYm9ycm93ZXIncyBzayDigJQKY2FuIHRyaWdnZXIuIFJlcXVpcmVzIGEgcG9zdC1UcmFjay1BIGJvbmQ7IHByZS1BIGxvYW5zIHN0YXkgb24KdGhlIHYxIHBhdGggdmlhIGBsaXF1aWRhdGVfc2hpZWxkZWRgLgoKQ2lyY3VpdCBwdWJsaWMgc2lnbmFscyAoNSk6ClswXSBib3Jyb3dfYW1vdW50X2NvbW1pdCAgICAgICAgICBmcm9tIExpcXVpZGF0aW9uQm9uZApbMV0gY29sbGF0ZXJhbF92YWx1ZV9jb21taXQgICAgICAgZnJvbSBMaXF1aWRhdGlvbkJvbmQKWzJdIGJvcnJvd19wcmljZV9jb21taXQgICAgICAgICAgIGZyb20gTGlxdWlkYXRpb25Cb25kClszXSBjdXJyZW50X3ByaWNlICAgICAgICAgICAgICAgICBvcmFjbGUtc3VwcGxpZWQKWzRdIHRocmVzaG9sZF9icHMgICAgICAgICAgICAgICAgIG1hdGNoZXMgcmlza19wYXJhbXMubGlxdWlkYXRpb25fdGhyZXNob2xkX2JwcwoKYGxvYW5fY29tbWl0bWVudGAgKyBgbG9hbl9udWxsaWZpZXJgIGNvbWUgaW4gYXMgdHggYXJnczsgdGhlCmNvbnRyYWN0IHZhbGlkYXRlcyB0aGVtIGFnYWluc3QgYGxpcXVpZGF0aW9uX2JvbmRgICsKYGxvYW5fbnVsbGlmaWVyYCBzdG9yYWdlLiBCb3VudHkgcGF5b3V0IGlzIGlkZW50aWNhbCB0byB2MS4AAAAAABVsaXF1aWRhdGVfc2hpZWxkZWRfdjIAAAAAAAAIAAAAAAAAAApsaXF1aWRhdG9yAAAAAAATAAAAAAAAAAxib3Jyb3dfYXNzZXQAAAARAAAAAAAAABBjb2xsYXRlcmFsX2Fzc2V0AAAAEQAAAAAAAAAPbG9hbl9jb21taXRtZW50AAAAA+4AAAAgAAAAAAAAAA5sb2FuX251bGxpZmllcgAAAAAD7gAAACAAAAAAAAAABXByb29mAAAAAAAH0AAAAAtCb3Jyb3dQcm9vZgAAAAAAAAAADWJvdW50eV9jb21taXQAAAAAAAPuAAAAIAAAAAAAAAALYm91bnR5X21lbW8AAAAADgAAAAEAAAPpAAAD7QAAAAAAAAAD",
         "AAAAAAAAAVhCYXRjaGVkIGBkZXBvc2l0X3NoaWVsZGVkYC4gYHByb29mc1tpXWAgbWludHMgdGhlIGxlYWYgZGVzY3JpYmVkCmJ5IGBtZW1vc1tpXWA7IHRoZSBwYWlyIGxlbmd0aCBtdXN0IG1hdGNoLiBTaWduZWQgb25jZSBhdCB0aGUKY2FsbGVyIChzaW5nbGUgYGZyb20ucmVxdWlyZV9hdXRoKClgKSwgc28gdGhlIHdhbGxldCBVWCBvbmx5CnByb21wdHMgb25jZSBmb3IgYSBmdWxsIHJvdW5kIG9mIHNoaWVsZGVkIGNvbGxhdGVyYWwgaW5zdGVhZCBvZgpOIHNlcGFyYXRlIGRlcG9zaXRzLiBSZXR1cm5zIHRoZSBhc3NpZ25lZCBsZWFmIGluZGV4ZXMgaW4gdGhlCnNhbWUgb3JkZXIgdGhlIHByb29mcyBjYW1lIGluLgAAABZkZXBvc2l0X3NoaWVsZGVkX2JhdGNoAAAAAAAEAAAAAAAAAARmcm9tAAAAEwAAAAAAAAAFYXNzZXQAAAAAAAARAAAAAAAAAAZwcm9vZnMAAAAAA+oAAAfQAAAAC0JvcnJvd1Byb29mAAAAAAAAAAAFbWVtb3MAAAAAAAPqAAAADgAAAAEAAAPpAAAD6gAAAAYAAAAD",
         "AAAAAAAAAAAAAAAWbGlxdWlkYXRpb25fc2VydmljZV9wawAAAAAAAAAAAAEAAAPoAAAD7gAAACA=",
@@ -621,7 +622,7 @@ export class Client extends ContractClient {
         "AAAAAQAAAFxSaXNrIHBhcmFtZXRlcnMuIFZhbHVlcyBhcmUgYmFzaXMgcG9pbnRzIHdoZXJlIHNlbnNpYmxlOwpgaGZfbWluX2Jwcz0xMjUwMGAgcmVhZHMgYXMgMS4yNcOXLgAAAAAAAAAKUmlza1BhcmFtcwAAAAAABAAAAAAAAAAKaGZfbWluX2JwcwAAAAAABAAAAAAAAAAVbGlxdWlkYXRpb25fYm9udXNfYnBzAAAAAAAABAAAAAAAAAAZbGlxdWlkYXRpb25fdGhyZXNob2xkX2JwcwAAAAAAAAQAAAAAAAAAC21heF9sdHZfYnBzAAAAAAQ=",
         "AAAAAgAAAAAAAAAAAAAAC0luc3RhbmNlS2V5AAAAAAYAAAAAAAAAAAAAAAVBZG1pbgAAAAAAAAAAAAAAAAAAB01hcmtldHMAAAAAAAAAAAAAAAAKUmF0ZVBhcmFtcwAAAAAAAAAAAAAAAAAKUmlza1BhcmFtcwAAAAAAAAAAAAAAAAARUmVmbGVjdG9yQ29udHJhY3QAAAAAAAAAAAAAAAAAABRMaXF1aWRhdGlvblNlcnZpY2VQaw==",
         "AAAAAQAAAHJQYWlyIG9mIHJ1bm5pbmcgaW5kZXggKyB0aGUgbGVkZ2VyIHRpbWVzdGFtcCBvZiBpdHMgbGFzdCBhY2NydWFsLgpgbGluZWFyX2FjY3J1ZSgpYCBpbiBgcmF0ZS5yc2Agd2Fsa3MgaXQgZm9yd2FyZC4AAAAAAAAAAAANSW5kZXhTbmFwc2hvdAAAAAAAAAIAAAAAAAAADGxhc3RfdXBkYXRlZAAAAAYAAAAAAAAABXZhbHVlAAAAAAAACg==",
-        "AAAAAgAAAAAAAAAAAAAADVBlcnNpc3RlbnRLZXkAAAAAAAAOAAAAAQAAAAAAAAALRGVwb3NpdFJvb3QAAAAAAQAAABEAAAABAAAAAAAAAA9EZXBvc2l0RnJvbnRpZXIAAAAAAQAAABEAAAABAAAAAAAAABBEZXBvc2l0TmV4dEluZGV4AAAAAQAAABEAAAABAAAAAAAAAAhMb2FuUm9vdAAAAAEAAAARAAAAAQAAAAAAAAAMTG9hbkZyb250aWVyAAAAAQAAABEAAAABAAAAAAAAAA1Mb2FuTmV4dEluZGV4AAAAAAAAAQAAABEAAAABAAAAAAAAAAlOdWxsaWZpZXIAAAAAAAABAAAD7gAAACAAAAABAAAAAAAAAAtCb3Jyb3dJbmRleAAAAAABAAAAEQAAAAEAAAAAAAAADkxpcXVpZGl0eUluZGV4AAAAAAABAAAAEQAAAAEAAAAAAAAADFRvdGFsRGVwb3NpdAAAAAEAAAARAAAAAQAAAAAAAAALVG90YWxCb3Jyb3cAAAAAAQAAABEAAAABAAAAAAAAAA9MaXF1aWRhdGlvbkJvbmQAAAAAAQAAA+4AAAAgAAAAAQAAAAAAAAANTG9hbk51bGxpZmllcgAAAAAAAAEAAAPuAAAAIAAAAAEAAAAAAAAAEUJvcnJvd0luZGV4QXRPcGVuAAAAAAAAAQAAA+4AAAAg",
+        "AAAAAgAAAAAAAAAAAAAADVBlcnNpc3RlbnRLZXkAAAAAAAAPAAAAAQAAAAAAAAALRGVwb3NpdFJvb3QAAAAAAQAAABEAAAABAAAAAAAAAA9EZXBvc2l0RnJvbnRpZXIAAAAAAQAAABEAAAABAAAAAAAAABBEZXBvc2l0TmV4dEluZGV4AAAAAQAAABEAAAABAAAAAAAAAAhMb2FuUm9vdAAAAAEAAAARAAAAAQAAAAAAAAAMTG9hbkZyb250aWVyAAAAAQAAABEAAAABAAAAAAAAAA1Mb2FuTmV4dEluZGV4AAAAAAAAAQAAABEAAAABAAAAAAAAABBEZXBvc2l0TnVsbGlmaWVyAAAAAgAAABEAAAPuAAAAIAAAAAEAAAAAAAAAC0JvcnJvd0luZGV4AAAAAAEAAAARAAAAAQAAAAAAAAAOTGlxdWlkaXR5SW5kZXgAAAAAAAEAAAARAAAAAQAAAAAAAAAMVG90YWxEZXBvc2l0AAAAAQAAABEAAAABAAAAAAAAAAtUb3RhbEJvcnJvdwAAAAABAAAAEQAAAAEAAAAAAAAAD0xpcXVpZGF0aW9uQm9uZAAAAAABAAAD7gAAACAAAAABAAAAAAAAAA1Mb2FuTnVsbGlmaWVyAAAAAAAAAQAAA+4AAAAgAAAAAQAAAAAAAAARQm9ycm93SW5kZXhBdE9wZW4AAAAAAAABAAAD7gAAACAAAAABAAAAAAAAABFMb2FuTnVsbGlmaWVyVXNlZAAAAAAAAAIAAAARAAAD7gAAACA=",
         "AAAAAQAAAMhQdWJsaWMgY29tbWl0bWVudCB0dXBsZSBwaW5uZWQgYXQgYm9ycm93LXRpbWUgc28gYSBsaXF1aWRhdG9yIGNhbgpsYXRlciBwcm92ZSBgZGVidCDDlyB0aHJlc2hvbGQgPiBjb2xsYXRlcmFsIMOXIGN1cnJlbnRfcHJpY2VgIHdpdGhvdXQKa25vd2luZyB0aGUgYm9ycm93ZXIncyBpZGVudGl0eS4gU2VlIGRvY3MvbGlxdWlkYXRpb24tZGVzaWduLm1kLgAAAAAAAAAPTGlxdWlkYXRpb25Cb25kAAAAAAcAAAAAAAAAFGJvcnJvd19hbW91bnRfY29tbWl0AAAD7gAAACAAAAAAAAAAEGJvcnJvd19hc3NldF90YWcAAAAEAAAAAAAAABNib3Jyb3dfcHJpY2VfY29tbWl0AAAAA+4AAAAgAAAAAAAAABRjb2xsYXRlcmFsX2Fzc2V0X3RhZwAAAAQAAAAAAAAAF2NvbGxhdGVyYWxfdmFsdWVfY29tbWl0AAAAA+4AAAAgAAAAAAAAAAlvcGVuZWRfYXQAAAAAAAAGAAAAAAAAAAxvcmFjbGVfZXBvY2gAAAAG",
         "AAAAAgAAAJFJbnN0YW5jZS1zdG9yYWdlIGtleSBtYXBwaW5nIGFzc2V0IHN5bWJvbHMgdG8gdGhlaXIgU0FDIC8gU29yb2Jhbgp0b2tlbiBjb250cmFjdCBhZGRyZXNzZXMuIFNldCBhdCBgaW5pdGlhbGl6ZWAgYWxvbmdzaWRlIHRoZQpSZWZsZWN0b3IgY29udHJhY3QuAAAAAAAAAAAAAApSZXNlcnZlS2V5AAAAAAABAAAAAQAAAAAAAAAHUmVzZXJ2ZQAAAAABAAAAEQ==" ]),
       options
@@ -652,7 +653,6 @@ export class Client extends ContractClient {
         liquidity_index: this.txFromJSON<IndexSnapshot>,
         loan_next_index: this.txFromJSON<u64>,
         nullifiers_used: this.txFromJSON<Array<boolean>>,
-        loan_nullifiers_used: this.txFromJSON<Array<boolean>>,
         register_market: this.txFromJSON<Result<void>>,
         set_rate_params: this.txFromJSON<Result<void>>,
         set_risk_params: this.txFromJSON<Result<void>>,
@@ -665,6 +665,7 @@ export class Client extends ContractClient {
         reflector_contract: this.txFromJSON<Option<string>>,
         initialize_shielded: this.txFromJSON<Result<void>>,
         borrow_index_at_open: this.txFromJSON<Option<u128>>,
+        loan_nullifiers_used: this.txFromJSON<Array<boolean>>,
         positions_by_account: this.txFromJSON<Array<BorrowReceipt>>,
         deposit_shielded_quad: this.txFromJSON<Result<Array<u64>>>,
         liquidate_shielded_v2: this.txFromJSON<Result<void>>,

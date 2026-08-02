@@ -33,7 +33,7 @@ pub enum PersistentKey {
     LoanRoot(Symbol),
     LoanFrontier(Symbol),
     LoanNextIndex(Symbol),
-    Nullifier(BytesN<32>),
+    DepositNullifier(Symbol, BytesN<32>),
     BorrowIndex(Symbol),
     LiquidityIndex(Symbol),
     TotalDeposit(Symbol),
@@ -48,11 +48,13 @@ pub enum PersistentKey {
     // to compute the accrued debt the repayer must cover. Absent for
     // pre-D loans → repay treats them as zero-interest.
     BorrowIndexAtOpen(BytesN<32>),
-    // Loan-tree spent-nullifier namespace. `Nullifier` above is the
-    // deposit-tree namespace; keeping them separate means a deposit
-    // nullifier and a loan nullifier that happen to share bytes never
-    // collide. (Distinct from `LoanNullifier`, the Track A sidecar.)
-    LoanNullifierUsed(BytesN<32>),
+    // Loan-tree spent-nullifier namespace. `DepositNullifier` above is
+    // the deposit-tree namespace. Both are keyed by (tree, asset):
+    // nullifier = Poseidon(sk, leaf_index) carries no tree or asset
+    // domain separation, so the same bytes recur at the same leaf index
+    // in every one of the 6 trees. Only the storage key keeps them
+    // apart. (Distinct from `LoanNullifier`, the Track A sidecar.)
+    LoanNullifierUsed(Symbol, BytesN<32>),
 }
 
 /// Public commitment tuple pinned at borrow-time so a liquidator can
@@ -175,28 +177,36 @@ pub fn set_markets(env: &Env, markets: &Vec<MarketMeta>) {
 
 // --- Nullifier set ------------------------------------------------------
 
-pub fn deposit_nullifier_used(env: &Env, nullifier: &BytesN<32>) -> bool {
+pub fn deposit_nullifier_used(env: &Env, asset: &Symbol, nullifier: &BytesN<32>) -> bool {
     env.storage()
         .persistent()
-        .has(&PersistentKey::Nullifier(nullifier.clone()))
+        .has(&PersistentKey::DepositNullifier(
+            asset.clone(),
+            nullifier.clone(),
+        ))
 }
 
-pub fn mark_deposit_nullifier_used(env: &Env, nullifier: &BytesN<32>) {
-    env.storage()
-        .persistent()
-        .set(&PersistentKey::Nullifier(nullifier.clone()), &true);
+pub fn mark_deposit_nullifier_used(env: &Env, asset: &Symbol, nullifier: &BytesN<32>) {
+    env.storage().persistent().set(
+        &PersistentKey::DepositNullifier(asset.clone(), nullifier.clone()),
+        &true,
+    );
 }
 
-pub fn loan_nullifier_used(env: &Env, nullifier: &BytesN<32>) -> bool {
+pub fn loan_nullifier_used(env: &Env, asset: &Symbol, nullifier: &BytesN<32>) -> bool {
     env.storage()
         .persistent()
-        .has(&PersistentKey::LoanNullifierUsed(nullifier.clone()))
+        .has(&PersistentKey::LoanNullifierUsed(
+            asset.clone(),
+            nullifier.clone(),
+        ))
 }
 
-pub fn mark_loan_nullifier_used(env: &Env, nullifier: &BytesN<32>) {
-    env.storage()
-        .persistent()
-        .set(&PersistentKey::LoanNullifierUsed(nullifier.clone()), &true);
+pub fn mark_loan_nullifier_used(env: &Env, asset: &Symbol, nullifier: &BytesN<32>) {
+    env.storage().persistent().set(
+        &PersistentKey::LoanNullifierUsed(asset.clone(), nullifier.clone()),
+        &true,
+    );
 }
 
 // --- Liquidation bond registry (Track L) -------------------------------

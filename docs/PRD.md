@@ -12,8 +12,9 @@
 Every requirement was fact-checked against source. The two gaps v1.0 flagged
 are addressed: identity is now signature-derived (FR-N1, R1 shipped); and the
 composition root is `features/shielded-pool/shielded-pool-provider.tsx` with no
-`AdapterProvider`/mock adapter (FR-P3), with the stale mock comments in
-`features/protocol/types.ts` still flagged for deletion.
+`AdapterProvider`/mock adapter (FR-P3). The stale mock comments in
+`features/protocol/types.ts` have since been deleted; the unused
+`ProtocolAdapter` type (`types.ts:112`) remains.
 
 ---
 
@@ -22,17 +23,25 @@ composition root is `features/shielded-pool/shielded-pool-provider.tsx` with no
 Stellar Shield is a Zcash-style shielded lending pool on Stellar with a Next.js
 16 dashboard. Users deposit fixed-denomination notes into per-asset commitment
 trees (Merkle depth 20; deposit + loan trees), borrow against exactly 4
-collateral notes with a Groth16-verified LTV check against a committed
-Reflector price, claim the loan to their wallet, and repay (with interest
-accrual) by burning a same-asset deposit note. Nullifiers prevent double-spend;
+collateral notes behind a Groth16 proof of note ownership, then **either**
+claim the loan to their wallet **or** repay (with interest accrual) by
+burning a same-asset deposit note — the two are mutually exclusive, see §9.
+Nullifiers prevent double-spend;
 encrypted memos (ChaCha20-Poly1305 over X25519 ECDH) let a browser rebuild the
 note inventory from public chain events **within the RPC retention window**
 (see NFR-R1).
 
-- **Canonical testnet contract:** `CBLTPN2JCUHYH35OFGAYQ3NJDJC66IMFPHLOBT6PI2XKNVKPNH4FS6I4`
-  (declared across README/.env/CLI; R16 resolved — an earlier `CBJZP45H…`
-  deployment is retired).
+- **Canonical testnet contract:** `CCNLBMUTHMO5SXRBJ5DIKZDSS3J3OEW4PB5UFWATEXWLEDBGOBIEAEIZ`
+  (declared across README/.env/CLI/bindings; R16 resolved — every earlier
+  deployment, `CBJZP45H…` included, is retired with unreachable pool state).
 - **Registered markets:** USDC/XLM, XLM/USDC, EURC/USDC, USDC/EURC, EURC/XLM, XLM/EURC.
+- **Unit domain:** every amount is RAW token units (stroops, 7 decimals).
+  `DENOMINATION` = `XLM: 10_000_000` (1 XLM), `USDC`/`EURC: 5_000_000` (0.5)
+  in both `features/notes/note.ts` and `contracts/borrow-pool/src/notes.rs`.
+- **Solvency bound:** the borrow circuit's LTV/HF band is **not** a guard —
+  `oracle_price` is an unconstrained private witness. The binding limit is
+  the contract-side cap `borrow_amount <= denomination(asset)` enforced in
+  `borrow_shielded` and `withdraw_loan_shielded` (`lib.rs`). See FR-C4.
 
 ## 2. User Personas
 
@@ -41,9 +50,11 @@ note inventory from public chain events **within the RPC retention window**
    signature-derived; residual limit is the ~0 anonymity set — REMEDIATION R4).
 2. **Boris, borrower** — deposits ≥4 collateral notes, borrows, claims loan,
    repays with interest. Wants loan size and liquidation level private.
-3. **Lena, liquidation operator** — runs `bun run scan:underwater` (optionally
-   `--trigger`) for the bounty. Never holds borrower *spending* keys (v2
-   circuit), but **does** decrypt all borrowers' position openings (REMEDIATION R3).
+3. **Lena, liquidation operator** — runs `bun run scan:underwater` for the
+   watchlist and triage. Never holds borrower *spending* keys (v2 circuit), but
+   **does** decrypt all borrowers' position openings (REMEDIATION R3). She
+   cannot currently earn a bounty: `--trigger` never produces a valid
+   underwater proof (see P0 solvency).
 4. **Devon, developer/admin** — deploys/upgrades contract, sets params,
    registers markets, maintains circuits.
 
@@ -56,24 +67,37 @@ note inventory from public chain events **within the RPC retention window**
 - Deposit a fixed-denomination note; contract pulls tokens, appends the
   commitment, emits an encrypted memo.
 - With ≥4 unspent collateral notes of one asset, generate a Groth16 borrow
-  proof in-browser (~15–30s) proving LTV ≤ `max_ltv_bps` against a committed
-  oracle price, without revealing amounts.
-- Claim the loan (`withdraw_loan_shielded`) to my wallet.
-- Repay by burning a same-asset deposit note covering principal × accrued
-  interest index; both nullifiers burn.
+  proof in-browser (~15–30s) proving I own four unspent notes at the attested
+  root, without revealing amounts. (The proof also carries an LTV/HF band, but
+  it is decorative — see FR-C4; the contract's denomination cap is the bound.)
+- Claim the loan (`withdraw_loan_shielded`) to my wallet **or** repay by
+  burning a same-asset deposit note covering principal × accrued interest
+  index. Not both: claim and repay spend the same loan nullifier
+  `Poseidon(sk, loan_index)`, so whichever runs first closes the position.
 - Withdraw any deposit note back to my wallet at the fixed denomination.
 - On a fresh browser, recover my note inventory by scanning public events
   (window-bounded — NFR-R1).
 
-### P0 — solvency `[IMPLEMENTED]`
+### P0 — solvency `[BUILT — TRIGGERING INERT]`
+
+Every component below exists and is wired end to end, but no liquidation can
+actually fire: the v1/v2 underwater inequality compares a `1e14`-scaled
+`collateral_notional` against an unscaled loan side, so witness generation
+fails for every position (`liquidate_v2.circom:59-72`). It **fails closed**.
+Before commit `09471e9` the same comparison was fail-OPEN — every position
+tested as underwater. Unblocking requires a v3 circuit with an explicit
+divisor plus a contract-read price (`ponytail:` comments in
+`features/shielded-pool/use-liquidate.ts`, `contracts/scripts/scan-underwater.ts`).
 
 - Self-liquidate an underwater position (v1 circuit + bond commitments).
+  `[BUILT — cannot trigger]`
 - As an operator, liquidate underwater positions without borrower spending
   keys via memo openings + v2 circuit (`liquidate_shielded_v2`); v1 fallback
-  for grandfathered bonds.
+  for grandfathered bonds. `[BUILT — cannot trigger]`
 - Enumerate live bonds (watchlist), triage with decrypted openings
-  (authenticated mode), auto-trigger liquidations (`--trigger` +
-  `LIQUIDATOR_SECRET` + `LIQUIDATION_SERVICE_SK`).
+  (authenticated mode). `[IMPLEMENTED]` Auto-trigger (`--trigger` +
+  `LIQUIDATOR_SECRET` + `LIQUIDATION_SERVICE_SK`) runs the loop but never
+  produces a proof. `[BUILT — inert]`
 
 ### P1 — quality of life
 
@@ -124,9 +148,13 @@ note inventory from public chain events **within the RPC retention window**
   events mint notes; `withdraw`/`repay`/`liquidate` events mark nullifiers
   spent; each memo trial-decrypted against the current identity plus supplied
   legacy identities (each note materializes with the `sk` of whichever identity
-  decrypted it). Lookback: 10,000 ledgers (NFR-R1).
-- **FR-N3:** In-memory note store replaced wholesale per scan; surfaced via
-  `useNotes()`.
+  decrypted it). Lookback: the full RPC retention window — `rpc-events.ts`
+  starts at `oldestLedger + 10` and pages the cursor to `latestLedger`,
+  optionally merged with indexed events from `/api/events` (NFR-R1).
+- **FR-N3:** Note store is **persisted** to localStorage per
+  (contract, account) and **merged** on every scan pass; spent notes are
+  tombstoned (`spent: true`) rather than dropped so Merkle rebuilds outlive
+  RPC retention. Surfaced via `useNotes()` (`note-store.ts`).
 - **FR-N4:** Poseidon commitments + Merkle paths client-side (`poseidon.ts`,
   `merkle.ts` — tested against fixtures shared with the contract).
 - **FR-N5:** Removed: encrypted backup export/import (testnet accepts
@@ -165,10 +193,10 @@ note inventory from public chain events **within the RPC retention window**
 - **FR-P2:** Risk/rate params fetched once per session
   (`risk-params.ts`: `getRiskParams()`/`useRiskParams()`).
 - **FR-P3 `[GAP — corrected]`:** Composition root is
-  `features/shielded-pool/shielded-pool-provider.tsx`. There is **no**
-  `AdapterProvider` and **no mock adapter** — stale CLAUDE.md claims; the mock
-  path was removed. Stale comments remain in `features/protocol/types.ts`
-  (cleanup candidate).
+  `features/shielded-pool/shielded-pool-provider.tsx`, mounted in
+  `app/layout.tsx`. There is **no** `AdapterProvider` and **no mock adapter**;
+  the mock path and its comments are gone. Only the unused `ProtocolAdapter`
+  type (`types.ts:112`) survives as a cleanup candidate.
 - **FR-P4:** Liquidation-service helpers (`liquidation-service.ts`) shared
   with the CLI. (Module-level cache never invalidates — known simplification.)
 
@@ -186,19 +214,34 @@ note inventory from public chain events **within the RPC retention window**
   `contracts/borrow-pool/src/vk/<circuit>/*.bin` (7 circuit dirs); circuits at
   `contracts/circuits/shielded-*` (Circom, BLS12-381, Poseidon).
 - **FR-C3:** In-place upgrade (same contract ID, storage-compatible) is the
-  required deployment mode. Acceptance: upgrade preserves nullifier set,
-  Merkle roots, and open bonds.
+  preferred deployment mode. Acceptance: upgrade preserves nullifier set,
+  Merkle roots, and open bonds. Breaking changes to the unit domain or
+  nullifier namespacing have forced fresh deploys (`ba81702`, `09471e9`),
+  which strand prior pool state — users must re-deposit.
+- **FR-C4 `[SECURITY-RELEVANT]`:** The borrow circuit's LTV and max-LTV
+  constraints (`borrow.circom:163-183`) do **not** bound solvency:
+  `oracle_price` is an unconstrained private witness, so a modified client
+  can satisfy the band at any price. The enforced bound is
+  `borrow_amount <= denomination(borrow_asset)`, checked in `borrow_shielded`
+  (the `max_borrow` guard) and again in `withdraw_loan_shielded` (the
+  `max_amount` guard), both in `contracts/borrow-pool/src/lib.rs`. Each is
+  preceded by a comment naming it as the real solvency guard. The cap is also
+  what keeps a loan repayable at all —
+  `repay.circom` burns exactly one deposit note. Total collateral is public
+  anyway (4 notes × fixed denomination), so the clear-text cap leaks nothing.
 
 ### 4.9 Liquidation tooling (CLI) `[IMPLEMENTED]`
 
 - **FR-L1:** `bun run scan:underwater` — read-only watchlist of live bonds,
-  oldest first; `LOOKBACK_LEDGERS` configurable.
+  oldest first, over the shared full-retention event scan; optional
+  `EVENTS_API_URL` merges indexed events.
 - **FR-L2:** Authenticated triage with `LIQUIDATION_SERVICE_SK`: decrypt
   memos, evaluate the circuit's underwater inequality, flag `**`.
 - **FR-L3:** `--trigger` requires **both** `LIQUIDATION_SERVICE_SK` and
   `LIQUIDATOR_SECRET` (Stellar signing key); autonomous loop. Activation
   additionally requires the on-chain `liquidation_service_pk` slot set.
-  `[shipped, awaiting config]`
+  `[built, inert — the loop runs but the underwater proof never succeeds;
+  see P0 solvency]`
 - **FR-L4:** `bun run gen:service-key` keypair generator.
 
 ## 5. Non-Functional Requirements
@@ -245,10 +288,16 @@ QA-derived, Given/When/Then. These are the verifiable form of the P0 stories.
 
 ### Liquidate
 
+**None of these are satisfiable today** — proving fails for every position
+(see P0 solvency). They are the acceptance bar for the v3 circuit.
+
 - Given a bond with a `LoanNullifier` sidecar, liquidation invokes
   `liquidate_shielded_v2`; given none, v1 — assert both branch directions.
 - Given a healthy position (HF ≥ min), liquidation proving fails or the
   contract returns `InvalidProof`.
+- Given a genuinely underwater position, proving **succeeds** and the loan
+  nullifier is burned. This is the regression that would have caught both the
+  fail-open and the fail-closed states, and does not exist.
 
 ### Scanner / recovery
 
@@ -271,7 +320,9 @@ QA-derived, Given/When/Then. These are the verifiable form of the P0 stories.
 
 ## 7. Test Coverage Gaps (ranked by risk)
 
-Current suite: 23 TS test files, 170 tests. Recently closed: `quote.ts` math,
+Current suite: 27 TS test files, 197 tests (`bun run test`). Recently closed:
+borrow-amount sizing/cap math, RPC event paging, ScVal JSON re-encoding,
+borrow-flow gates, `quote.ts` math,
 artifact-integrity loader, memo ephemeral-key freshness, R1 legacy-identity
 backward-compat. Remaining gaps:
 
@@ -281,6 +332,10 @@ backward-compat. Remaining gaps:
    the liquidate v2/v1 branch remain untested at the unit level (the latter is
    a one-line `!= null` in a heavy async hook; the e2e harness exercises the
    real paths).
+2b. **No liquidation proving test at any level.** The underwater inequality
+   went fail-OPEN and then fail-CLOSED without a single test noticing. A
+   fixture asserting "underwater position ⇒ proof succeeds; healthy ⇒ fails"
+   is the highest-value missing test in the repo.
 3. ✅ **Closed — e2e prove→submit→verify harness** (`bun run test:e2e`) now
    asserts the on-chain borrow verify and runs on a schedule in CI. This is the
    primary regression net for the pub-signal-order / G2 / Merkle-budget class,
@@ -305,9 +360,10 @@ backward-compat. Remaining gaps:
 | Recovery | Persisted local note store + ~7-day event scan (backup export removed 2026-07) | Indexer/archive, gated on mainnet |
 | Proving | Real in-browser Groth16, artifacts hash-pinned (R8); dev trusted setup | Production ceremony / universal setup |
 | Repay | Burns collateral notes; interest accrual live | v2 repay circuit: collateral recovery |
-| Liquidation | v1 + v2 shipped; autonomous loop shipped-unconfigured; single trusted operator | Activate service; decentralization dropped (FROST) — operator trust stays unless revisited |
+| Liquidation | v1 + v2 circuits, contract fns, hook, and CLI all built; **triggering inert (fails closed)** on a dimensional mismatch; single trusted operator | v3 circuit with explicit divisor + contract-read price, then activate service; decentralization dropped (FROST) — operator trust stays unless revisited |
+| Solvency | Contract-side cap `borrow_amount <= denomination`; circuit LTV band decorative (unconstrained `oracle_price`) | Price-bound circuit constraint once the oracle cross-check lands |
 | Oracle | Reflector freshness check only (live-price strkey bug fixed) | On-chain commitment cross-check |
-| Testing | TS unit (170) + fixture harness + **e2e testnet harness in CI (R6)** | Rust tests post soroban-sdk 23 |
+| Testing | TS unit (197 in 27 files) + fixture harness + **e2e testnet harness in CI (R6)** | Rust tests post soroban-sdk 23; liquidation proving fixture |
 | Docs | README + CLAUDE.md refreshed; canonical contract ID declared; BRD/PRD/REMEDIATION maintained | — |
 
 ## 9. Lifecycle (as implemented)
@@ -323,6 +379,10 @@ Freighter connect
   → contract call via TS bindings, signed by Freighter
   → contract verifies proof, burns/appends nullifiers/leaves, emits event + encrypted memo
   → next scan pass reflects the change
+
+loan note → EITHER claim (withdraw_loan_shielded) OR repay (repay_shielded)
+            both spend Poseidon(sk, loan_index) into the same
+            loan_nullifier_used set → mutually exclusive, never sequential
 ```
 
 The old typed lifecycle state machine (`features/protocol/lifecycle.ts`,
@@ -334,9 +394,10 @@ their async progress. Errors flow through `AdapterResult`/`AdapterError`
 
 Business questions live in BRD §12; engineering remediation questions in REMEDIATION.md. PRD-level additions:
 
-1. Delete dead code: legacy `borrow-eligibility-circom` dir, the stale
-   mock-adapter `ProtocolAdapter` type in `features/protocol/types.ts`, and the
-   unused `circomlib` dependency? (Deferred — flagged, not blockers.)
+1. Delete dead code: legacy `borrow-eligibility-circom` dir, the unused
+   `ProtocolAdapter` type (`features/protocol/types.ts:112`), and the
+   `circomlib` dependency (`package.json:32`)? (Deferred — flagged, not
+   blockers. The mock-adapter comments were already deleted.)
 2. ✅ Done — `e2e-borrow.ts` wired to a scheduled CI job (`test:e2e`).
 3. Superseded — backup feature deleted 2026-07; persisted note store +
    ~7-day event scan is the accepted recovery model.
@@ -347,7 +408,12 @@ Business questions live in BRD §12; engineering remediation questions in REMEDI
 ---
 
 **Status:** M1 (docs honest), M2 (trustworthy build), and M3 (privacy works)
-of [REMEDIATION.md](./REMEDIATION.md) are complete. **Recommended next:**
-(1) manual browser smoke-test of the R1 signature popup UX; (2) minor dead-code
-cleanups (OQ #1 above); (3) v2 repay (collateral recovery); (4) M4 mainnet-gate
+of [REMEDIATION.md](./REMEDIATION.md) are complete. The unit-domain break
+(`09471e9`) then moved solvency from the circuit into the contract and left
+liquidation triggering inert. **Recommended next:** (1) a liquidation proving
+fixture (gap 2b) — the missing regression that let liquidation flip from
+fail-open to fail-closed unnoticed; (2) the v3 liquidate circuit with an
+explicit divisor + contract-read price, which the fixture would then gate;
+(3) manual browser smoke-test of the R1 signature popup UX; (4) minor dead-code
+cleanups (OQ #1 above); (5) v2 repay (collateral recovery); (6) M4 mainnet-gate
 prerequisites remain gated on a mainnet decision.

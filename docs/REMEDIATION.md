@@ -7,6 +7,11 @@
 > (privacy works) are done and committed. Resolved: R1, R2, R3-disclosure,
 > R6, R7-stopgap, R8, R9, R15, R16, plus a live-pricing strkey bug. Remaining
 > work is M4 (§Part 4), all gated to a mainnet decision.
+>
+> **Read [Part 5 — Superseded notes](#part-5--superseded-notes-append-only)
+> first.** Parts 1–4 are preserved as written on 2026-07-13 and are now stale in
+> four places: the canonical contract ID (S1), the unit domain (S2), where
+> solvency is enforced (S3), and whether liquidation works at all (S4).
 
 **Context held constant:** single developer, testnet only, no real value at risk.
 The goal is **docs that tell the truth and a build that catches its own
@@ -220,3 +225,107 @@ README documents `CBJZP45H…4N7L`; `.env.local` runs `CATPLYD…52YX`. **Fix:**
 4. **OQ-2/OQ-3 decisions → their M3 implementations.** Both free; decide now so M3 doesn't stall.
 5. **Legal position (R11) → mainnet go → everything in M4.** Legal is the first gated item, not the last.
 6. **Single dev: milestones strictly serial.** If cutting, cut from the bottom of M2 (gaps 6–8 already cut) and the optional benchmark — never the harness, never R1.
+
+---
+
+## Part 5 — Superseded notes (append-only)
+
+This register is a historical record; the sections above are preserved as
+written on 2026-07-13. Everything below records where the code has since moved
+past them. **Do not read Parts 1–4 without this section.**
+
+### S1 — Contract ID: R16's canonical answer is superseded
+
+R16 (§Part 2) resolves an ambiguity between `CBJZP45H…4N7L` and
+`CATPLYD…52YX`. **Both are now retired**, along with every other prior
+deployment. The canonical contract is
+`CCNLBMUTHMO5SXRBJ5DIKZDSS3J3OEW4PB5UFWATEXWLEDBGOBIEAEIZ`, deployed fresh in
+commit `09471e9` and declared in `.env.example`,
+`features/protocol/bindings/borrow-pool.ts`, `contracts/scripts/*`,
+`goldsky/stellar-shield-events.yaml`, and `deploy/*.env.example`.
+
+R16's "in-place upgrade is the required deployment mode" premise no longer
+holds unconditionally: two breaking changes (`ba81702` nullifier namespacing,
+`09471e9` unit domain) forced fresh deploys that stranded pool state.
+
+### S2 — Unit domain: raw stroops, not whole units (`09471e9`)
+
+A class of defect the register never named. Note amounts, denominations,
+circuit signals, and `token::transfer` arguments are all **raw token units**
+(stroops, 7 decimals). Docs and circuit comments claiming "whole units" caused
+a borrow to request 427M USDC and fail with `Error(Contract,#10)`.
+Denominations were also raised from dust: `XLM: 10_000_000` (1 XLM),
+`USDC`/`EURC: 5_000_000` (0.5), matched in `features/notes/note.ts` and
+`contracts/borrow-pool/src/notes.rs`.
+
+Stale "whole units" comments still survive in code and should be corrected at
+the next touch: `contracts/borrow-pool/src/lib.rs:467`,
+`contracts/borrow-pool/src/deposit_verifier.rs:5`,
+`contracts/circuits/shielded-deposit/src/deposit.circom:13`, and the generated
+`features/protocol/bindings/borrow-pool.ts:475`.
+
+### S3 — Solvency moved from circuit to contract (`09471e9`) [CRITICAL]
+
+The register treats the borrow circuit's LTV/HF check as a working control and
+scopes R7 to the *oracle commitment*. That understates it: because
+`oracle_price` is an **unconstrained private witness**
+(`contracts/circuits/shielded-borrow/src/borrow.circom:36-42`), the circuit's
+LTV band never bound anything — a modified client could mint any loan.
+
+Solvency now lives where it can bind: `borrow_shielded` and
+`withdraw_loan_shielded` reject `borrow_amount > denomination(asset)`
+(`contracts/borrow-pool/src/lib.rs`). The cap is also what makes repay possible
+at all — `repay.circom` burns exactly one deposit note, so a larger loan was
+permanently unrepayable. Total collateral is public regardless (4 notes × fixed
+denomination), so the clear-text cap costs no privacy.
+
+Consequence for R7: making the circuit's LTV real requires binding the price,
+which is the same `.zkey` regeneration as the oracle cross-check. The two
+should be treated as one work item at the ceremony gate.
+
+### S4 — Liquidation triggering is inert; was previously fail-OPEN (`09471e9`) [CRITICAL]
+
+The register assumes Track A/L liquidation works. It does not.
+
+Before `09471e9`, both call sites fetched the **loan** asset's USD price and
+compared it against a collateral-denominated bond. Every position tested as
+underwater — liquidation was **fail-OPEN**.
+
+It now **fails closed**, which is safe but not working. The v1/v2 underwater
+inequality compares `loan_amount · threshold_bps · borrow_price` against
+`collateral_notional · current_price · 10000`, but `collateral_notional`
+carries the borrow circuit's `1e14` price scale that the loan side does not.
+The comparison is dimensionally mismatched, `GreaterThan` never asserts, and
+witness generation fails for every position at any price. Both call sites also
+skip when Reflector has no feed. See the `ponytail:` comments in
+`features/shielded-pool/use-liquidate.ts` and
+`contracts/scripts/scan-underwater.ts`.
+
+**Unblock:** a v3 liquidate circuit with an explicit divisor plus a
+contract-read price. **Gate it on a test first** — no fixture at any level
+covers liquidation proving, which is why the mechanism flipped from fail-open
+to fail-closed unnoticed. A fixture asserting "underwater ⇒ proof succeeds;
+healthy ⇒ proof fails" belongs ahead of the v3 build, and belongs in M2's
+safety-net bucket, not M4.
+
+### S5 — Claim and repay are mutually exclusive
+
+Not previously recorded. `withdraw_loan_shielded` (claim) and `repay_shielded`
+both spend `Poseidon(sk, loan_index)` into the same `loan_nullifier_used` set.
+Whichever runs first closes the loan; the other returns `ProofReplayed`. There
+is no claim-then-repay lifecycle. Collateral stays burned either way — v2 repay
+(collateral recovery) remains the deferred item it was in Part 4.
+
+### S6 — Cleanups since the plan
+
+- Stale mock-adapter *comments* in `features/protocol/types.ts` (R16 step 3):
+  **done**. The unused `ProtocolAdapter` type (`types.ts:112`) and the
+  `circomlib` dependency (`package.json:32`) remain.
+- Retired `borrow-eligibility-circom` dir (R16 step 3, OQ-1): **still present**.
+- Test suite: 27 files / 197 tests (`bun run test`), up from the 23/170 quoted
+  in PRD §7 at plan time.
+- Note recovery: the scanner now pages the **full RPC retention window**
+  (`rpc-events.ts`, `oldestLedger + 10` → `latestLedger`) and merges into a
+  **persisted, tombstoning** note store, optionally merged with indexed events
+  via `/api/events` (Goldsky → Neon). R2's window-bounded framing still holds
+  for the underlying limit; the mitigation is stronger than recorded.

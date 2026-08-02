@@ -38,15 +38,21 @@ position privacy today.
 Stellar Shield is a privacy-preserving lending pool on Stellar's Soroban smart
 contract platform. It lets a user deposit collateral, prove they are eligible to
 borrow, and take a loan — without revealing their wallet, balances, or position
-size on-chain. Eligibility is proven with zero-knowledge proofs verified
-directly on-chain using Protocol 22 cryptographic host functions.
+size on-chain. Ownership of the collateral being spent is proven with
+zero-knowledge proofs verified directly on-chain using Protocol 22
+cryptographic host functions.
 
-The project has completed a full technical validation on testnet: the shielded
-deposit → borrow → repay/liquidate lifecycle runs end-to-end with real
-on-chain proof verification. This establishes a **first-mover technical
-position** for zero-knowledge applications on Stellar. It does **not** yet
-establish product-market fit, and this document treats demand as an open
-hypothesis to be tested, not a proven fact.
+The project has completed a technical validation on testnet: the shielded
+deposit → borrow → claim/repay lifecycle runs end-to-end with real on-chain
+proof verification. This establishes a **first-mover technical position** for
+zero-knowledge applications on Stellar. It does **not** yet establish
+product-market fit, and this document treats demand as an open hypothesis to be
+tested, not a proven fact.
+
+Two parts of the economic layer are not finished, and the business case should
+not be read as if they were: loan sizing is bounded by a blunt contract-side
+cap rather than by the proof itself, and liquidation — though fully built — has
+no working trigger. Both are detailed in §9 and PRD §4.8 / §7.
 
 ## 2. Problem & Opportunity
 
@@ -75,9 +81,12 @@ single reason on-chain lending is a non-starter.
   establishes technical credibility and design leadership regardless of
   near-term adoption.
 - **Shielded *lending* is rare even industry-wide.** Most privacy protocols
-  shield *transfers*. Proving borrow eligibility (an LTV check against a live
-  oracle price) inside a zero-knowledge proof is a harder and less-crowded
-  problem than shielded payments.
+  shield *transfers*. Putting borrow eligibility — an LTV check against a live
+  oracle price — inside a zero-knowledge proof is a harder and less-crowded
+  problem than shielded payments. It is also the part Stellar Shield has not
+  finished: the circuit takes the price as an unconstrained witness, so the
+  check is not yet binding (BR9). Difficulty is the point of the claim; the
+  claim is not that it is solved.
 
 ### Market context & evidence
 
@@ -157,9 +166,9 @@ market objectives are explicitly *gated* and not yet in scope.
 | # | Objective | Outcome |
 |---|-----------|---------|
 | B1 | Prove privacy-preserving lending is viable on Stellar/Soroban | Achieved — live on testnet with on-chain proof verification |
-| B2 | Demonstrate a complete borrow lifecycle end-to-end | Achieved — deposit, borrow, claim, repay, liquidate all work |
+| B2 | Demonstrate a complete borrow lifecycle end-to-end | Partly achieved — deposit, borrow, claim, repay, withdraw all work. Claim and repay are mutually exclusive branches, not sequential steps. Liquidation does not complete |
 | B3 | Establish first-mover technical credibility for ZK on Stellar | Achieved — working reference implementation exists |
-| B4 | Keep the pool solvent without a central party holding user spending keys | Achieved — service-based liquidation path shipped |
+| B4 | Keep the pool solvent without a central party holding user spending keys | Not achieved — the keyless liquidation path is built but its trigger is inert, so nothing can liquidate. Solvency currently rests on a contract-side cap of one denomination per loan, not on liquidation |
 
 ### Stage 2 — Product validation (gated, not yet in scope)
 
@@ -183,7 +192,7 @@ observed yet; validating them is Open Question OQ-1.
 |---------|----------------|--------|
 | Privacy-conscious Stellar holders | "Earn yield or take leverage without broadcasting my balance sheet to the world." | Hypothesis — unvalidated |
 | Professional borrowers (funds, market makers) | "Borrow without leaking my position size and liquidation level to competitors and liquidation bots." | Hypothesis — unvalidated |
-| Liquidation service operators | "Keep the pool solvent and earn a bounty for triggering liquidations on underwater positions." | Tooling shipped; permissionless-capable by design |
+| Liquidation service operators | "Keep the pool solvent and earn a bounty for triggering liquidations on underwater positions." | Watchlist + triage tooling shipped and permissionless-capable by design, but no bounty is earnable — triggering is inert (BR8) |
 | Internal development team | "Prove the concept works and de-risk a future product decision." | Actual current user |
 
 ## 5. Value Proposition & Differentiation
@@ -198,8 +207,9 @@ public position.
 > **For** professional and privacy-conscious borrowers on Stellar **who** need
 > collateralized leverage but cannot afford to broadcast their balance sheet,
 > position size, and liquidation level to the entire chain, **Stellar Shield is**
-> a privacy-preserving lending pool **that** lets you prove borrow eligibility and
-> take a loan while your wallet, balances, and position size stay hidden on-chain.
+> a privacy-preserving lending pool **that** lets you borrow against collateral
+> you prove you own, while your wallet, balances, and position size stay hidden
+> on-chain.
 > **Unlike** transparent Stellar lenders (Blend and every other Stellar lending
 > market), which expose every position publicly, **and unlike** shielded-*transfer*
 > tools (Zcash, Tornado-style pools), which hide payments but offer no borrowing
@@ -214,10 +224,12 @@ public position.
 
 - **Category of one on Stellar.** It is the only *shielded lending* option in the
   Stellar ecosystem — a gap, not a head-to-head fight with an incumbent (§2).
-- **On-chain ZK verification, not off-chain trust.** Borrow eligibility is proven
-  with a zk-SNARK verified directly on-chain using Protocol 22 BLS12-381 host
-  functions (live on mainnet since 2024-12-05 [S3]) — solvency is enforced by the
-  chain, not by a trusted server.
+- **On-chain ZK verification, not off-chain trust.** Every shielded operation is
+  gated by a zk-SNARK verified directly on-chain using Protocol 22 BLS12-381
+  host functions (live on mainnet since 2024-12-05 [S3]) — the chain, not a
+  trusted server, decides what executes. Solvency is likewise enforced on
+  chain, though today by a contract-side loan cap rather than by the proof
+  (§9).
 - **Client-side proving, no key custody.** Proofs are generated in the user's
   browser. No backend server holds spending keys or sees plaintext positions on
   the user path, which removes an entire class of custody and honeypot risk.
@@ -263,7 +275,8 @@ The only value-capture mechanism that exists in the code is a **liquidation
 bounty** (a fixed denomination paid to whoever liquidates an underwater
 position). That is a solvency-incentive mechanism, not a protocol revenue
 stream — it pays third-party liquidators, it does not accrue value to the
-protocol or its operator.
+protocol or its operator. It is also currently unpayable, since no liquidation
+can be triggered (BR8).
 
 **Where revenue would come from (designed, not active).** The governing
 constraint is that a shielded pool cannot bill an identity — so a fee can only
@@ -313,11 +326,13 @@ technical breakdown (contracts, circuits, tooling).
 ### In scope (validated on testnet)
 
 - **Shielded deposit** — put collateral into a private pool.
-- **Shielded borrow** — prove eligibility and take a loan without revealing the
-  position.
-- **Claim & repay** — receive borrowed funds to a wallet and repay with interest.
-- **Liquidation** — keep the pool solvent when a position goes underwater, via a
-  path that does not require the borrower's spending keys.
+- **Shielded borrow** — take a loan against private collateral without revealing
+  the position. Loan size is capped at one denomination by the contract.
+- **Claim or repay** — receive borrowed funds to a wallet, *or* repay with
+  interest. Mutually exclusive branches: both consume the same loan nullifier.
+- **Liquidation** — built but **not working**: the underwater proof cannot be
+  generated, so no position can be liquidated. Solvency currently rests on the
+  loan cap instead. See §9.
 - **Position recovery** — rebuild a user's private holdings from public chain
   data on a fresh device (bounded by a data-retention window).
 - **Operator tooling** — a watchlist and triage capability for liquidation
@@ -375,6 +390,8 @@ not reproduced here.
 | BR5 | **Sole oracle dependency.** Pricing depends entirely on a single oracle provider — Reflector, a SEP-40-compliant Stellar price oracle run as a P2P consensus of ecosystem-operated nodes [S18]. It is real and widely used Stellar infrastructure (its V3 contract was audited via Code4rena in Oct 2025 [S18]), and SEP-40 is an established interface with multiple providers (e.g. RedStone adopted it in 2026 [S19]) — so the *interface* is not a lock-in, but Stellar Shield currently wires to one feed. | Operational | An oracle outage, mispricing, or discontinuation directly threatens solvency and availability. | Interface is SEP-40-standard and swappable in principle; a cross-checked fallback source is a mainnet prerequisite. |
 | BR6 | **Trusted liquidation operator.** The party running the liquidation service can currently see every borrower's position. | Product/privacy | Weakens the privacy promise against an insider; centralizes a sensitive role. | Disclosed as an accepted limitation; decentralizing it is the only removal path. |
 | BR7 | **First-mover with no proven playbook.** Being early on Stellar ZK means no reference users, no established demand, and no peer protocols to learn from. | Strategic | Higher uncertainty; may be early to a market that doesn't materialize. | Frame as an option/credibility play, not a committed product bet. |
+| BR8 | **No working liquidation.** Every liquidation component is built — bond commitments, both circuits, both contract entry points, the hook, the operator CLI — but the underwater proof is dimensionally mismatched and cannot be generated for any position. It fails closed; an earlier version of the same comparison failed *open*, marking every position underwater. Nothing at any test level covers liquidation proving. | Product/solvency | A lending pool that cannot liquidate has no mechanism to close a bad position. On testnet this is contained by the loan cap; with real value it is disqualifying. | Contract-side cap (one denomination per loan, four notes of collateral) contains the exposure today. A v3 liquidate circuit with an explicit divisor plus a contract-read price is the fix, gated behind a proving fixture that would have caught both failure directions. Hard mainnet blocker. |
+| BR9 | **Loan sizing is capped, not risk-priced.** Collateralization is not enforced by the proof — the circuit's LTV band is decorative because its price input is an unconstrained witness — so the contract caps every loan at one denomination regardless of the collateral's actual value. | Product/economics | Safe, but blunt: capital efficiency is fixed and cannot respond to collateral value, which weakens the borrowing proposition for the professional-borrower persona the product targets. | Accepted on testnet. A price-bound circuit constraint is bundled with the on-chain oracle cross-check and the trusted-setup ceremony (all three regenerate the proving keys). |
 
 ### Key business assumptions
 

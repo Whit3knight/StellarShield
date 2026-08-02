@@ -10,7 +10,7 @@ pragma circom 2.1.9;
 // per-asset denomination tables.
 //
 // Public signals (order matches BorrowPool::deposit_shielded):
-//   [0] amount        (fixed denomination in whole units)
+//   [0] amount        (fixed denomination, RAW token units)
 //   [1] asset_tag     (0 = XLM, 1 = USDC, 2 = EURC)
 //   [2] commitment    (Poseidon output, stored as new leaf in the tree)
 //

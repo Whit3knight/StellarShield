@@ -1,9 +1,12 @@
 # Lifecycle demo walkthrough
 
-End-to-end script covering deposit → borrow → repay OR liquidate →
-withdraw. Run against the deployed testnet contract
-(`CBJZP45HUUVXWDSEUIQPDJD4RZPTUJUG6IGVM7HQPHRK74SHKPXF4N7L`) or a
+End-to-end script covering deposit → borrow → claim OR repay →
+withdraw. Run against the canonical testnet contract
+(`CCNLBMUTHMO5SXRBJ5DIKZDSS3J3OEW4PB5UFWATEXWLEDBGOBIEAEIZ`) or a
 fresh one you spun up per `docs/deployment.md`.
+
+Liquidation (§4b) is currently **not demoable** — the underwater proof
+is dimensionally inert and fails closed. Do not put it in a live demo.
 
 ## Setup
 
@@ -20,8 +23,9 @@ fresh one you spun up per `docs/deployment.md`.
 1. Open the app in browser A, connect Freighter, unlock the shielded
    drawer.
 2. On the target collateral asset (XLM by default — cheapest), click
-   Deposit four times to mint 4 × 100 XLM shielded notes. Freighter
-   signs once per note.
+   Deposit four times to mint 4 × 1 XLM shielded notes (`DENOMINATION`
+   is raw units: `XLM: 10_000_000`, `USDC`/`EURC: 5_000_000` = 0.5).
+   Freighter signs once per note.
 3. Wait for the scanner pass — each fresh note appears in the list
    with a `#index` badge and a masked amount (PrivateValue).
 
@@ -39,6 +43,12 @@ fresh one you spun up per `docs/deployment.md`.
 4. Click **Claim** on the loan note — Freighter signs
    `withdraw_loan_shielded`; the loan amount arrives in the connected
    wallet as native tokens.
+
+**Claim and Repay are mutually exclusive, not sequential.** Both spend
+the same loan nullifier `Poseidon(sk, loan_index)`
+(`withdraw.circom:102-105` and `repay.circom:113-116`, both recorded in
+the contract's `loan_nullifier_used` set), so a claimed loan can never
+be repaid. Pick one branch per loan: do step 4 **or** §4a, not both.
 
 ## 3. Borrower A OR service: monitor
 
@@ -60,6 +70,8 @@ fresh one you spun up per `docs/deployment.md`.
 
 ## 4a. Path A — repay
 
+Requires an **unclaimed** loan note — skip step 2.4 to reach this path.
+
 1. Borrower A deposits an extra note in the loan asset ≥ loan amount
    (with Track D interest, ≥ loan_amount × index_now / index_at_open).
 2. The `Repay` button appears on the loan-note row once a viable
@@ -67,11 +79,19 @@ fresh one you spun up per `docs/deployment.md`.
 3. Click Repay. Freighter signs `repay_shielded`; both nullifiers
    burn, the loan disappears from inventory.
 
-## 4b. Path B — liquidate (self-liquidate demo)
+## 4b. Path B — liquidate (NOT CURRENTLY REACHABLE)
 
-Only reachable when a price drop breaks the underwater inequality. On
-testnet Reflector prices are real, so wait for a genuine drop or
-deploy against a fresh contract with cheap `hf_min_bps` to simulate.
+**This path cannot be demoed today.** The v1/v2 underwater inequality
+compares a `1e14`-scaled `collateral_notional` against an unscaled loan
+side, so witness generation fails for every position no matter how far
+the price moves (`shielded-liquidate-v2/src/liquidate_v2.circom:59-72`).
+Both call sites additionally skip when Reflector has no feed — see the
+`ponytail:` comments in `features/shielded-pool/use-liquidate.ts` and
+`contracts/scripts/scan-underwater.ts`. Fixing it needs a v3 circuit
+with an explicit divisor and a contract-read price.
+
+The steps below describe the intended flow once v3 lands; they will not
+complete against the current deployment.
 
 1. HF badge turns destructive on the loan note. The `Liquidate`
    button appears.
@@ -101,10 +121,10 @@ deploy against a fresh contract with cheap `hf_min_bps` to simulate.
 - Contract state after each step via the CLI:
   ```bash
   stellar contract invoke --network testnet \
-    --id CBJZP45HUUVXWDSEUIQPDJD4RZPTUJUG6IGVM7HQPHRK74SHKPXF4N7L -- \
+    --id CCNLBMUTHMO5SXRBJ5DIKZDSS3J3OEW4PB5UFWATEXWLEDBGOBIEAEIZ -- \
     total_deposit --asset XLM
   stellar contract invoke --network testnet \
-    --id CBJZP45HUUVXWDSEUIQPDJD4RZPTUJUG6IGVM7HQPHRK74SHKPXF4N7L -- \
+    --id CCNLBMUTHMO5SXRBJ5DIKZDSS3J3OEW4PB5UFWATEXWLEDBGOBIEAEIZ -- \
     total_borrow --asset USDC
   ```
 - Everything is on-chain reproducible: reset the browser localStorage

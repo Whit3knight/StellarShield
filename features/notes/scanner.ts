@@ -386,29 +386,46 @@ export async function scanShieldedNotes(
 }
 
 /**
- * Compute each note's nullifier and bucket it by tree. The contract
- * keeps two spent-nullifier namespaces — `PersistentKey::Nullifier`
- * for deposit notes, `PersistentKey::LoanNullifierUsed` for loan
- * notes — so each bucket must be checked against its own view.
+ * Compute each note's nullifier and bucket it by (tree, asset) — one
+ * bucket per contract nullifier namespace. `nullifier =
+ * Poseidon(sk, leaf_index)` has no tree or asset domain separation, so
+ * the SAME bytes recur at the same leaf index in each of the 6 trees;
+ * only the storage key `(tree, asset, nullifier)` keeps them apart.
+ * Querying a note against the wrong asset's namespace reports another
+ * asset's spend as this note's.
  */
-export function nullifiersByTree(
-  notes: Array<Pick<ShieldedNote, "sk" | "index" | "tree">>
-): { deposit: bigint[]; loan: bigint[] } {
-  const out = { deposit: [] as bigint[], loan: [] as bigint[] }
+export function nullifiersByTreeAndAsset(
+  notes: Array<Pick<ShieldedNote, "sk" | "index" | "tree" | "asset">>
+): Array<{
+  tree: ShieldedNote["tree"]
+  asset: ShieldedAsset
+  nullifiers: bigint[]
+}> {
+  const groups = new Map<
+    string,
+    { tree: ShieldedNote["tree"]; asset: ShieldedAsset; nullifiers: bigint[] }
+  >()
   for (const n of notes) {
-    out[n.tree].push(computeNullifier(n.sk, n.index))
+    const key = `${n.tree}:${n.asset}`
+    let group = groups.get(key)
+    if (!group) {
+      group = { tree: n.tree, asset: n.asset, nullifiers: [] }
+      groups.set(key, group)
+    }
+    group.nullifiers.push(computeNullifier(n.sk, n.index))
   }
-  return out
+  return [...groups.values()]
 }
 
 /**
  * Query the contract's spent-nullifier views for every note we hold.
  * Deposit notes go to `nullifiers_used`, loan notes to
- * `loan_nullifiers_used` — the contract keeps a separate namespace
- * per tree, so a deposit nullifier and a loan nullifier that share
- * bytes no longer collide. These bulk reads mark claimed loans and
- * repaid/withdrawn deposits spent even when the recording events are
- * outside every event source.
+ * `loan_nullifiers_used`, each scoped to the note's asset — the
+ * contract keeps one namespace per (tree, asset), so nullifiers that
+ * share bytes across trees or across assets no longer collide. One
+ * call per (tree, asset) group. These bulk reads mark claimed loans
+ * and repaid/withdrawn deposits spent even when the recording events
+ * are outside every event source.
  */
 async function hydrateSpentFromChain(
   notes: ShieldedNote[],
@@ -427,18 +444,17 @@ async function hydrateSpentFromChain(
       rpcUrl: getConfiguredSorobanRpcUrl(),
       publicKey: sdkForPk.StrKey.encodeEd25519PublicKey(Buffer.alloc(32)),
     })
-    const byTree = nullifiersByTree(candidates)
     let flagged = 0
-    for (const tree of ["deposit", "loan"] as const) {
-      const nullifiers = byTree[tree]
-      if (nullifiers.length === 0) continue
+    for (const { tree, asset, nullifiers } of nullifiersByTreeAndAsset(
+      candidates
+    )) {
       const nulBuffers = nullifiers.map((n) =>
         Buffer.from(bigintTo32BytesBE(n))
       )
       const tx =
         tree === "deposit"
-          ? await client.nullifiers_used({ nullifiers: nulBuffers })
-          : await client.loan_nullifiers_used({ nullifiers: nulBuffers })
+          ? await client.nullifiers_used({ asset, nullifiers: nulBuffers })
+          : await client.loan_nullifiers_used({ asset, nullifiers: nulBuffers })
       const flags = (tx.result ?? []) as boolean[]
       for (let i = 0; i < flags.length; i++) {
         if (flags[i]) {

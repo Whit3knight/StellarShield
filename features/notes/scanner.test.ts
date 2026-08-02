@@ -6,7 +6,7 @@ import {
   dedupeNotes,
   eventOpenedAt,
   markSpentNotes,
-  nullifiersByTree,
+  nullifiersByTreeAndAsset,
 } from "./scanner"
 
 describe("eventOpenedAt", () => {
@@ -107,32 +107,45 @@ describe("carryOverNotes", () => {
   })
 })
 
-describe("nullifiersByTree", () => {
-  it("routes each note's nullifier to its own tree bucket", () => {
+describe("nullifiersByTreeAndAsset", () => {
+  it("groups each note's nullifier under its own (tree, asset) namespace", () => {
     const notes = [
-      { sk: 42n, index: 0, tree: "deposit" as const },
-      { sk: 42n, index: 1, tree: "loan" as const },
-      { sk: 99n, index: 0, tree: "deposit" as const },
+      { sk: 42n, index: 0, tree: "deposit" as const, asset: "XLM" as const },
+      { sk: 42n, index: 1, tree: "loan" as const, asset: "XLM" as const },
+      { sk: 99n, index: 0, tree: "deposit" as const, asset: "XLM" as const },
+      { sk: 42n, index: 0, tree: "deposit" as const, asset: "USDC" as const },
     ]
-    const result = nullifiersByTree(notes)
-    expect(result.deposit).toEqual([
-      computeNullifier(42n, 0),
-      computeNullifier(99n, 0),
+    expect(nullifiersByTreeAndAsset(notes)).toEqual([
+      {
+        tree: "deposit",
+        asset: "XLM",
+        nullifiers: [computeNullifier(42n, 0), computeNullifier(99n, 0)],
+      },
+      { tree: "loan", asset: "XLM", nullifiers: [computeNullifier(42n, 1)] },
+      {
+        tree: "deposit",
+        asset: "USDC",
+        nullifiers: [computeNullifier(42n, 0)],
+      },
     ])
-    expect(result.loan).toEqual([computeNullifier(42n, 1)])
   })
 
-  it("keeps a same-bytes nullifier in both buckets — cross-tree collisions are legal now", () => {
-    const notes = [
-      { sk: 42n, index: 3, tree: "deposit" as const },
-      { sk: 42n, index: 3, tree: "loan" as const },
-    ]
-    const result = nullifiersByTree(notes)
-    expect(result.deposit).toEqual(result.loan)
+  // The regression: nullifier = Poseidon(sk, index) repeats byte-for-byte
+  // at the same leaf index in every asset tree. Same index, different
+  // asset must be queried against different namespaces — querying both
+  // in one call reports the XLM spend as the USDC note's.
+  it("splits same-index notes in different asset trees into separate groups", () => {
+    const groups = nullifiersByTreeAndAsset([
+      { sk: 42n, index: 1, tree: "deposit" as const, asset: "XLM" as const },
+      { sk: 42n, index: 1, tree: "deposit" as const, asset: "USDC" as const },
+    ])
+    expect(groups).toHaveLength(2)
+    expect(groups.map((g) => g.asset)).toEqual(["XLM", "USDC"])
+    expect(groups[0].nullifiers).toEqual(groups[1].nullifiers)
   })
 
-  it("returns empty buckets for no notes", () => {
-    expect(nullifiersByTree([])).toEqual({ deposit: [], loan: [] })
+  it("returns no groups for no notes", () => {
+    expect(nullifiersByTreeAndAsset([])).toEqual([])
   })
 })
 

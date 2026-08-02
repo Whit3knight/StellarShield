@@ -2,10 +2,18 @@
 
 Zcash-style shielded lending pool on Stellar. Wallet + amount stay hidden.
 Deposit into a per-asset commitment tree, borrow against 4 collateral notes
-with a zk-proof-verified LTV check, withdraw the loan into a wallet, or
+behind a Groth16 proof of note ownership, withdraw the loan into a wallet, or
 repay by burning a same-asset deposit note against the loan. Nullifiers
 guard against double-spend; encrypted memos let a fresh browser rebuild the
 user's note inventory from public events alone.
+
+**Solvency is enforced by the contract, not the circuit.** The borrow
+circuit carries an LTV/HF band, but `oracle_price` is an unconstrained
+private witness (`contracts/circuits/shielded-borrow/src/borrow.circom`), so
+the band proves nothing about price. The binding limit is the contract-side
+cap `borrow_amount <= denomination(asset)` in `borrow_shielded` and
+`withdraw_loan_shielded` (`contracts/borrow-pool/src/lib.rs`). All amounts
+are raw token units (stroops, 7 decimals).
 
 ## Stack
 
@@ -20,7 +28,7 @@ user's note inventory from public events alone.
 
 | Item | Value |
 | --- | --- |
-| Contract ID | `CBLTPN2JCUHYH35OFGAYQ3NJDJC66IMFPHLOBT6PI2XKNVKPNH4FS6I4` |
+| Contract ID | `CCNLBMUTHMO5SXRBJ5DIKZDSS3J3OEW4PB5UFWATEXWLEDBGOBIEAEIZ` |
 | Admin | `GCGLOK2DM2Y4NGESNJBTTOHEY7EB3MO35FV5YQSZIOWV6QW6ZNRXGPXK` |
 | Network | Testnet (`Test SDF Network ; September 2015`) |
 | Reflector CEX/DEX | `CCYOZJCOPG34LLQQ7N24YXBM7LL62R7ONMZ3G6WZAAYPB5OYKOMJRN63` |
@@ -42,14 +50,15 @@ keep them equal.
 | --- | --- |
 | Phase 1 (receipt registry → real testnet) | shipped |
 | Phase 2 v1 shielded pool (deposit / withdraw / borrow / repay / withdraw_loan) | shipped |
-| Track L v1 self-liquidate (bond commits, liquidate circuit, health badge) | shipped |
-| Track C-simple bounty payout (1×denomination per liquidation) | shipped |
+| Track L v1 self-liquidate (bond commits, liquidate circuit, health badge) | built, **triggering inert** — see Liquidation status below |
+| Track C-simple bounty payout (1×denomination per liquidation) | shipped (contract path; unreachable while triggering is inert) |
 | Track G-lite watchlist CLI (`bun run scan:underwater`) | shipped |
-| **Track A** ivk/nk split → pre-published `loan_nullifier` + sidecar + `liquidate_shielded_v2` | shipped |
+| **Track A** ivk/nk split → pre-published `loan_nullifier` + sidecar + `liquidate_shielded_v2` | built, **triggering inert** — see Liquidation status below |
 | **Track D** interest accrual on repay (`BorrowIndexAtOpen` + extended repay circuit) | shipped |
 | Track E fixture harness (TS-side against on-disk fixtures) | shipped |
 | Track G-full permissionless service worker (authenticated CLI mode) | shipped (needs deployed `liquidation_service_pk` slot value + matching `LIQUIDATION_SERVICE_SK` to activate) |
-| Autonomous liquidation loop (`scan:underwater --trigger`) | shipped (needs `LIQUIDATOR_SECRET` Stellar signing key alongside the service sk) |
+| Autonomous liquidation loop (`scan:underwater --trigger`) | shipped but inert — the loop runs, the underwater proof never succeeds (see below) |
+| **Track V3** liquidate circuit with explicit divisor + contract-read price | not started — the blocker for live liquidation |
 | Service keypair generator (`bun run gen:service-key`) | shipped |
 | Deployment runbook + lifecycle demo doc | shipped (`docs/deployment.md`, `docs/demo.md`) |
 | Multi-note deposit (`shielded-deposit-quad` circuit + `deposit-quad-prover.ts`) | experimental — circuit, verifier (`deposit_quad_verifier`), prover, and artifacts exist but are not wired into `use-deposit.ts`; not a supported flow |
@@ -82,7 +91,7 @@ or `stellar keys fund default --network testnet`).
 Shielded pool primitives:
 
 - **Note** = `Poseidon(amount, asset_tag, sk, salt)` commitment on a per-asset incremental Merkle tree (depth 20, 3 deposit + 3 loan trees).
-- **Nullifier** = `Poseidon(sk, index)` posted at spend time; replay-guarded on chain in per-tree namespaces (deposit vs loan), so a deposit and a loan nullifier with identical bytes never collide.
+- **Nullifier** = `Poseidon(sk, index)` posted at spend time; replay-guarded on chain in one namespace per (tree, asset) — 6 in total, deposit and loan for each of XLM/USDC/EURC. The nullifier itself carries no tree or asset domain separation, so the same bytes recur at the same leaf index in every tree; only the storage key keeps them apart, and two notes at the same index in different asset trees never block each other's spend.
 - **Shielded identity** = deterministic X25519 keypair derived from the wallet's Freighter signature. Encrypted memos (ChaCha20-Poly1305 over ECDH) attach the note's `(salt, amount, index)` to each deposit / borrow tx so the user can rebuild inventory by scanning public events.
 
 Data flow, top → bottom:
@@ -102,7 +111,7 @@ flowchart TD
 
 Key boundaries:
 
-- `AdapterProvider` at `app/layout.tsx` picks Soroban vs mock adapter based on env.
+- `ShieldedPoolProvider` (`features/shielded-pool/shielded-pool-provider.tsx`) is the composition root mounted in `app/layout.tsx`. There is no `AdapterProvider` and no mock adapter — the app always talks to the real contract.
 - `features/markets/prices.ts` is the only place that talks to Reflector.
 - `features/notes/scanner.ts` is the sole reader for building the user's note inventory; it consumes deposit + borrow (mints notes), withdraw + repay (marks nullifiers spent).
 - `features/notes/note-store.ts` is the localStorage-persisted cache surfaced via `useNotes()`; each scan pass merges into it, tombstoning spent notes instead of dropping them.
@@ -127,13 +136,14 @@ Source: `contracts/borrow-pool/src/lib.rs`. Shielded pool API:
 | `repay_shielded(from, asset, proof)` | account | Burns loan note + same-asset deposit note (deposit >= loan). |
 | `list_markets()` / `rate_params()` / `risk_params()` / `deposit_root(asset)` / `loan_root(asset)` / `total_deposit(asset)` / `total_borrow(asset)` | view | |
 
-Circuits at `contracts/circuits/shielded-{deposit,withdraw,borrow,repay}/` — Circom 2.1.9, BLS12-381, Poseidon commitments. Verifier bytes embedded in `contracts/borrow-pool/src/vk/<circuit>/*.bin`.
+Circuits at `contracts/circuits/shielded-{deposit,deposit-quad,withdraw,borrow,repay,liquidate,liquidate-v2}/` — `pragma circom 2.1.9`, BLS12-381, Poseidon commitments. Verifier bytes embedded in `contracts/borrow-pool/src/vk/<circuit>/*.bin` (7 dirs, one per circuit).
 
 ## Deploy workflow
 
-The live contract at `CBJZP...4N7L` was deployed once and upgraded in place
-for each iteration (Phase 1 receipt registry → Phase 2 shielded pool). Fresh
-deploys follow the same pattern:
+The current contract `CBLTPN2J...S6I4` was deployed fresh in commit `09471e9`
+(the unit-domain break required new pool state). Earlier deployments were
+upgraded in place for each iteration (Phase 1 receipt registry → Phase 2
+shielded pool) and are retired. Fresh deploys follow the same pattern:
 
 ```bash
 cd contracts
@@ -193,7 +203,7 @@ stellar contract install \
 # → prints WASM_HASH
 
 stellar contract invoke \
-  --id CBLTPN2JCUHYH35OFGAYQ3NJDJC66IMFPHLOBT6PI2XKNVKPNH4FS6I4 \
+  --id CCNLBMUTHMO5SXRBJ5DIKZDSS3J3OEW4PB5UFWATEXWLEDBGOBIEAEIZ \
   --source deployer --network testnet \
   -- upgrade --wasm_hash $WASM_HASH
 
@@ -215,8 +225,7 @@ stellar contract invoke \
 ## Deferred
 
 - **Collateral recovery on repay**: v1 leaves original collateral notes burned. v2 repay circuit will mint recovered collateral commitments back to the deposit tree. (Interest accrual on repay — the `borrow_index` snapshot / `repay_amount = loan × index` check — **shipped** under Track A/D; only collateral recovery remains deferred.)
-- **Liquidation (self-liquidate)**: **shipped end-to-end**. Extended borrow circuit publishes 3 bond commitments; contract persists `LiquidationBond` keyed by the loan commitment; separate liquidate circuit (`shielded-liquidate`, 1476 non-linear constraints) proves a position is underwater and burns the loan nullifier via `liquidate_shielded`. Frontend `useLiquidate` hook + drawer "Liquidate" button + `LoanHealthBadge` render live health factors from cached Reflector prices. Dual-recipient memo encoding + admin-configured `liquidation_service_pk` slot are on-chain prerequisites for a permissionless off-chain service.
-- **Liquidation (off-chain service worker)**: **Track A shipped end-to-end.** Borrow circuit gains a `loan_nullifier = Poseidon(sk, borrow_commitment)` public signal that lands in a `LoanNullifier(loan_commit)` sidecar at borrow-time. New `shielded-liquidate-v2` circuit (933 non-linear, pot12) drops sk from the witness — a service holding only the memo openings can prove. New `liquidate_shielded_v2` contract fn wraps the verifier with sidecar cross-checks. `useLiquidate` fetches the sidecar in parallel with the bond and branches: present → v2 path, absent → v1 fallback so grandfathered pre-A bonds stay borrower-self-liquidatable. Design ratified in `docs/liquidation-design.md` §Track A. FROST/threshold decryption (Track B) is now a pure decentralization layer on top — no additional circuit changes.
+- **Liquidation triggering — built but INERT (fails closed)**. Every piece exists and is wired: the borrow circuit publishes 3 bond commitments; the contract persists `LiquidationBond` keyed by the loan commitment; `shielded-liquidate` (v1, 1476 non-linear constraints) and `shielded-liquidate-v2` (Track A, 933 non-linear, pot12, no `sk` in the witness) both prove a position underwater and burn the loan nullifier via `liquidate_shielded` / `liquidate_shielded_v2`; `useLiquidate` fetches the `LoanNullifier` sidecar and branches v2-present / v1-fallback; `LoanHealthBadge` renders health from cached Reflector prices; the CLI can trigger autonomously. **What does not work is the underwater test itself.** Both circuits compare `loan_amount · threshold_bps · borrow_price` against `collateral_notional · current_price · 10000`, but `collateral_notional` carries the borrow circuit's `1e14` price scale that the loan side does not, so the inequality is dimensionally mismatched and no honest position satisfies it — witness generation fails and no liquidation can be triggered. Both call sites also skip when Reflector has no feed. Before commit `09471e9` the same comparison ran fail-OPEN, with every position testing as underwater; it now fails closed, which is the safe direction but is not a working feature. Unblocking it needs a v3 circuit with an explicit divisor plus a contract-read price — see the `ponytail:` comments in `features/shielded-pool/use-liquidate.ts` and `contracts/scripts/scan-underwater.ts`. Design context in `docs/liquidation-design.md` §Track A.
 - **Other deferred**: automated e2e prove→submit→verify testnet harness (all 3 recent hotfixes — pub-signal order, G2 encoding, Merkle budget — would have been caught by one).
 - **Reflector on-chain commitment cross-check**: borrow circuit publishes a Poseidon commitment over the oracle price; the contract now enforces oracle freshness but not the commitment match. Waiting on a paired oracle attestation channel.
 - **Rust unit tests**: soroban-sdk `testutils` feature triggers an upstream ed25519-dalek / rand_core conflict against soroban-env-host 22.1.x. Fixture cross-checks in `contracts/borrow-pool/tests/{poseidon,merkle}_fixtures.txt` cover the primitives until soroban-sdk 23 lands.
@@ -262,10 +271,10 @@ bun run build
 cd contracts
 stellar contract build
 stellar contract install --wasm target/wasm32v1-none/release/borrow_pool.wasm --source deployer --network testnet
-stellar contract invoke --id CBLTPN2JCUHYH35OFGAYQ3NJDJC66IMFPHLOBT6PI2XKNVKPNH4FS6I4 --network testnet -- list_markets
+stellar contract invoke --id CCNLBMUTHMO5SXRBJ5DIKZDSS3J3OEW4PB5UFWATEXWLEDBGOBIEAEIZ --network testnet -- list_markets
 
 # Bindings
-stellar contract bindings typescript --contract-id CBLTPN2JCUHYH35OFGAYQ3NJDJC66IMFPHLOBT6PI2XKNVKPNH4FS6I4 --network testnet --output-dir /tmp/bindings
+stellar contract bindings typescript --contract-id CCNLBMUTHMO5SXRBJ5DIKZDSS3J3OEW4PB5UFWATEXWLEDBGOBIEAEIZ --network testnet --output-dir /tmp/bindings
 
 # Liquidation watchlist / triage (Tracks G-lite + G-full)
 # Watchlist mode — no service key: enumerate every live

@@ -10,7 +10,7 @@ import {
   type RpcEvent,
 } from "./rpc-events"
 
-const CONTRACT = "CBLTPN2JCUHYH35OFGAYQ3NJDJC66IMFPHLOBT6PI2XKNVKPNH4FS6I4"
+const CONTRACT = "CCNLBMUTHMO5SXRBJ5DIKZDSS3J3OEW4PB5UFWATEXWLEDBGOBIEAEIZ"
 
 const filter = (topics: string[][]): rpc.Api.EventFilter => ({
   type: "contract",
