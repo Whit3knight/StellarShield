@@ -6,6 +6,7 @@ import {
   dedupeNotes,
   eventOpenedAt,
   markSpentNotes,
+  nullifiersByTreeAndAsset,
 } from "./scanner"
 
 describe("eventOpenedAt", () => {
@@ -103,6 +104,48 @@ describe("carryOverNotes", () => {
     const carried = carryOverNotes(previous, new Set(), spent)
     expect(carried.map((n) => n.spent)).toEqual([true, true])
     expect(carried.map((n) => n.amount)).toEqual([100n, 100n])
+  })
+})
+
+describe("nullifiersByTreeAndAsset", () => {
+  it("groups each note's nullifier under its own (tree, asset) namespace", () => {
+    const notes = [
+      { sk: 42n, index: 0, tree: "deposit" as const, asset: "XLM" as const },
+      { sk: 42n, index: 1, tree: "loan" as const, asset: "XLM" as const },
+      { sk: 99n, index: 0, tree: "deposit" as const, asset: "XLM" as const },
+      { sk: 42n, index: 0, tree: "deposit" as const, asset: "USDC" as const },
+    ]
+    expect(nullifiersByTreeAndAsset(notes)).toEqual([
+      {
+        tree: "deposit",
+        asset: "XLM",
+        nullifiers: [computeNullifier(42n, 0), computeNullifier(99n, 0)],
+      },
+      { tree: "loan", asset: "XLM", nullifiers: [computeNullifier(42n, 1)] },
+      {
+        tree: "deposit",
+        asset: "USDC",
+        nullifiers: [computeNullifier(42n, 0)],
+      },
+    ])
+  })
+
+  // The regression: nullifier = Poseidon(sk, index) repeats byte-for-byte
+  // at the same leaf index in every asset tree. Same index, different
+  // asset must be queried against different namespaces — querying both
+  // in one call reports the XLM spend as the USDC note's.
+  it("splits same-index notes in different asset trees into separate groups", () => {
+    const groups = nullifiersByTreeAndAsset([
+      { sk: 42n, index: 1, tree: "deposit" as const, asset: "XLM" as const },
+      { sk: 42n, index: 1, tree: "deposit" as const, asset: "USDC" as const },
+    ])
+    expect(groups).toHaveLength(2)
+    expect(groups.map((g) => g.asset)).toEqual(["XLM", "USDC"])
+    expect(groups[0].nullifiers).toEqual(groups[1].nullifiers)
+  })
+
+  it("returns no groups for no notes", () => {
+    expect(nullifiersByTreeAndAsset([])).toEqual([])
   })
 })
 

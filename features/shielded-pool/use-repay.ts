@@ -6,6 +6,7 @@ import { toastManager } from "@/components/ui/toast"
 import {
   computeCommitment,
   type ShieldedNote,
+  upsertNote,
 } from "@/features/notes"
 import {
   getConfiguredContractId,
@@ -151,7 +152,17 @@ export function useRepay(account: string | null): UseRepayResult {
           client.borrow_index({ asset: loanNote.asset }),
         ])
         const indexNowSnapshot = indexNowFetch.result
-        const borrowIndexNow = indexNowSnapshot?.value ?? BigInt(0)
+        const indexNowRead = indexNowSnapshot?.value ?? BigInt(0)
+        // The borrow index accrues with ledger time and the contract
+        // re-accrues it when this tx executes — minutes after we read
+        // it, since proving is slow. The contract accepts an index at
+        // least as accrued as its own, so project forward: +0.01%
+        // covers hours of accrual at the max rate, and overshooting
+        // only makes the circuit's debt check stricter on us.
+        const borrowIndexNow =
+          indexNowRead === BigInt(0)
+            ? BigInt(0)
+            : indexNowRead + indexNowRead / BigInt(10_000)
         if (borrowIndexNow === BigInt(0)) {
           // Uninitialised asset — reject rather than let the circuit's
           // 0 × anything ≥ 0 comparison pass with a dust deposit.
@@ -236,6 +247,11 @@ export function useRepay(account: string | null): UseRepayResult {
         toast.close()
 
         const hash = sent.sendTransactionResponse?.hash ?? ""
+        // Both nullifiers are burned on-chain; without events the
+        // scanner can't see that. Tombstone locally so the loan stops
+        // rendering as open and a retry can't hit ProofReplayed.
+        upsertNote({ ...loanNote, spent: true })
+        upsertNote({ ...depositNote, spent: true })
         setStatus("success")
         setMessage(hash)
         toastManager.add({

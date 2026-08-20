@@ -1,5 +1,6 @@
 import { DENOMINATION, type ShieldedAsset } from "@/features/notes"
 
+import { assets } from "./data"
 import type { MarketStat } from "./market-stats"
 import { getAssetPriceUsd } from "./utils"
 
@@ -36,13 +37,15 @@ export function deriveMarketMetrics(
 
   // Available liquidity in the borrow asset's pool = `deposits -
   // borrows` (in whole notes), priced through Reflector so the tile
-  // reads in USD. Falls back to a 1-note floor so the card never
-  // shows `$0` when the pool is exactly balanced.
+  // reads in USD. `DENOMINATION` is in raw token units (stroops), so
+  // scale it down before applying a per-whole-unit USD price. Falls
+  // back to a 1-note floor so the card never shows `$0` when the pool
+  // is exactly balanced.
   const asset = pickShieldedAsset(borrowSymbol)
   const availableNotes = Math.max(1, totalDeposits - totalBorrows)
   const availableFundsUsd = asset
     ? availableNotes *
-      Number(DENOMINATION[asset]) *
+      (Number(DENOMINATION[asset]) / 10 ** assets[asset].decimals) *
       Math.max(0, getAssetPriceUsd(asset))
     : availableNotes
   const chart = stat?.chart ?? []

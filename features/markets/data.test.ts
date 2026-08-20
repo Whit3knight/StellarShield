@@ -14,8 +14,18 @@ describe("market data", () => {
     ])
   })
 
-  it("exposes all six pairs as live", () => {
-    expect(marketCards.every((market) => market.status === "live")).toBe(true)
+  it("exposes the USDC/XLM pairs as live, the rest coming soon", () => {
+    const byPair = Object.fromEntries(
+      marketCards.map((market) => [getMarketPair(market), market.status])
+    )
+    expect(byPair).toEqual({
+      "USDC/XLM": "live",
+      "XLM/USDC": "live",
+      "EURC/USDC": "comingSoon",
+      "USDC/EURC": "comingSoon",
+      "EURC/XLM": "comingSoon",
+      "XLM/EURC": "comingSoon",
+    })
   })
 
   it("uses success chart tone and explicit asset prices", () => {

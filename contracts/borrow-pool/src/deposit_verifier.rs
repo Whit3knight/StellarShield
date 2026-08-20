@@ -2,7 +2,7 @@
 //!
 //! Circuit at `contracts/circuits/shielded-deposit/`. Public signals
 //! in circuit-declaration order:
-//!   [0] amount        (fixed denomination in whole units)
+//!   [0] amount        (fixed denomination, RAW token units)
 //!   [1] asset_tag     (0 = XLM, 1 = USDC, 2 = EURC)
 //!   [2] commitment    (Poseidon output — becomes the new tree leaf)
 //!

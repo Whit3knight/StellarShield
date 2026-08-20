@@ -329,12 +329,16 @@ export async function scanShieldedNotes(
   }
 
   const deduped = dedupeNotes(notes)
-  // Consult the contract's `nullifiers_used` view for every deposit
-  // note we can see — catches nullifiers spent by borrow events that
-  // predate the borrow-event nullifier-tail upgrade (which don't
-  // publish the four nullifiers in their event body). One bulk RPC
-  // per rescan.
-  await hydrateSpentFromChain(deduped, spentNullifiers)
+  // Consult the contract's per-tree spent-nullifier views for every
+  // note we can see — scan-surfaced AND carried-over from the
+  // persisted store. Once the enabling events expire from RPC
+  // retention, this contract read is the only way a carried-over
+  // note's spend ever becomes visible; hydrating only scan results
+  // would leave persisted notes spendable-looking forever.
+  await hydrateSpentFromChain(
+    dedupeNotes([...deduped, ...snapshotNotes()]),
+    spentNullifiers
+  )
   const marked = markSpentNotes(deduped, spentNullifiers)
 
   // Merge with prior cache so:
@@ -382,10 +386,46 @@ export async function scanShieldedNotes(
 }
 
 /**
- * Query the contract's `nullifiers_used` view once per deposit note
- * we surfaced and drop the ones already flagged spent. Covers borrow
- * events that predate the nullifier-tail upgrade (whose bodies didn't
- * carry the four spent nullifiers publicly).
+ * Compute each note's nullifier and bucket it by (tree, asset) — one
+ * bucket per contract nullifier namespace. `nullifier =
+ * Poseidon(sk, leaf_index)` has no tree or asset domain separation, so
+ * the SAME bytes recur at the same leaf index in each of the 6 trees;
+ * only the storage key `(tree, asset, nullifier)` keeps them apart.
+ * Querying a note against the wrong asset's namespace reports another
+ * asset's spend as this note's.
+ */
+export function nullifiersByTreeAndAsset(
+  notes: Array<Pick<ShieldedNote, "sk" | "index" | "tree" | "asset">>
+): Array<{
+  tree: ShieldedNote["tree"]
+  asset: ShieldedAsset
+  nullifiers: bigint[]
+}> {
+  const groups = new Map<
+    string,
+    { tree: ShieldedNote["tree"]; asset: ShieldedAsset; nullifiers: bigint[] }
+  >()
+  for (const n of notes) {
+    const key = `${n.tree}:${n.asset}`
+    let group = groups.get(key)
+    if (!group) {
+      group = { tree: n.tree, asset: n.asset, nullifiers: [] }
+      groups.set(key, group)
+    }
+    group.nullifiers.push(computeNullifier(n.sk, n.index))
+  }
+  return [...groups.values()]
+}
+
+/**
+ * Query the contract's spent-nullifier views for every note we hold.
+ * Deposit notes go to `nullifiers_used`, loan notes to
+ * `loan_nullifiers_used`, each scoped to the note's asset — the
+ * contract keeps one namespace per (tree, asset), so nullifiers that
+ * share bytes across trees or across assets no longer collide. One
+ * call per (tree, asset) group. These bulk reads mark claimed loans
+ * and repaid/withdrawn deposits spent even when the recording events
+ * are outside every event source.
  */
 async function hydrateSpentFromChain(
   notes: ShieldedNote[],
@@ -393,7 +433,7 @@ async function hydrateSpentFromChain(
 ): Promise<void> {
   const contractId = getConfiguredContractId()
   if (!contractId) return
-  const candidates = notes.filter((n) => n.tree === "deposit")
+  const candidates = notes
   if (candidates.length === 0) return
   try {
     const bindings = await import("@/features/protocol/bindings/borrow-pool")
@@ -404,15 +444,23 @@ async function hydrateSpentFromChain(
       rpcUrl: getConfiguredSorobanRpcUrl(),
       publicKey: sdkForPk.StrKey.encodeEd25519PublicKey(Buffer.alloc(32)),
     })
-    const nullifiers = candidates.map((n) => computeNullifier(n.sk, n.index))
-    const nulBuffers = nullifiers.map((n) => Buffer.from(bigintTo32BytesBE(n)))
-    const tx = await client.nullifiers_used({ nullifiers: nulBuffers })
-    const flags = (tx.result ?? []) as boolean[]
     let flagged = 0
-    for (let i = 0; i < flags.length; i++) {
-      if (flags[i]) {
-        spentNullifiers.add(nullifiers[i])
-        flagged++
+    for (const { tree, asset, nullifiers } of nullifiersByTreeAndAsset(
+      candidates
+    )) {
+      const nulBuffers = nullifiers.map((n) =>
+        Buffer.from(bigintTo32BytesBE(n))
+      )
+      const tx =
+        tree === "deposit"
+          ? await client.nullifiers_used({ asset, nullifiers: nulBuffers })
+          : await client.loan_nullifiers_used({ asset, nullifiers: nulBuffers })
+      const flags = (tx.result ?? []) as boolean[]
+      for (let i = 0; i < flags.length; i++) {
+        if (flags[i]) {
+          spentNullifiers.add(nullifiers[i])
+          flagged++
+        }
       }
     }
     console.log("[scanner] hydrate", {

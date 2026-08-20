@@ -1,0 +1,40 @@
+name: stellar-shield-events
+resource_size: s
+description: Stellar Shield shielded-pool contract events -> Neon
+
+sources:
+  stellar_testnet_events:
+    type: dataset
+    dataset_name: stellar_testnet.events
+    version: 1.2.0
+    # Contract created at ledger ~3902450 — nothing before it matters.
+    # Full "earliest" would chew through ~100M+ irrelevant testnet
+    # events before reaching our first ledger. On a testnet reset or
+    # a redeploy to a fresh contract, update this to the new creation
+    # ledger. (Rows from retired contracts persist in the table and
+    # are filtered out by the /api/events contract param.)
+    start_at: "3902400"
+    filter: type = 'contract' AND in_successful_contract_call = true
+
+transforms:
+  shield_events:
+    type: sql
+    primary_key: id
+    sql: >
+      SELECT
+        id, contract_id, topics, data,
+        transaction_hash, transaction_index,
+        ledger_sequence, ledger_closed_at
+      FROM stellar_testnet_events
+      WHERE contract_id IN (
+        'CCNLBMUTHMO5SXRBJ5DIKZDSS3J3OEW4PB5UFWATEXWLEDBGOBIEAEIZ'
+      )
+
+sinks:
+  neon:
+    type: postgres
+    from: shield_events
+    table: stellar_shield_events
+    schema: public
+    secret_name: POSTGRES_SECRET_CMS4PVCAP0
+    primary_key: id

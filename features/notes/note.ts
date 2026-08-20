@@ -17,10 +17,16 @@ import { FR_ORDER, poseidon } from "./poseidon"
 export const SUPPORTED_ASSETS = ["XLM", "USDC", "EURC"] as const
 export type ShieldedAsset = (typeof SUPPORTED_ASSETS)[number]
 
+/**
+ * Fixed note size per asset, in RAW token units (stroops). All three
+ * SACs are 7-decimal, so these are 1 XLM, 0.5 USDC, 0.5 EURC. Mirrors
+ * `DENOMINATION_*` in `contracts/borrow-pool/src/notes.rs` — the
+ * contract rejects any deposit whose transferred amount differs.
+ */
 export const DENOMINATION: Record<ShieldedAsset, bigint> = {
-  EURC: 10n,
-  USDC: 10n,
-  XLM: 100n,
+  EURC: 5_000_000n,
+  USDC: 5_000_000n,
+  XLM: 10_000_000n,
 }
 
 /**

@@ -342,10 +342,29 @@ impl BorrowPool {
     /// spent by a prior withdraw / borrow / repay / liquidate. Kept as
     /// a batch view so a client scanning many notes at once pays one
     /// RPC round trip instead of N.
-    pub fn nullifiers_used(env: Env, nullifiers: Vec<BytesN<32>>) -> Vec<bool> {
+    pub fn nullifiers_used(
+        env: Env,
+        asset: Symbol,
+        nullifiers: Vec<BytesN<32>>,
+    ) -> Vec<bool> {
         let mut out: Vec<bool> = Vec::new(&env);
         for n in nullifiers.iter() {
-            out.push_back(state::nullifier_used(&env, &n));
+            out.push_back(state::deposit_nullifier_used(&env, &asset, &n));
+        }
+        out
+    }
+
+    /// Loan-tree counterpart of `nullifiers_used` — reads the loan
+    /// nullifier namespace (withdraw_loan / repay / liquidate marks)
+    /// for `asset`'s loan tree.
+    pub fn loan_nullifiers_used(
+        env: Env,
+        asset: Symbol,
+        nullifiers: Vec<BytesN<32>>,
+    ) -> Vec<bool> {
+        let mut out: Vec<bool> = Vec::new(&env);
+        for n in nullifiers.iter() {
+            out.push_back(state::loan_nullifier_used(&env, &asset, &n));
         }
         out
     }
@@ -454,7 +473,7 @@ impl BorrowPool {
     /// Quad-deposit variant that ships FOUR leaves under one Groth16
     /// proof. Public signals order (snarkjs outputs first):
     ///   [0..3] commitment[0..3]
-    ///   [4]    amount     (fixed denomination in whole units)
+    ///   [4]    amount     (fixed denomination, RAW token units)
     ///   [5]    asset_tag  (0 = XLM, 1 = USDC, 2 = EURC)
     /// The circuit constrains each `commitment[i] == Poseidon(amount,
     /// asset_tag, sk, salt_i)` for a shared `sk`. One pairing check on
@@ -730,7 +749,7 @@ impl BorrowPool {
         }
 
         let nullifier_bytes = nullifier_fr.to_bytes();
-        if state::nullifier_used(&env, &nullifier_bytes) {
+        if state::deposit_nullifier_used(&env, &asset, &nullifier_bytes) {
             return Err(Error::ProofReplayed);
         }
 
@@ -744,7 +763,7 @@ impl BorrowPool {
             return Err(Error::InvalidProof);
         }
 
-        state::mark_nullifier_used(&env, &nullifier_bytes);
+        state::mark_deposit_nullifier_used(&env, &asset, &nullifier_bytes);
 
         // Release tokens back to the caller.
         tokens::transfer_out(&env, &asset, &to, denomination);
@@ -824,6 +843,18 @@ impl BorrowPool {
             return Err(Error::InvalidProof);
         }
 
+        // THE solvency guard. The circuit's LTV/HF band is decorative:
+        // `oracle_price` is an unconstrained private witness, so nothing
+        // binds it to a real price and a prover can size `borrow_amount`
+        // freely. Capping at one denomination is also what keeps the
+        // loan repayable — repay.circom burns ONE deposit note, so a
+        // loan larger than a single denomination can never be closed.
+        let max_borrow = notes::denomination(&env, &borrow_asset)
+            .ok_or(Error::AssetUnknown)?;
+        if fr_to_i128(&borrow_amount_fr) > max_borrow {
+            return Err(Error::DenominationMismatch);
+        }
+
         // Deposit root sanity: must match the current on-chain state.
         let stored_root = state::deposit_root(&env, &collateral_asset)
             .ok_or(Error::InvalidProof)?;
@@ -839,7 +870,7 @@ impl BorrowPool {
             proof.public_signals.get(10).unwrap().to_bytes(),
         ];
         for null in nullifier_bytes.iter() {
-            if state::nullifier_used(&env, null) {
+            if state::deposit_nullifier_used(&env, &collateral_asset, null) {
                 return Err(Error::ProofReplayed);
             }
         }
@@ -865,7 +896,7 @@ impl BorrowPool {
         }
 
         for null in nullifier_bytes.iter_mut() {
-            state::mark_nullifier_used(&env, null);
+            state::mark_deposit_nullifier_used(&env, &collateral_asset, null);
         }
 
         // Append the new loan-note commitment to the loan tree for
@@ -897,12 +928,6 @@ impl BorrowPool {
             state::total_borrow(&env, &borrow_asset).saturating_add(1),
         );
         rate::accrue_borrow_index(&env, &borrow_asset);
-
-        let borrow_amount_native = fr_to_i128(&borrow_amount_fr);
-        // Silence unused-var lint until the borrow event carries this
-        // downstream — right now it's redundant with what the memo
-        // encrypts, and public amount would defeat the whole point.
-        let _ = borrow_amount_native;
 
         // Track L: pin the bond keyed by the loan commitment. Absent
         // bond → non-liquidatable (grandfathered). Present bond → a
@@ -991,6 +1016,14 @@ impl BorrowPool {
         if amount <= 0 {
             return Err(Error::InvalidProof);
         }
+        // Defense in depth: borrow_shielded already caps the minted
+        // loan note at one denomination, so no legitimate loan note can
+        // ask for more than this on the way out.
+        let max_amount =
+            notes::denomination(&env, &asset).ok_or(Error::AssetUnknown)?;
+        if amount > max_amount {
+            return Err(Error::DenominationMismatch);
+        }
 
         let stored_root =
             state::loan_root(&env, &asset).ok_or(Error::InvalidProof)?;
@@ -999,7 +1032,7 @@ impl BorrowPool {
         }
 
         let nullifier_bytes = nullifier_fr.to_bytes();
-        if state::nullifier_used(&env, &nullifier_bytes) {
+        if state::loan_nullifier_used(&env, &asset, &nullifier_bytes) {
             return Err(Error::ProofReplayed);
         }
 
@@ -1013,7 +1046,7 @@ impl BorrowPool {
             return Err(Error::InvalidProof);
         }
 
-        state::mark_nullifier_used(&env, &nullifier_bytes);
+        state::mark_loan_nullifier_used(&env, &asset, &nullifier_bytes);
 
         tokens::transfer_out(&env, &asset, &to, amount);
 
@@ -1090,13 +1123,10 @@ impl BorrowPool {
 
         let loan_nul_bytes = loan_nul_fr.to_bytes();
         let dep_nul_bytes = dep_nul_fr.to_bytes();
-        if state::nullifier_used(&env, &loan_nul_bytes)
-            || state::nullifier_used(&env, &dep_nul_bytes)
+        if state::loan_nullifier_used(&env, &asset, &loan_nul_bytes)
+            || state::deposit_nullifier_used(&env, &asset, &dep_nul_bytes)
         {
             return Err(Error::ProofReplayed);
-        }
-        if loan_nul_bytes == dep_nul_bytes {
-            return Err(Error::InvalidProof);
         }
 
         // Track D: accrue the borrow_index to now, then cross-check
@@ -1110,7 +1140,16 @@ impl BorrowPool {
         if fr_to_u128(&index_snapshot_fr) != index_snapshot {
             return Err(Error::InvalidProof);
         }
-        if fr_to_u128(&index_now_fr) != index_now {
+        // `index_now` accrues with ledger time, so it is strictly larger
+        // by the time this executes than when the client read it and
+        // started proving (~1 min). Demanding equality made repay
+        // unwinnable — the client cannot predict the execution
+        // timestamp. Accept any index at least as accrued as ours: the
+        // circuit checks `deposit * snapshot >= loan * now`, so a larger
+        // `index_now` only makes the borrower prove MORE debt coverage.
+        // Stale (smaller) values stay rejected — those would understate
+        // accrued interest.
+        if fr_to_u128(&index_now_fr) < index_now {
             return Err(Error::InvalidProof);
         }
 
@@ -1124,8 +1163,8 @@ impl BorrowPool {
             return Err(Error::InvalidProof);
         }
 
-        state::mark_nullifier_used(&env, &loan_nul_bytes);
-        state::mark_nullifier_used(&env, &dep_nul_bytes);
+        state::mark_loan_nullifier_used(&env, &asset, &loan_nul_bytes);
+        state::mark_deposit_nullifier_used(&env, &asset, &dep_nul_bytes);
 
         state::set_total_borrow(
             &env,
@@ -1186,6 +1225,12 @@ impl BorrowPool {
         let threshold_fr = proof.public_signals.get(5).unwrap();
         let nullifier_fr = proof.public_signals.get(6).unwrap();
 
+        // A zero current_price satisfies the circuit's underwater
+        // inequality for free — every open position becomes liquidatable.
+        if fr_to_u128(&proof.public_signals.get(4).unwrap()) == 0 {
+            return Err(Error::InvalidProof);
+        }
+
         let loan_commit_bytes = loan_commit_fr.to_bytes();
         let bond = state::liquidation_bond(&env, &loan_commit_bytes)
             .ok_or(Error::InvalidProof)?;
@@ -1222,7 +1267,7 @@ impl BorrowPool {
         }
 
         let nullifier_bytes = nullifier_fr.to_bytes();
-        if state::nullifier_used(&env, &nullifier_bytes) {
+        if state::loan_nullifier_used(&env, &borrow_asset, &nullifier_bytes) {
             return Err(Error::ProofReplayed);
         }
 
@@ -1236,7 +1281,7 @@ impl BorrowPool {
             return Err(Error::InvalidProof);
         }
 
-        state::mark_nullifier_used(&env, &nullifier_bytes);
+        state::mark_loan_nullifier_used(&env, &borrow_asset, &nullifier_bytes);
         state::set_total_borrow(
             &env,
             &borrow_asset,
@@ -1325,6 +1370,12 @@ impl BorrowPool {
         let borrow_price_commit_fr = proof.public_signals.get(2).unwrap();
         let threshold_fr = proof.public_signals.get(4).unwrap();
 
+        // A zero current_price satisfies the circuit's underwater
+        // inequality for free — every open position becomes liquidatable.
+        if fr_to_u128(&proof.public_signals.get(3).unwrap()) == 0 {
+            return Err(Error::InvalidProof);
+        }
+
         let bond = state::liquidation_bond(&env, &loan_commitment)
             .ok_or(Error::InvalidProof)?;
 
@@ -1369,7 +1420,7 @@ impl BorrowPool {
             return Err(Error::StaleOracle);
         }
 
-        if state::nullifier_used(&env, &loan_nullifier) {
+        if state::loan_nullifier_used(&env, &borrow_asset, &loan_nullifier) {
             return Err(Error::ProofReplayed);
         }
 
@@ -1383,7 +1434,7 @@ impl BorrowPool {
             return Err(Error::InvalidProof);
         }
 
-        state::mark_nullifier_used(&env, &loan_nullifier);
+        state::mark_loan_nullifier_used(&env, &borrow_asset, &loan_nullifier);
         state::set_total_borrow(
             &env,
             &borrow_asset,

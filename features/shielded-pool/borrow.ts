@@ -19,7 +19,7 @@ import {
   type ShieldedAsset,
   type ShieldedNote,
 } from "@/features/notes"
-import { fetchReflectorPrice } from "@/features/markets/prices"
+import { fetchPriceRatio, PRICE_RATIO_SCALE } from "@/features/markets/prices"
 import { getLiquidationServicePk } from "@/features/protocol/liquidation-service"
 
 import { proveBorrow, validateCollateralNotes } from "./borrow-prover"
@@ -146,14 +146,14 @@ export async function prepareBorrow(
     )
   }
 
-  // Fetch Reflector price for the collateral asset in whole-unit
-  // integers. If Reflector is unreachable, fall back to a 1:1 price
-  // (used mostly for local demos on testnet without price data).
-  const priceRecord = await fetchReflectorPrice(params.collateralAsset).catch(
-    () => null
-  )
-  const oraclePrice =
-    priceRecord && priceRecord.price > 0n ? priceRecord.price : 1n
+  // Cross-asset ratio: one raw collateral unit priced in raw borrow
+  // units, 1e14-scaled. If Reflector is unreachable, fall back to
+  // parity (1e14) — NOT 1n, which would read as a price of 1e-14 and
+  // silently mint a zero-sized loan.
+  const oraclePrice = await fetchPriceRatio(
+    params.collateralAsset,
+    params.borrowAsset
+  ).catch(() => PRICE_RATIO_SCALE)
 
   const borrowSalt = randomFieldElement()
   const bondSaltAmount = randomFieldElement()

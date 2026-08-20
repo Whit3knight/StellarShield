@@ -6,10 +6,12 @@
 **Version:** 0.1 (draft) | **Date:** 2026-07-13 | **Stage:** Testnet technical validation — not a launched product
 **Companion documents:** [BRD.md](./BRD.md) (business), [PRD.md](./PRD.md) (product/technical requirements), [REMEDIATION.md](./REMEDIATION.md) (engineering risk register)
 
-> **Status and honesty.** This paper describes a system that has completed a full
-> technical validation on Stellar testnet: the shielded deposit → borrow →
-> repay/liquidate lifecycle runs end-to-end with real on-chain proof
-> verification. It has **zero users, zero TVL, and zero revenue**. The
+> **Status and honesty.** This paper describes a system validated on Stellar
+> testnet: the shielded deposit → borrow → claim/repay lifecycle runs
+> end-to-end with real on-chain proof verification. Liquidation is fully built
+> but cannot currently be triggered (§10.1), and collateralization is enforced
+> by a contract-side cap rather than by the circuit (§6.3).
+> It has **zero users, zero TVL, and zero revenue**. The
 > cryptography works; privacy is not yet *delivered*, because delivered privacy
 > requires an anonymity set that only real adoption provides. Market figures in
 > §2 size the opportunity, not this product's traction. Every non-obvious
@@ -45,7 +47,7 @@
 
 ## 1. Abstract
 
-Public-blockchain lending is radically transparent: a wallet's collateral, loan size, health factor, and liquidation price are readable by anyone. That transparency is a liability for serious borrowers — it enables liquidation front-running, financial doxxing, and copy-trading — and no lending protocol on Stellar offers position privacy today. Stellar Shield is a privacy-preserving lending pool on Stellar's Soroban smart contract platform. It lets a user deposit collateral, prove they are eligible to borrow, and take a loan without revealing their wallet, balances, or position size on-chain. Eligibility — an LTV check against a live oracle price — is proven with a zero-knowledge proof and verified directly on-chain using the Protocol 22 BLS12-381 host functions (CAP-0059), with a shielded pool modeled on the Zcash note/nullifier design. The project has completed a full technical validation on testnet: the shielded deposit → borrow → repay/liquidate lifecycle runs end-to-end with real on-chain proof verification. This establishes a first-mover technical position for zero-knowledge applications on Stellar. It does **not** yet establish product-market fit. Stellar Shield has zero users, zero TVL, and zero revenue as of this writing; it is a testnet technical validation, not a launched product, and this paper treats demand as an open hypothesis rather than a proven fact.
+Public-blockchain lending is radically transparent: a wallet's collateral, loan size, health factor, and liquidation price are readable by anyone. That transparency is a liability for serious borrowers — it enables liquidation front-running, financial doxxing, and copy-trading — and no lending protocol on Stellar offers position privacy today. Stellar Shield is a privacy-preserving lending pool on Stellar's Soroban smart contract platform. It lets a user deposit collateral, prove they are eligible to borrow, and take a loan without revealing their wallet, balances, or position size on-chain. Note ownership and spend authority are proven with a zero-knowledge proof and verified directly on-chain using the Protocol 22 BLS12-381 host functions (CAP-0059), with a shielded pool modeled on the Zcash note/nullifier design. Collateralization itself is *not* zk-enforced: the borrow circuit's LTV band is decorative because its price input is an unconstrained witness, and solvency rests on a contract-side denomination cap (§6.3). The project has completed a technical validation on testnet: the shielded deposit → borrow → claim/repay lifecycle runs end-to-end with real on-chain proof verification; liquidation is built but its trigger is currently inert (§10.1). This establishes a first-mover technical position for zero-knowledge applications on Stellar. It does **not** yet establish product-market fit. Stellar Shield has zero users, zero TVL, and zero revenue as of this writing; it is a testnet technical validation, not a launched product, and this paper treats demand as an open hypothesis rather than a proven fact.
 
 ---
 
@@ -91,7 +93,7 @@ Stellar Shield sits at the intersection of several established lines of work, no
 
 In one phrase: **Stellar Shield is a shielded, on-chain-verified lending pool on Stellar** — the only system combining all four properties. Each dimension has precedent in isolation; the combination does not exist elsewhere:
 
-> **For** professional and privacy-conscious borrowers on Stellar **who** need collateralized leverage but cannot afford to broadcast their balance sheet, position size, and liquidation level to the entire chain, **Stellar Shield is** a privacy-preserving lending pool **that** lets you prove borrow eligibility and take a loan while your wallet, balances, and position size stay hidden on-chain. **Unlike** transparent Stellar lenders (Blend and every other Stellar lending market), which expose every position publicly, **and unlike** shielded-*transfer* tools (Zcash, Tornado-style pools), which hide payments but offer no borrowing primitive, **Stellar Shield** is the only option that combines shielded privacy *with* a lending market on Stellar — **because** eligibility is enforced by a real zero-knowledge proof verified *on-chain* via Protocol 22 BLS12-381 host functions, proofs are generated *client-side* so no server ever custodies a user's keys, and a user's private position can be rebuilt from public chain data alone.
+> **For** professional and privacy-conscious borrowers on Stellar **who** need collateralized leverage but cannot afford to broadcast their balance sheet, position size, and liquidation level to the entire chain, **Stellar Shield is** a privacy-preserving lending pool **that** lets you borrow against collateral you prove you own, while your wallet, balances, and position size stay hidden on-chain. **Unlike** transparent Stellar lenders (Blend and every other Stellar lending market), which expose every position publicly, **and unlike** shielded-*transfer* tools (Zcash, Tornado-style pools), which hide payments but offer no borrowing primitive, **Stellar Shield** is the only option that combines shielded privacy *with* a lending market on Stellar — **because** every spend is authorized by a real zero-knowledge proof verified *on-chain* via Protocol 22 BLS12-381 host functions, proofs are generated *client-side* so no server ever custodies a user's keys, and a user's private position can be rebuilt from public chain data alone. (Collateralization itself is bounded by a contract-side cap, not yet by the proof — §6.3.)
 
 The concrete technical delta against a transparent Stellar lender (Blend) is measurable, not rhetorical: every borrow carries one on-chain Groth16 verification over BLS12-381 (16 IC points, §5.1) that spends 4 collateral nullifiers and mints a loan note, over per-asset commitment trees of depth 20 — a `2^20 = 1,048,576`-leaf anonymity *capacity* per asset — with zero balances or position sizes written to chain. Blend writes all of them. The defensibility is the intersection itself — shielded *and* lending *and* on Stellar *and* on-chain-verified. Replicating it requires ZK, lending, oracle, and in-browser proving competence in one place. This describes a technical and competitive position, not delivered privacy: capacity is not the same as a realized anonymity set, which requires real pool volume (§14) that testnet does not provide.
 
@@ -108,7 +110,7 @@ Symbols used throughout §4–§10. All field elements are over the BLS12-381 sc
 | Symbol | Domain | Meaning | Public? |
 |---|---|---|---|
 | `sk` | `F_r` | Shielded spending key; also the memo-decryption key (§8.2). | private |
-| `amount` | `F_r` | Note value in whole units. | private |
+| `amount` | `F_r` | Note value in raw token units (stroops). | private |
 | `asset_tag` | `{0,1,2}` | Asset index into `SUPPORTED_ASSETS = [XLM, USDC, EURC]`. | public |
 | `salt` | `F_r` | Per-note random field element; unlinks equal-value notes. | private |
 | `index` | `u64` | Leaf position in a Merkle tree, assigned at append. | public |
@@ -129,7 +131,7 @@ The client-side note struct (`features/notes/note.ts:36`) is the full opening:
 
 | Field | Type | Public? | Meaning |
 |---|---|---|---|
-| `amount` | bigint | private | Whole-unit value. Fixed per asset by `DENOMINATION` for deposit notes; variable (oracle × collateral × LTV) for loan notes. |
+| `amount` | bigint | private | Value in RAW token units (stroops; all three SACs are 7-decimal). Fixed per asset by `DENOMINATION` for deposit notes; variable (collateral × cross-asset ratio × LTV, capped at one denomination) for loan notes. |
 | `asset` | `"XLM" \| "USDC" \| "EURC"` | private | Asset symbol. Encoded into the commitment as a numeric `assetTag` (index into `SUPPORTED_ASSETS`, `note.ts:90`). |
 | `index` | number | public | Leaf position in the note's Merkle tree. Assigned by the contract at append time. |
 | `salt` | bigint | private | Per-note random field element (`randomFieldElement`, `note.ts:120`). Breaks commitment linkability across notes of equal value. |
@@ -139,7 +141,7 @@ The client-side note struct (`features/notes/note.ts:36`) is the full opening:
 | `bond` | object? | private | Liquidation-bond openings (salts + collateral value + oracle price), present only on loan notes from a Track-L borrow (`note.ts:51`). |
 | `witness` | object? | derived | Cached Merkle inclusion path pinned at mint time (`note.ts:78`). |
 
-`DENOMINATION` (`note.ts:20`) fixes deposit-note value per asset — `XLM: 100`, `USDC: 10`, `EURC: 10` whole units — and the contract enforces it on every deposit (`notes.rs:22`, checked at `lib.rs:404`). Fixed denominations are what make one deposit commitment indistinguishable from another: every XLM deposit note is worth exactly 100 XLM, so the on-chain leaf leaks nothing beyond "a deposit happened." `COLLATERAL_NOTES_PER_BORROW = 4` (`note.ts:32`) is baked into the borrow circuit's trusted setup; a borrow always spends exactly four collateral notes.
+`DENOMINATION` (`note.ts:20`) fixes deposit-note value per asset, in RAW token units — `XLM: 10_000_000`, `USDC: 5_000_000`, `EURC: 5_000_000`, i.e. 1 XLM / 0.5 USDC / 0.5 EURC at 7 decimals — and the contract enforces it on every deposit (`notes.rs:22`, checked at `lib.rs:404`). These are the amounts handed to `token::transfer` verbatim; treating them as whole units is what once made a borrow request 427M USDC. Fixed denominations are what make one deposit commitment indistinguishable from another: every XLM deposit note is worth exactly 1 XLM, so the on-chain leaf leaks nothing beyond "a deposit happened." `COLLATERAL_NOTES_PER_BORROW = 4` (`note.ts:32`) is baked into the borrow circuit's trusted setup; a borrow always spends exactly four collateral notes.
 
 ### 4.2 Commitment scheme
 
@@ -175,7 +177,7 @@ On-chain tree state (`state.rs`, `PersistentKey` variants keyed by asset `Symbol
 
 ### 4.4 Nullifier set
 
-Spent notes are recorded in a global nullifier set (`state.rs:171`): `Nullifier(BytesN<32>) -> true` in persistent storage, one slot per spent note. Every spend path checks freshness before verifying the proof and marks the nullifier after. The set is append-only and never pruned — a nullifier, once present, permanently retires its note. The public view `nullifiers_used(Vec<BytesN<32>>) -> Vec<bool>` (`lib.rs:345`) lets a client bulk-query spent status.
+Spent notes are recorded in two per-tree nullifier namespaces (`state.rs`): `Nullifier(BytesN<32>) -> true` for deposit-tree spends and `LoanNullifierUsed(BytesN<32>) -> true` for loan-tree spends, one persistent slot per spent note. Namespacing fixes a cross-tree collision — a deposit nullifier and a loan nullifier that happen to share bytes no longer block each other's legitimate spend. Every spend path checks freshness in its own namespace before verifying the proof and marks the nullifier after. Both sets are append-only and never pruned — a nullifier, once present, permanently retires its note. The public views `nullifiers_used` (deposit) and `loan_nullifiers_used` (loan), each `Vec<BytesN<32>> -> Vec<bool>`, let a client bulk-query spent status.
 
 ### 4.5 Liquidation-bond record and sidecars
 
@@ -261,7 +263,11 @@ Order: `borrow_amount, borrow_asset_tag, collateral_asset_tag, hf_min_bps, max_l
 6. Three bond commitments over amount, collateral value, and oracle price.
 7. **Track A:** `Poseidon(sk, borrow_commitment) === loan_nullifier`.
 
-*Proves:* the caller owns 4 unspent deposit notes whose USD value backs the loan within the policy band, and mints a loan note plus a service-triggerable nullifier and three bond commitments. (`hf_min_bps`/`max_ltv_bps` are public inputs the contract cross-checks against on-chain risk params, so a caller cannot manufacture a friendlier LTV.)
+**Constraints 4 and 5 are decorative and must not be read as a solvency guard.** `oracle_price` is an *unconstrained private witness* (`borrow.circom:36-42`): nothing in the circuit binds it to a Reflector reading, so a modified client picks a price that satisfies both inequalities at any `borrow_amount`. Cross-checking `hf_min_bps`/`max_ltv_bps` against on-chain risk params stops a caller manufacturing a friendlier *band*, but not a friendlier *price*, which is the free variable that matters.
+
+The bound that actually holds is enforced outside the circuit: the contract rejects `borrow_amount > denomination(borrow_asset)` in `borrow_shielded` and again in `withdraw_loan_shielded`. Total collateral is public regardless — 4 notes × a fixed denomination — so the clear-text cap costs no privacy. It is also what keeps a loan repayable at all: `repay.circom` burns exactly one deposit note, so a loan above one denomination could never be closed. Binding the price inside the circuit is the same work as the on-chain oracle cross-check (§9, §15.3) and is gated behind the same ceremony.
+
+*Proves:* the caller owns 4 unspent deposit notes at the attested root, and mints a loan note plus a service-triggerable nullifier and three bond commitments. It does **not** prove the loan is collateralized.
 
 ### 6.4 shielded-withdraw — 4 public signals, `Withdraw(20)`
 `[0]=asset_tag, [1]=denomination, [2]=deposit_root, [3]=nullifier`. Reconstruct commitment, Merkle inclusion, `Poseidon(sk, leaf_index)===nullifier`. Reused for both `withdraw_shielded` (deposit tree, fixed denomination) and `withdraw_loan_shielded` (loan tree, variable amount).
@@ -297,7 +303,9 @@ The Soroban contract `BorrowPool` (`contracts/borrow-pool/src/lib.rs`, `#![no_st
 
 Selected detail:
 
-**Borrow** (`lib.rs:779`) is the heaviest transition. The contract cross-checks both asset tags and the risk-params public inputs against stored `risk_params` (`lib.rs:820`), checks the attested deposit root equals the live root, asserts the four nullifiers are unused *and mutually distinct* (an O(n²) pairwise compare, `lib.rs:849`, since the circuit does not range-check indices — this blocks slotting one note into two of four positions), verifies Groth16, marks the four nullifiers, appends the loan commitment, adjusts aggregates, accrues the borrow index, and writes the `LiquidationBond`, `LoanNullifier`, and `BorrowIndexAtOpen` sidecars. Publishing the four spent nullifiers in the event body lets any client drop the corresponding deposit tombstones across a page reload without server-side session state. `borrow_amount` is deliberately not emitted.
+**Claim and repay are mutually exclusive.** `withdraw_loan_shielded` and `repay_shielded` both spend the loan-side nullifier `Poseidon(sk, loan_index)` — derived identically in `withdraw.circom` and `repay.circom` — into the same `loan_nullifier_used` set. Whichever runs first closes the position; the other then fails `ProofReplayed`. A claimed loan can never be repaid, and a repaid loan can never be claimed. There is no claim-then-repay lifecycle. Either way the original collateral notes stay burned (collateral recovery is deferred to a v2 repay circuit), so repay closes a position rather than recovering collateral.
+
+**Borrow** (`lib.rs:789`) is the heaviest transition. The contract cross-checks both asset tags and the risk-params public inputs against stored `risk_params` (`lib.rs:820`), checks the attested deposit root equals the live root, asserts the four nullifiers are unused *and mutually distinct* (an O(n²) pairwise compare, `lib.rs:849`, since the circuit does not range-check indices — this blocks slotting one note into two of four positions), verifies Groth16, marks the four nullifiers, appends the loan commitment, adjusts aggregates, accrues the borrow index, and writes the `LiquidationBond`, `LoanNullifier`, and `BorrowIndexAtOpen` sidecars. Publishing the four spent nullifiers in the event body lets any client drop the corresponding deposit tombstones across a page reload without server-side session state. `borrow_amount` is deliberately not emitted.
 
 **Repay** (`lib.rs:1054`) burns one loan note and one same-asset deposit note in a single proof, enforcing `deposit_amount × index_snapshot ≥ loan_amount × index_now` for accrued interest. There is **no token transfer** — the repayer forfeits a same-asset deposit note ≥ the accrued debt; the difference is retained by the pool as fee.
 
@@ -339,6 +347,16 @@ The design (documented in `docs/liquidation-design.md`) lets a third party liqui
 
 The liquidation **bounty** is minted as a deposit note in the collateral asset from a caller-supplied commitment whose opening the contract does not check — a garbage commitment is simply unspendable later (denomination-gated by the withdraw circuit) and harms no one. The liquidation service operator's residual capability — pool-wide *viewing* of positions — is a disclosed trust assumption (§15.2, §17.2); removing it requires threshold decryption (Track B), which is dropped and gated.
 
+### 10.1 Current status — triggering is inert (fails closed)
+
+Every component above is built and wired, and **no liquidation can be triggered on the deployed system.** The underwater inequality (§6.6, §6.7) compares `loan_amount · threshold_bps · borrow_price` against `collateral_notional · current_price · 10000`. `collateral_notional` is the borrow circuit's `total_collateral_value = Σ collateral_amounts[i] · oracle_price`, so it already carries the `1e14` price scale that the loan side of the comparison does not. The two sides are dimensionally mismatched by that factor, the right side dominates unconditionally, and `GreaterThan` never asserts — witness generation fails for every position regardless of price. Both call sites (`features/shielded-pool/use-liquidate.ts`, `contracts/scripts/scan-underwater.ts`) additionally skip when Reflector has no feed.
+
+This is the *safe* failure direction, and it is a regression from a worse one. Before commit `09471e9` the client fetched the **loan** asset's USD price and compared it against a collateral-denominated bond; that mismatch ran the other way and made **every position test as underwater** — liquidation was fail-OPEN. The fix that introduced one raw-stroop unit domain (§4) closed that hole and left the mechanism inert rather than dangerous.
+
+The unblock is a **v3 liquidate circuit carrying an explicit divisor plus a contract-read price**, so the comparison is dimensionally closed and the price is not a client-supplied witness — the same constraint the borrow circuit needs (§6.3) and the same ceremony gate (§15.3). Until it lands, pool solvency rests entirely on the contract-side denomination cap: a loan can never exceed one denomination against four notes of collateral, so the position starts far enough over-collateralized that the absence of liquidation is survivable on testnet. It is not survivable with real value, and it is a mainnet blocker.
+
+Neither the fail-open nor the fail-closed state was caught by a test — there is no liquidation proving fixture at any level (PRD §7 gap 2b).
+
 ---
 
 ## 11. Client-Side Inventory and Recovery
@@ -350,7 +368,7 @@ Because note openings live only client-side, the wallet must *reconstruct* the u
 3. **Trial-decrypt memos** against a set of identities — the current signature-derived identity, any legacy address-derived identities, and each one's double-derivation (for pre-migration notes) — via `tryDecryptAnyMemo`. A ChaCha20-Poly1305 auth-tag match means "this note is mine."
 4. **Reconstruct with the right `sk`** — the note materializes carrying the `sk` of whichever identity decrypted it, so its later spend reproduces exactly the nullifier the original mint circuit committed to.
 5. **Filter spent** — accumulate every nullifier seen in spend events and in the borrow nullifier tail, then drop any reconstructed note whose `Poseidon(sk, index)` is in it.
-6. **Hydrate from chain** — bulk-query `nullifiers_used` for surviving deposit notes, catching notes spent by old borrow events that predate the nullifier-tail upgrade.
+6. **Hydrate from chain** — bulk-query the per-tree spent views (`nullifiers_used` for deposit notes, `loan_nullifiers_used` for loan notes), catching notes spent by old borrow events that predate the nullifier-tail upgrade.
 7. **Merge and store** — merge with the prior cache to preserve mint-time Merkle witnesses and keep just-minted notes that RPC lag hasn't surfaced yet.
 
 ```mermaid
@@ -374,7 +392,7 @@ flowchart TD
 
     decrypt --> candidates
     spent -- filterSpent --> candidates
-    hydrate["hydrate: nullifiers_used view<br/>(catches pre-upgrade spends)"] --> candidates
+    hydrate["hydrate: per-tree spent views<br/>(catches pre-upgrade spends)"] --> candidates
 
     candidates["candidate notes<br/>{amount, asset, index, salt, sk, tree, bond?}"]
     cache["persisted local note store<br/>(localStorage, per contract+account)"] --> merge
@@ -483,7 +501,7 @@ Reads all public ledger state; cannot decrypt memos or recover `sk`. At risk: wa
 Holds `LIQUIDATION_SERVICE_SK`; borrow memos are dual-encrypted to borrower and service, so the operator decrypts every borrower's collateral, loan size, entry price, and bond openings — **pool-wide viewing capability**. **Disclosed** (R3): a deliberate Track A choice enabling a permissionless liquidation service under an explicit honest-operator assumption. Privacy holds against outsiders, not the operator. The key is gitignored, never committed, and rotatable. The only removal path is decentralization (Track B, dropped/gated). Track A already removes the operator's need to hold `sk`, but not its viewing capability.
 
 ### 15.3 Malicious prover (oracle price forgery)
-Runs a modified client and submits a valid proof committing to an arbitrary oracle price. The contract enforces oracle-epoch freshness only and never calls Reflector to cross-check the committed price, so a prover can open an under-collateralized position. **Gated + interim detection (R7):** the real fix (public price signal + on-chain Reflector cross-check within a tolerance) requires a circuit change → new `.zkey` → contract upgrade, bundled with the trusted-setup ceremony; interim, `scan:underwater` can flag committed-vs-Reflector divergence off-chain. **The most material soundness gap in the economic layer today.**
+Runs a modified client and submits a valid proof committing to an arbitrary oracle price. `oracle_price` is an unconstrained private witness in the borrow circuit, so the LTV/HF band imposes no real limit and a prover can open an under-collateralized position. **Partially mitigated by the contract:** `borrow_shielded` and `withdraw_loan_shielded` cap the loan at one denomination against four notes of collateral, so the forgery buys a bounded amount, not a pool drain. The residual exposure is a position under-collateralized *within* that cap, on a pool where liquidation cannot fire (§10.1). **Gated + interim detection (R7):** the real fix (public price signal + on-chain Reflector cross-check within a tolerance) requires a circuit change → new `.zkey` → contract upgrade, bundled with the trusted-setup ceremony; interim, `scan:underwater` can flag committed-vs-Reflector divergence off-chain. **The most material soundness gap in the economic layer today.**
 
 ### 15.4 Artifact / supply-chain tampering
 Tampers with client-fetched `.wasm`/`.zkey` or the `snarkjs` dependency to weaken proofs or exfiltrate witnesses. **Mitigated (R8):** artifacts are fetched through a loader that SHA-256s each against a checked-in manifest and throws on mismatch; `check:bundle` re-hashes in CI; `snarkjs` is pinned; unused `circomlibjs` was removed. Flipping one byte of `borrow.wasm` fails the check.
@@ -604,12 +622,14 @@ The moat in every case: **a transparent pool cannot sell privacy because it has 
 Stellar Shield draws a hard line between what is validated on testnet and what is gated to mainnet. The honest summary is that the *cryptography works* and *privacy is not yet delivered* — two claims this paper deliberately separates.
 
 ### 17.1 Validated on testnet
-Full shielded lifecycle (deposit → borrow → claim → repay → liquidate) with on-chain proof verification; signature-derived shielded identity (client-side proving, no server key custody); SHA-256-pinned proving artifacts; an automated end-to-end testnet harness that asserts the on-chain borrow verify; position recovery from chain data (within the retention window); and a keyless (service-triggerable) liquidation path.
+Shielded lifecycle deposit → borrow → **claim or repay** (the two are mutually exclusive — both spend `Poseidon(sk, loan_index)`) with on-chain proof verification; signature-derived shielded identity (client-side proving, no server key custody); SHA-256-pinned proving artifacts; an automated end-to-end testnet harness that asserts the on-chain borrow verify; and position recovery from chain data (within the retention window). The keyless (service-triggerable) liquidation path is built and wired but **not validated** — its trigger is inert (§10.1).
 
 ### 17.2 Known limitations (consolidated)
 
 1. **Development trusted setup (mainnet blocker).** Verifying keys come from a single-contributor setup, not a multi-party ceremony; a toxic-waste holder can forge proofs. Acceptable only because no real value is at stake (R5).
-2. **Oracle price commitment not cross-checked on-chain (mainnet blocker).** The contract enforces oracle-epoch freshness but never validates the committed price against Reflector; a malicious client can commit an arbitrary price. Off-chain `scan:underwater` detection only (R7). The most material economic-soundness gap today.
+2. **Oracle price commitment not cross-checked on-chain (mainnet blocker).** The contract enforces oracle-epoch freshness but never validates the committed price against Reflector; a malicious client can commit an arbitrary price. Off-chain `scan:underwater` detection only (R7). The most material economic-soundness gap today. Its direct consequence is (2a).
+2a. **Collateralization is not zk-enforced (mainnet blocker).** Because `oracle_price` is an unconstrained private witness, the borrow circuit's LTV/HF band proves nothing (§6.3). Solvency is held by a clear-text contract cap: `borrow_amount ≤ denomination(borrow_asset)`. That is a real bound, and it is a blunt one — it caps every loan at one denomination rather than at the position's actual collateral value. A price-bound circuit constraint is the fix, bundled with (1) and (2) because it regenerates the `.zkey`.
+2b. **Liquidation triggering is inert (mainnet blocker).** The v1/v2 underwater inequality is dimensionally mismatched by the `1e14` price scale and no position can satisfy it; before commit `09471e9` the same comparison was fail-OPEN. Fails closed today. Needs a v3 circuit with an explicit divisor and a contract-read price (§10.1). No test covers liquidation proving at any level.
 3. **Liquidation-service operator sees every position.** Borrow memos are dual-encrypted to the operator; honest-operator assumption; removal requires decentralization (Track B, dropped/gated) (R3, BR6).
 4. **Anonymity set is effectively zero at testnet volume.** Fixed denominations + low volume make positions correlatable despite correct cryptography. Privacy is not yet delivered (R4, BR3).
 5. **Loan withdrawal leaks its amount** on Horizon — an accepted MVP trade-off, unlinked to any borrow (`lib.rs:958`).
@@ -670,7 +690,7 @@ There is no third fork in which a solo operator quietly takes a spread on a priv
 
 ## 18. Conclusion
 
-Stellar Shield demonstrates that privacy-preserving, collateralized lending is technically viable on Stellar. The shielded deposit → borrow → repay/liquidate lifecycle runs end-to-end on testnet, with borrow eligibility proven in zero knowledge and verified on-chain through Protocol 22's BLS12-381 host functions, over a shielded pool modeled on the Zcash note/nullifier design and generated client-side without key custody. This establishes a first-mover technical position at an intersection — shielded, lending, on Stellar, on-chain-verified — that does not currently exist elsewhere.
+Stellar Shield demonstrates that privacy-preserving, collateralized lending is technically viable on Stellar. The shielded deposit → borrow → claim/repay lifecycle runs end-to-end on testnet, with note ownership and spend authority proven in zero knowledge and verified on-chain through Protocol 22's BLS12-381 host functions, over a shielded pool modeled on the Zcash note/nullifier design and generated client-side without key custody. Two pieces of the economic layer are honestly incomplete: collateralization is bounded by a contract-side cap rather than proven in the circuit (§6.3), and liquidation is built but cannot yet be triggered (§10.1). This establishes a first-mover technical position at an intersection — shielded, lending, on Stellar, on-chain-verified — that does not currently exist elsewhere.
 
 It establishes nothing more than that. Stellar Shield has zero users, zero TVL, and zero revenue; it has no activated business model, no completed audit or trusted-setup ceremony, no decentralized administration, and no documented legal position — and, most importantly, at testnet volume it does not yet deliver privacy to a real user, because privacy requires an anonymity set that only real adoption can provide. The market evidence assembled here sizes the *category* Stellar Shield sits in, not this product's traction. A large addressable opportunity, bounded by genuine regulatory and decentralization hazards, met by a working but pre-adoption implementation, is the complete and honest picture. Stellar Shield is a validated technical option on a real thesis — not a launched product, and this paper does not claim it to be one.
 

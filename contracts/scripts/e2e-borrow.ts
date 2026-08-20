@@ -63,12 +63,8 @@ if (!stellarAddr || !stellarSecret) {
 console.log("Using deployer:", stellarAddr)
 
 // ---- Late imports (avoid load-time env crashes) ---------------------
-const { poseidon } = await import("../../features/notes/poseidon")
 const { computeCommitment, computeNullifier, assetTag, DENOMINATION } =
   await import("../../features/notes/note")
-const { verifyInclusion, zeroHashes, DEPTH } = await import(
-  "../../features/notes/merkle"
-)
 const memo = await import("../../features/notes/memo")
 const { proveBorrow } = await import(
   "../../features/shielded-pool/borrow-prover"
@@ -103,12 +99,18 @@ function rand(): bigint {
 }
 
 // ---- Fetch all deposit events for the collateral asset ---------------
+// Goes through the app's event chokepoint: stellar-rpc scans only ~10k
+// ledgers per getEvents call and returns an EMPTY page with a cursor
+// when it hits that bound, so the private `startLedger = latest - 10_000,
+// limit 500, no cursor` fetch this script used to do silently returned
+// nothing once the contract's deposits aged past the first window —
+// which then produced witnesses at the wrong leaf indices.
 const server = new RpcServer(RPC_URL, { allowHttp: RPC_URL.startsWith("http://") })
-const latest = await server.getLatestLedger()
-const startLedger = Math.max(1, latest.sequence - 10_000)
+const { fetchAllContractEvents } = await import("../../features/notes/rpc-events")
 const depositTopic = xdr.ScVal.scvSymbol("deposit").toXDR("base64")
 const assetSymbol = xdr.ScVal.scvSymbol(COLLATERAL_ASSET).toXDR("base64")
-const rawResp = await server.getEvents({
+const events = await fetchAllContractEvents({
+  server,
   filters: [
     {
       type: "contract",
@@ -116,10 +118,7 @@ const rawResp = await server.getEvents({
       topics: [[depositTopic, assetSymbol]],
     },
   ],
-  startLedger,
-  limit: 500,
 })
-const events = (rawResp as { events?: unknown[] }).events ?? []
 console.log(`Deposit events: ${events.length}`)
 
 // ---- Decode + decrypt memos to recover our notes ---------------------
@@ -294,7 +293,20 @@ if (FORCE_FRESH || notes.length < 4) {
 // those are exactly the 4 we just batched in, so nullifiers are
 // virgin. Sorts ascending in `notes`; slice from the tail.
 const collateralNotes = notes.slice(-4)
-const witnesses = buildWitnesses(chainLeaves.map((l) => l.leaf))
+// Use the app's witness builder: it places leaves at their TRUE
+// on-chain index (the old `buildWitnesses(chainLeaves.map(l => l.leaf))`
+// dropped indices, so a partial event set produced witnesses for
+// positions 0..n instead of the real slots) and verifies the rebuilt
+// root against the contract before handing anything back.
+const { fetchDepositWitnesses } = await import(
+  "../../features/shielded-pool/withdraw-tree"
+)
+const wantedLeaves = new Set(collateralNotes.map((n) => n.index))
+const witnesses = await fetchDepositWitnesses(
+  COLLATERAL_ASSET,
+  undefined,
+  wantedLeaves
+)
 const collateralWitnesses = collateralNotes.map((n) => {
   const w = witnesses.find((x) => x.leafIndex === n.index)
   if (!w) throw new Error(`No witness at leaf index ${n.index}`)
@@ -501,55 +513,6 @@ function toScVal(value: unknown) {
     return value as InstanceType<typeof xdr.ScVal>
   }
   return null
-}
-
-type BuiltWitness = {
-  leaf: bigint
-  leafIndex: number
-  pathBits: number[]
-  pathElements: bigint[]
-  root: bigint
-}
-
-function buildWitnesses(leaves: bigint[]): BuiltWitness[] {
-  const zeros = zeroHashes()
-  const levels: bigint[][] = []
-  levels[0] = leaves.slice()
-  for (let level = 0; level < DEPTH; level++) {
-    const cur = levels[level]
-    const next: bigint[] = []
-    for (let i = 0; i < cur.length; i += 2) {
-      const left = cur[i]
-      const right = i + 1 < cur.length ? cur[i + 1] : zeros[level]
-      next.push(poseidon([left, right]))
-    }
-    levels[level + 1] = next
-  }
-  const root = levels[DEPTH].length > 0 ? levels[DEPTH][0] : zeros[DEPTH]
-  const out: BuiltWitness[] = []
-  for (let index = 0; index < leaves.length; index++) {
-    const path: bigint[] = []
-    const bits: number[] = []
-    for (let level = 0; level < DEPTH; level++) {
-      const pos = index >> level
-      const siblingPos = pos ^ 1
-      const arr = levels[level]
-      path.push(siblingPos < arr.length ? arr[siblingPos] : zeros[level])
-      bits.push(pos & 1)
-    }
-    if (
-      !verifyInclusion({ leaf: leaves[index], leafIndex: index, path, root })
-    )
-      continue
-    out.push({
-      leaf: leaves[index],
-      leafIndex: index,
-      pathBits: bits,
-      pathElements: path,
-      root,
-    })
-  }
-  return out
 }
 
 async function fetchReflectorPrice(

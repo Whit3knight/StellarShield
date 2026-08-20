@@ -23,6 +23,7 @@ import {
   type ShieldedAsset,
   type ShieldedNote,
 } from "@/features/notes"
+import { PRICE_RATIO_SCALE } from "@/features/markets/prices"
 import { fetchArtefact } from "./artifacts"
 import { poseidon } from "@/features/notes/poseidon"
 import { bigintTo32Bytes, structureProof } from "./proof-encoding"
@@ -40,7 +41,13 @@ export type BorrowProofInputs = {
   depositRoot: bigint
   hfMinBps: number
   maxLtvBps: number
-  oraclePrice: bigint // whole-unit price of collateral in borrow-asset units
+  /**
+   * Cross-asset ratio from `fetchPriceRatio`: one RAW collateral unit
+   * priced in RAW borrow units, scaled by 1e14. NOT a USD price — the
+   * borrow asset is the denominator, so a same-asset borrow is exactly
+   * 1e14.
+   */
+  oraclePrice: bigint
   sk: bigint
   bondSaltAmount: bigint
   bondSaltValue: bigint
@@ -61,6 +68,38 @@ export type BorrowProofResult = {
   loanNullifier: bigint
 }
 
+/**
+ * Raw borrow-asset units a borrow will actually mint.
+ *
+ *   amount = totalCollateral × ratio × maxLtvBps / (10_000 × 1e14)
+ *
+ * then capped at 90% of one denomination. The cap is load-bearing, not
+ * cosmetic: repay.circom burns exactly ONE deposit note and enforces
+ * `deposit_amount × index_snapshot >= loan_amount × index_now`, so a
+ * loan bigger than one denomination — or one with no headroom for
+ * accrued interest — can never be repaid. The borrow circuit only
+ * range-checks `borrow_amount` against an LTV band (never an equality),
+ * so shrinking the amount keeps the proof valid.
+ */
+export function computeBorrowAmount({
+  totalCollateral,
+  ratio,
+  maxLtvBps,
+  denomination,
+}: {
+  totalCollateral: bigint
+  ratio: bigint
+  maxLtvBps: number
+  denomination: bigint
+}): bigint {
+  const fromLtv =
+    (totalCollateral * ratio * BigInt(maxLtvBps)) /
+    (10_000n * PRICE_RATIO_SCALE)
+  const cap = (denomination * 9n) / 10n
+
+  return fromLtv < cap ? fromLtv : cap
+}
+
 export async function proveBorrow(
   inputs: BorrowProofInputs,
   options: { wasmUrl?: string; zkeyUrl?: string } = {}
@@ -77,7 +116,12 @@ export async function proveBorrow(
     0n
   )
   const collateralValue = totalCollateral * inputs.oraclePrice
-  const borrowAmount = (collateralValue * BigInt(inputs.maxLtvBps)) / 10_000n
+  const borrowAmount = computeBorrowAmount({
+    totalCollateral,
+    ratio: inputs.oraclePrice,
+    maxLtvBps: inputs.maxLtvBps,
+    denomination: DENOMINATION[inputs.borrowAsset],
+  })
 
   const nullifiers = inputs.collateralNotes.map((note) =>
     computeNullifier(inputs.sk, note.index)

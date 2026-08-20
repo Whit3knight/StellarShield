@@ -4,7 +4,7 @@
 // this shape once their circuits land.
 //
 // Circuit at contracts/circuits/shielded-deposit/. Public signals:
-//   [0] amount        (fixed denomination in whole units)
+//   [0] amount        (fixed denomination in raw token units)
 //   [1] asset_tag     (0 = XLM, 1 = USDC, 2 = EURC)
 //   [2] commitment    (Poseidon output — new deposit tree leaf)
 

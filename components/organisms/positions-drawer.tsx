@@ -22,7 +22,7 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty"
-import { useAssetPrices } from "@/features/markets"
+import { formatRawAmount, useAssetPrices } from "@/features/markets"
 import { useNotes, type ShieldedAsset, type ShieldedNote } from "@/features/notes"
 import { useRiskParams } from "@/features/protocol/risk-params"
 import {
@@ -421,19 +421,9 @@ function NoteList({
 }
 
 const STALE_LOAN_SECS = 30 * 24 * 60 * 60
-const ORACLE_DECIMALS = 14n
-const ORACLE_SCALE = 10n ** ORACLE_DECIMALS
-const RAW_ORACLE_HEURISTIC = 10n ** 10n
 
 function formatNoteAmount(note: ShieldedNote): string {
-  if (note.tree === "loan" && note.amount >= RAW_ORACLE_HEURISTIC) {
-    const whole = note.amount / ORACLE_SCALE
-    const remainder = note.amount % ORACLE_SCALE
-    const cents = (remainder * 100n) / ORACLE_SCALE
-    const fractional = cents.toString().padStart(2, "0")
-    return `~${whole.toString()}.${fractional} ${note.asset}`
-  }
-  return `${note.amount.toString()} ${note.asset}`
+  return `${formatRawAmount(note.amount, note.asset)} ${note.asset}`
 }
 
 function pickRepaySource(

@@ -127,6 +127,7 @@ export function useBorrow(
         )
         const buffers = nullifiers.map((n) => Buffer.from(bigintToBytes32(n)))
         const preflight = await client.nullifiers_used({
+          asset: collateralAsset,
           nullifiers: buffers,
         })
         const spentFlags = (preflight.result ?? []) as boolean[]

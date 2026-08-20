@@ -25,6 +25,7 @@ export {
   type WithdrawWitness,
 } from "./withdraw-tree"
 export {
+  computeBorrowAmount,
   proveBorrow,
   validateCollateralNotes,
   type BorrowProofInputs,

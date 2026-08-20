@@ -14,7 +14,7 @@ import {
   type ShieldedAsset,
   type ShieldedNote,
 } from "@/features/notes"
-import { fetchReflectorPrice } from "@/features/markets/prices"
+import { fetchPriceRatio } from "@/features/markets/prices"
 import { getRiskParams } from "@/features/protocol/risk-params"
 import {
   getConfiguredContractId,
@@ -102,12 +102,6 @@ export function useLiquidate(
 
       try {
         setStatus("pricing")
-        const priceRecord = await fetchReflectorPrice(loanNote.asset)
-        if (!priceRecord || priceRecord.price <= 0n) {
-          throw new Error(
-            `Reflector returned no price for ${loanNote.asset}. Retry when the feed refreshes.`
-          )
-        }
         const risk = await getRiskParams()
 
         const loanCommitment = computeCommitment({
@@ -154,6 +148,22 @@ export function useLiquidate(
         const sidecarNullifier = nullifierFetch.result
         const useV2 = sidecarNullifier !== undefined && sidecarNullifier !== null
 
+        // The bond pins the COLLATERAL asset priced in loan-asset units
+        // (`bond.borrowPrice` is a legacy field name — see note.ts), so
+        // the current reading must be that same ratio or the circuit's
+        // underwater inequality compares two different dimensions.
+        //
+        // ponytail: cross-asset liquidation triggering stays
+        // dimensionally inert until a v3 circuit with an explicit
+        // divisor + a contract-read price lands. It now fails closed —
+        // no feed, no liquidation. Previously it read the LOAN asset's
+        // USD price against a collateral-denominated bond, which was
+        // fail-open: every position looked underwater.
+        const currentPrice = await fetchPriceRatio(
+          collateralAsset,
+          loanNote.asset
+        )
+
         toast.set(
           toastManager.add({
             title: `Generating liquidate ${useV2 ? "v2" : "v1"} proof`,
@@ -173,7 +183,7 @@ export function useLiquidate(
             bondSaltValue: loanNote.bond.saltValue,
             borrowPrice: loanNote.bond.borrowPrice,
             bondSaltPrice: loanNote.bond.saltPrice,
-            currentPrice: priceRecord.price,
+            currentPrice,
             thresholdBps: risk.liquidationThresholdBps,
           })
           proofBuffers = {
@@ -197,7 +207,7 @@ export function useLiquidate(
             bondSaltPrice: loanNote.bond.saltPrice,
             collateralNotional: loanNote.bond.collateralValue,
             borrowPrice: loanNote.bond.borrowPrice,
-            currentPrice: priceRecord.price,
+            currentPrice,
             thresholdBps: risk.liquidationThresholdBps,
           })
           proofBuffers = {

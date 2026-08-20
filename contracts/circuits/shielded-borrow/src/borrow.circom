@@ -9,7 +9,7 @@ pragma circom 2.1.9;
 // the loan tree.
 //
 // Public signals order (matches BorrowPool::borrow_shielded):
-//   [0]     borrow_amount            (borrower's requested loan in whole units)
+//   [0]     borrow_amount            (loan in RAW token units / stroops)
 //   [1]     borrow_asset_tag         (0/1/2 = XLM/USDC/EURC)
 //   [2]     collateral_asset_tag     (must match each collateral note)
 //   [3]     hf_min_bps               (health-factor floor, bps)
@@ -25,14 +25,19 @@ pragma circom 2.1.9;
 // Private witness:
 //   sk                          shielded identity secret
 //   borrow_salt                 blinding for the new borrow note
-//   collateral_amounts[4]       amount per note (whole units)
+//   collateral_amounts[4]       amount per note (RAW token units)
 //   collateral_salts[4]         per-note salts
 //   collateral_indices[4]       positions in the deposit tree
 //   collateral_paths[4][20]     merkle siblings per level per note
 //   collateral_bits[4][20]      path bits per level per note
-//   oracle_price                unsigned price of collateral asset in
-//                               units of the borrow asset (fixed
-//                               point; contract cross-checks freshness)
+//   oracle_price                1e14-scaled CROSS-ASSET RATIO: one raw
+//                               collateral unit priced in raw borrow
+//                               units (same-asset = 1e14). Not a USD
+//                               price. Unconstrained here — nothing in
+//                               this circuit binds it to a real feed,
+//                               so the LTV band below is decorative and
+//                               the contract's denomination cap is the
+//                               real solvency guard.
 //   bond_salt_amount            salt for borrow_amount_commit          (Track L)
 //   bond_salt_value             salt for collateral_value_commit       (Track L)
 //   bond_salt_price             salt for borrow_price_commit           (Track L)
