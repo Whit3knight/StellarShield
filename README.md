@@ -1,5 +1,7 @@
 # Stellar Shield
 
+[![CI](https://github.com/Whit3knight/StellarShield/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/Whit3knight/StellarShield/actions/workflows/ci-cd.yml)
+
 Zcash-style shielded lending pool on Stellar. Wallet + amount stay hidden.
 Deposit into a per-asset commitment tree, borrow against 4 collateral notes
 behind a Groth16 proof of note ownership, withdraw the loan into a wallet, or

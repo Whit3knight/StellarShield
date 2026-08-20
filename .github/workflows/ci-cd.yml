@@ -1,18 +1,30 @@
-name: CI/CD
+name: CI
+
+# Quality gate only — this workflow does not deploy.
+#
+# Deployment is the Vercel GitHub App's job: it auto-deploys every branch as a
+# Preview and `main` as Production, with no tokens and nothing for a maintainer
+# to run. Merging is the deploy.
+#
+# Vercel CLI deploy jobs used to live in this file. They failed on a missing
+# VERCEL_TOKEN on every run since 2026-07-10 while the App deployed the same
+# commits successfully — a red badge over a working deploy, plus a second build
+# of the same commit. Removed rather than repaired.
 
 on:
-  pull_request:
-    branches:
-      - main
-      - staging
   push:
-    branches:
-      - main
-      - staging
+    branches: [development, staging, main]
+    paths-ignore: ["docs/**"]
+  pull_request:
+    branches: [development, staging, main]
+    paths-ignore: ["docs/**"]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -22,22 +34,30 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          # Pinned: `latest` lets a Bun release break the build with zero commits.
+          bun-version: 1.3.6
 
-      - name: Restore Bun and Next.js cache
-        uses: actions/cache@v4
+      # Two caches, two keys. The old single key hashed every .ts/.tsx/.css/.json
+      # in the repo, so it changed on every commit — the exact key never hit and
+      # each run wrote a new entry, evicting the Bun cache it was meant to keep.
+      - name: Restore Bun install cache
+        uses: actions/cache@v5
         with:
-          path: |
-            ~/.bun/install/cache
-            ${{ github.workspace }}/.next/cache
-          key: ${{ runner.os }}-bun-next-${{ hashFiles('bun.lock') }}-${{ hashFiles('**/*.ts', '**/*.tsx', '**/*.css', '**/*.json') }}
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+
+      - name: Restore Next.js build cache
+        uses: actions/cache@v5
+        with:
+          path: ${{ github.workspace }}/.next/cache
+          key: ${{ runner.os }}-next-${{ hashFiles('bun.lock') }}-${{ github.sha }}
           restore-keys: |
-            ${{ runner.os }}-bun-next-${{ hashFiles('bun.lock') }}-
+            ${{ runner.os }}-next-${{ hashFiles('bun.lock') }}-
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -54,65 +74,39 @@ jobs:
       - name: Verify circuit artifact manifest
         run: bun run check:artifacts
 
+      # NEXT_PUBLIC_* are public chain identifiers already committed in
+      # .env.example. Building without them was green over a bundle carrying no
+      # contract ID at all, because getConfiguredContractId() returns null
+      # instead of throwing (features/wallet/network.ts:81). Copying the example
+      # makes CI build what production builds.
       - name: Build
-        run: bun run build
+        run: |
+          cp .env.example .env.local
+          bun run build
 
-  deploy-preview:
-    name: Deploy Preview
-    needs: quality
-    if: github.event_name == 'push' && github.ref == 'refs/heads/staging'
-    runs-on: ubuntu-latest
-    env:
-      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      # One contract ID, five files. This repo has shipped a stale ID twice:
+      # once via a gitignored .env.local surviving a redeploy, once via README
+      # drift. Both are source-level and catchable without running anything.
+      - name: Assert one contract ID everywhere
+        run: |
+          CID=$(grep '^NEXT_PUBLIC_STELLAR_SHIELD_CONTRACT_ID=' .env.example | cut -d= -f2)
+          for f in features/protocol/bindings/borrow-pool.ts \
+                   .github/workflows/e2e-testnet.yml \
+                   goldsky/stellar-shield-events.yaml \
+                   README.md; do
+            grep -q "$CID" "$f" || {
+              echo "::error file=$f::contract id drifted from .env.example ($CID)"
+              exit 1
+            }
+          done
+          grep -qr "$CID" .next/static || {
+            echo "::error::$CID never reached the client bundle"
+            exit 1
+          }
+          echo "contract id $CID consistent across source and bundle"
 
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Pull Vercel preview environment
-        run: bunx vercel pull --yes --environment=preview --token=${{ secrets.VERCEL_TOKEN }}
-
-      - name: Build preview deployment
-        run: bunx vercel build --token=${{ secrets.VERCEL_TOKEN }}
-
-      - name: Deploy preview
-        run: bunx vercel deploy --prebuilt --token=${{ secrets.VERCEL_TOKEN }}
-
-  deploy-production:
-    name: Deploy Production
-    needs: quality
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    env:
-      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Pull Vercel production environment
-        run: bunx vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
-
-      - name: Build production deployment
-        run: bunx vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
-
-      - name: Deploy production
-        run: bunx vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
+      # Must follow Build: check-bundle.ts exits 0 when .next/build-manifest.json
+      # is missing (scripts/check-bundle.ts:49), so running it earlier would pass
+      # vacuously forever.
+      - name: Bundle guards
+        run: bun run check:bundle
