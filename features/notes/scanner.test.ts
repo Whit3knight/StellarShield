@@ -8,6 +8,7 @@ import {
   markSpentNotes,
   notesBeyondRpcRetention,
   nullifiersByTreeAndAsset,
+  spentKey,
 } from "./scanner"
 
 describe("eventOpenedAt", () => {
@@ -28,42 +29,58 @@ describe("eventOpenedAt", () => {
 
 describe("markSpentNotes", () => {
   const sk = 42n
+  const at = (index: number) => ({
+    sk,
+    index,
+    asset: "XLM" as const,
+    tree: "deposit" as const,
+  })
+  const spentAt = (index: number) =>
+    spentKey("XLM", "deposit", computeNullifier(sk, index))
 
   it("tombstones notes whose nullifiers are in the spent set", () => {
-    const notes = [
-      { sk, index: 0 },
-      { sk, index: 1 },
-      { sk, index: 2 },
-    ]
-    const spent = new Set<bigint>([computeNullifier(sk, 1)])
+    const notes = [at(0), at(1), at(2)]
+    const spent = new Set([spentAt(1)])
     const result = markSpentNotes(notes, spent)
     expect(result).toHaveLength(3)
     expect(result.map((n) => n.spent === true)).toEqual([false, true, false])
   })
 
   it("returns notes untouched when the spent set is empty", () => {
-    const notes = [
-      { sk, index: 0 },
-      { sk, index: 1 },
-    ]
+    const notes = [at(0), at(1)]
     expect(markSpentNotes(notes, new Set())).toEqual(notes)
   })
 
   it("keeps an already-spent note's reference stable", () => {
-    const note = { sk, index: 0, spent: true }
-    const result = markSpentNotes([note], new Set([computeNullifier(sk, 0)]))
+    const note = { ...at(0), spent: true }
+    const result = markSpentNotes([note], new Set([spentAt(0)]))
     expect(result[0]).toBe(note)
   })
 
   it("distinguishes nullifiers across different sk", () => {
-    const spentForFortyTwo = new Set<bigint>([computeNullifier(42n, 5)])
+    const spentForFortyTwo = new Set([
+      spentKey("XLM", "deposit", computeNullifier(42n, 5)),
+    ])
     const notes = [
-      { sk: 42n, index: 5 },
-      { sk: 99n, index: 5 },
+      { ...at(5), sk: 42n },
+      { ...at(5), sk: 99n },
     ]
     const result = markSpentNotes(notes, spentForFortyTwo)
     expect(result[0].spent).toBe(true)
     expect(result[1].spent).toBeUndefined()
+  })
+
+  it("does not match a nullifier recorded under another asset or tree", () => {
+    const nullifier = computeNullifier(sk, 0)
+    const notes = [at(0)]
+    expect(
+      markSpentNotes(notes, new Set([spentKey("USDC", "deposit", nullifier)]))[0]
+        .spent
+    ).toBeUndefined()
+    expect(
+      markSpentNotes(notes, new Set([spentKey("XLM", "loan", nullifier)]))[0]
+        .spent
+    ).toBeUndefined()
   })
 })
 
@@ -99,12 +116,22 @@ describe("carryOverNotes", () => {
       { ...base, index: 1, tree: "loan" },
     ]
     const spent = new Set([
-      computeNullifier(base.sk, 0),
-      computeNullifier(base.sk, 1),
+      spentKey("XLM", "deposit", computeNullifier(base.sk, 0)),
+      spentKey("XLM", "loan", computeNullifier(base.sk, 1)),
     ])
     const carried = carryOverNotes(previous, new Set(), spent)
     expect(carried.map((n) => n.spent)).toEqual([true, true])
     expect(carried.map((n) => n.amount)).toEqual([100n, 100n])
+  })
+
+  it("carries a note over live when only the sibling tree's spend is known", () => {
+    // Same leaf index in both trees = identical nullifier bytes. The
+    // loan-tree spend must not reach the deposit note.
+    const previous: ShieldedNote[] = [{ ...base, index: 0 }]
+    const spent = new Set([
+      spentKey("XLM", "loan", computeNullifier(base.sk, 0)),
+    ])
+    expect(carryOverNotes(previous, new Set(), spent)[0].spent).toBeUndefined()
   })
 })
 

@@ -5,11 +5,17 @@
 // bus, so notes survive fresh browsers / cleared localStorage while
 // events are still within RPC retention.
 //
-// Event layout (matches contracts/borrow-pool/src/lib.rs):
-//   ("deposit", asset)  -> (leafIndex: u64, memoBytes: Bytes)
-//
-// Later ops will add ("borrow", …) and ("repay", …) with the same
-// memo-attached shape so a single scanner covers every tree.
+// Event layout (matches contracts/borrow-pool/src/lib.rs). Topic slot 1
+// always carries the asset, and it is the ONLY thing that tells us which
+// nullifier namespace a spend belongs to:
+//   ("deposit",  asset)                          -> (index, root, leaf, memo)
+//   ("borrow",   collateralAsset, borrowAsset)   -> (index, root, leaf, memo, n0..n3)
+//   ("withdraw", asset)                          -> (nullifier, to)
+//   ("withdraw", asset, "loan")                  -> (nullifier, to, amount)
+//   ("repay",    asset)                          -> (loanNullifier, depositNullifier, from)
+//   ("liquidat", borrowAsset)                    -> (loanCommit, loanNullifier, liquidator)
+// A borrow's four nullifiers burn DEPOSIT notes in the COLLATERAL asset
+// (topic 1) while the loan note it mints lives in the borrow asset.
 
 import { deriveShieldedIdentity, tryDecryptAnyMemo } from "./memo"
 import {
@@ -18,6 +24,7 @@ import {
   computeCommitment,
   computeNullifier,
   isSpentNote,
+  type NoteTree,
   type ShieldedAsset,
   type ShieldedNote,
 } from "./note"
@@ -40,16 +47,43 @@ export function eventOpenedAt(event: {
 }
 
 /**
- * Flag notes whose nullifier appears in `spent`. Spent notes are kept
- * as tombstones (not dropped) because their commitments backfill
- * Merkle rebuilds once the enabling events roll off RPC retention.
- * Pure so it can be exercised without spinning up an rpc mock.
+ * Key for the local spent-nullifier set, mirroring the contract's
+ * storage key `(tree, asset, nullifier)`. `nullifier = Poseidon(sk,
+ * leaf_index)` has no tree or asset domain separation and leaf counters
+ * restart per (tree, asset) on chain, so XLM deposit #0 and USDC
+ * deposit #0 are the SAME bytes. Matching on the bare value lets one
+ * asset's spend tombstone another asset's live note — permanently,
+ * since `markSpentNotes` only ever sets `spent` and the store persists
+ * it.
+ */
+export function spentKey(
+  asset: ShieldedAsset,
+  tree: NoteTree,
+  nullifier: bigint
+): string {
+  return `${asset}:${tree}:${nullifier}`
+}
+
+/**
+ * Flag notes whose (asset, tree, nullifier) appears in `spent`. Spent
+ * notes are kept as tombstones (not dropped) because their commitments
+ * backfill Merkle rebuilds once the enabling events roll off RPC
+ * retention. Pure so it can be exercised without spinning up an rpc
+ * mock.
  */
 export function markSpentNotes<
-  T extends { sk: bigint; index: number; spent?: boolean }
->(notes: T[], spent: Set<bigint>): (T & { spent?: boolean })[] {
+  T extends {
+    sk: bigint
+    index: number
+    asset: ShieldedAsset
+    tree: NoteTree
+    spent?: boolean
+  }
+>(notes: T[], spent: Set<string>): (T & { spent?: boolean })[] {
   return notes.map((note) =>
-    spent.has(computeNullifier(note.sk, note.index)) && note.spent !== true
+    spent.has(
+      spentKey(note.asset, note.tree, computeNullifier(note.sk, note.index))
+    ) && note.spent !== true
       ? { ...note, spent: true }
       : note
   )
@@ -64,7 +98,7 @@ export function markSpentNotes<
 export function carryOverNotes(
   previous: ShieldedNote[],
   seen: Set<string>,
-  spentNullifiers: Set<bigint>
+  spentNullifiers: Set<string>
 ): ShieldedNote[] {
   return markSpentNotes(
     previous.filter((p) => !seen.has(`${p.asset}:${p.tree}:${p.index}`)),
@@ -123,9 +157,11 @@ export async function scanShieldedNotes(
 
   // Soroban `getEvents` treats a filter's topic array as an EXACT
   // slot-count match — `[[T]]` only matches events whose topic list
-  // has length 1. Our contract emits 2 topics for deposit / borrow /
-  // repay (`(topic, asset)`) and 3 for withdraw + liquidate
-  // (`(topic, asset, tree_kind)`). Widen to cover both.
+  // has length 1. Per the layout at the top of this file, deposit /
+  // withdraw / repay / liquidate emit 2 topics (`(topic, asset)`),
+  // while borrow emits 3 (`(topic, collateralAsset, borrowAsset)`) and
+  // withdraw's loan variant emits 3 (`(topic, asset, "loan")`). Widen
+  // to cover both slot counts.
   // Soroban RPC caps `filters` at 5 entries per request. We need 6:
   // deposit (2-slot), borrow (3-slot), withdraw (2-slot),
   // withdraw-loan (3-slot), repay (2-slot), liquidate (2-slot).
@@ -196,7 +232,7 @@ export async function scanShieldedNotes(
 
   console.log("[scanner] events fetched:", events.length)
   const notes: ShieldedNote[] = []
-  const spentNullifiers = new Set<bigint>()
+  const spentNullifiers = new Set<string>()
 
   // Trial-decrypt each memo against every identity that could have
   // minted a note for this wallet, newest scheme first:
@@ -220,31 +256,56 @@ export async function scanShieldedNotes(
   }
 
   for (const event of events) {
-    const topic = decodeTopicSymbol(sdk, event)
+    const topics = decodeTopicSymbols(sdk, event)
+    const topic = topics[0]
+    // Topic slot 1 is the asset on every event the contract emits, and
+    // it is what scopes the spend. An event whose asset topic we cannot
+    // read is skipped rather than attributed to a guess: an unscoped
+    // nullifier would tombstone the same leaf index in every asset.
+    // `hydrateSpentFromChain` still catches such a spend on the
+    // authoritative per-(tree, asset) contract read below.
+    const topicAsset = shieldedAsset(topics[1])
     if (topic === "withdraw") {
+      // ("withdraw", asset) burns a deposit note; the loan-tree variant
+      // appends a third topic, Symbol "loan".
       const nullifier = decodeWithdrawNullifier(sdk, event)
-      if (nullifier !== null) spentNullifiers.add(nullifier)
+      if (nullifier !== null && topicAsset) {
+        const tree: NoteTree = topics[2] === "loan" ? "loan" : "deposit"
+        spentNullifiers.add(spentKey(topicAsset, tree, nullifier))
+      }
       continue
     }
     if (topic === "repay") {
-      for (const n of decodeRepayNullifiers(sdk, event)) {
-        spentNullifiers.add(n)
+      // Body is (loanNullifier, depositNullifier, from): one note burned
+      // in each tree, both in the topic's asset.
+      const { loan, deposit } = decodeRepayNullifiers(sdk, event)
+      if (topicAsset) {
+        if (loan !== null) spentNullifiers.add(spentKey(topicAsset, "loan", loan))
+        if (deposit !== null) {
+          spentNullifiers.add(spentKey(topicAsset, "deposit", deposit))
+        }
       }
       continue
     }
     if (topic === "liquidat") {
+      // ("liquidat", borrowAsset) — burns the loan note in that asset.
       const nullifier = decodeLiquidateNullifier(sdk, event)
-      if (nullifier !== null) spentNullifiers.add(nullifier)
+      if (nullifier !== null && topicAsset) {
+        spentNullifiers.add(spentKey(topicAsset, "loan", nullifier))
+      }
       continue
     }
     if (topic !== "deposit" && topic !== "borrow") continue
 
     // Borrow events carry the four spent collateral nullifiers after
     // the memo — pull them out so deposit notes drop out of the local
-    // cache next time round.
+    // cache next time round. They burn DEPOSIT notes in the COLLATERAL
+    // asset (topic 1), not in the borrow asset the loan note below gets.
     if (topic === "borrow") {
-      for (const n of decodeBorrowSpentNullifiers(sdk, event)) {
-        spentNullifiers.add(n)
+      if (topicAsset) {
+        for (const n of decodeBorrowSpentNullifiers(sdk, event)) {
+          spentNullifiers.add(spentKey(topicAsset, "deposit", n))
+        }
       }
     }
 
@@ -516,7 +577,7 @@ export function nullifiersByTreeAndAsset(
  */
 async function hydrateSpentFromChain(
   notes: ShieldedNote[],
-  spentNullifiers: Set<bigint>
+  spentNullifiers: Set<string>
 ): Promise<void> {
   const contractId = getConfiguredContractId()
   if (!contractId) return
@@ -545,7 +606,10 @@ async function hydrateSpentFromChain(
       const flags = (tx.result ?? []) as boolean[]
       for (let i = 0; i < flags.length; i++) {
         if (flags[i]) {
-          spentNullifiers.add(nullifiers[i])
+          // Keep the namespace the query was scoped to — flattening it
+          // back to a bare value is what let one asset's spend mark
+          // another asset's note.
+          spentNullifiers.add(spentKey(asset, tree, nullifiers[i]))
           flagged++
         }
       }
@@ -635,26 +699,26 @@ function decodeLiquidateNullifier(
   return rawToBigInt(native[1])
 }
 
+/**
+ * Repay body is `(loan_nullifier, deposit_nullifier, from)`. Returned
+ * positionally, not as a list: the two burn notes in DIFFERENT trees, so
+ * losing which slot a value came from loses its namespace.
+ */
 function decodeRepayNullifiers(
   sdk: typeof import("@stellar/stellar-sdk"),
   event: RpcEvent
-): bigint[] {
+): { loan: bigint | null; deposit: bigint | null } {
+  const none = { loan: null, deposit: null }
   const value = toScVal(sdk, event.value)
-  if (!value) return []
+  if (!value) return none
   let native: unknown
   try {
     native = sdk.scValToNative(value)
   } catch {
-    return []
+    return none
   }
-  if (!Array.isArray(native) || native.length < 2) return []
-  const out: bigint[] = []
-  for (let i = 0; i < 2; i++) {
-    const raw = native[i]
-    const n = rawToBigInt(raw)
-    if (n !== null) out.push(n)
-  }
-  return out
+  if (!Array.isArray(native) || native.length < 2) return none
+  return { loan: rawToBigInt(native[0]), deposit: rawToBigInt(native[1]) }
 }
 
 function rawToBigInt(raw: unknown): bigint | null {
@@ -674,23 +738,36 @@ function uintToBigint(bytes: Uint8Array): bigint {
   return value
 }
 
-function decodeTopicSymbol(
+/**
+ * Every topic slot decoded as a Symbol string, positionally (`null`
+ * where a slot is absent or not a symbol). Slot 0 is the event name and
+ * slot 1 the asset that scopes its nullifiers, so the scanner needs the
+ * whole list, not just the head.
+ */
+function decodeTopicSymbols(
   sdk: typeof import("@stellar/stellar-sdk"),
   event: RpcEvent
-): string | null {
+): (string | null)[] {
   const list =
     (Array.isArray(event.topic) && event.topic) ||
     (Array.isArray(event.topics) && event.topics) ||
     []
-  if (list.length === 0) return null
-  const first = toScVal(sdk, list[0])
-  if (!first) return null
-  try {
-    const native = sdk.scValToNative(first)
-    return typeof native === "string" ? native : null
-  } catch {
-    return null
-  }
+  return list.map((slot) => {
+    const val = toScVal(sdk, slot)
+    if (!val) return null
+    try {
+      const native = sdk.scValToNative(val)
+      return typeof native === "string" ? native : null
+    } catch {
+      return null
+    }
+  })
+}
+
+function shieldedAsset(value: string | null | undefined): ShieldedAsset | null {
+  return value && (SUPPORTED_ASSETS as readonly string[]).includes(value)
+    ? (value as ShieldedAsset)
+    : null
 }
 
 function decodeIndexedEvent(
