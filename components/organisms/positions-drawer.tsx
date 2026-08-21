@@ -5,6 +5,7 @@ import * as React from "react"
 
 import { PrivateValue } from "@/components/atoms/private-value"
 import { PositionCard } from "@/components/molecules/position-card"
+import { loanHealth } from "@/components/organisms/loan-health"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -214,15 +215,14 @@ function AssetGroupCard({
 }): React.ReactElement {
   const underwaterCount = group.loans.reduce((count, loan) => {
     if (!loan.bond) return count
-    return isUnderwater({
+    const health = loanHealth({
       bond: loan.bond,
       loanAmount: loan.amount,
       loanAsset: loan.asset,
       prices,
       thresholdBps: liquidationThresholdBps,
     })
-      ? count + 1
-      : count
+    return health?.atRisk ? count + 1 : count
   }, 0)
   const latestOpenedAt = group.loans.reduce(
     (max, loan) => Math.max(max, loan.openedAt ?? 0),
@@ -328,16 +328,23 @@ function NoteList({
             busyLiquidateIndex !== null
           const repaySource =
             note.tree === "loan" ? pickRepaySource(notes, note) : null
+          // ponytail: this only claims the position is liquidatable by
+          // the protocol's own LTV band. The liquidate prover's guard
+          // (`liquidate-prover.ts`) is still 1e14-off and compares the
+          // threshold the other way round, so pressing Liquidate
+          // surfaces "not underwater at current price" until the v3
+          // circuit with an explicit divisor lands. Fails closed.
           const liquidatable =
             note.tree === "loan" &&
             !!note.bond &&
-            isUnderwater({
+            (loanHealth({
               bond: note.bond,
               loanAmount: note.amount,
               loanAsset: note.asset,
               prices,
               thresholdBps: liquidationThresholdBps,
-            })
+            })?.atRisk ??
+              false)
           return (
             <div
               className="flex flex-col gap-1 rounded-md border bg-background/64 px-2 py-1.5 text-xs sm:flex-row sm:items-center sm:justify-between"
@@ -440,30 +447,6 @@ function pickRepaySource(
   return best
 }
 
-function isUnderwater({
-  bond,
-  loanAmount,
-  loanAsset,
-  prices,
-  thresholdBps,
-}: {
-  bond: NonNullable<ShieldedNote["bond"]>
-  loanAmount: bigint
-  loanAsset: ShieldedAsset
-  prices: Record<ShieldedAsset, number>
-  thresholdBps: number
-}): boolean {
-  const priceAsset = bond.collateralAsset ?? loanAsset
-  const priceNow = prices[priceAsset]
-  if (!priceNow || priceNow <= 0) return false
-  const currentScaled = BigInt(Math.floor(priceNow * 1_000_000))
-  const borrowScaled = bond.borrowPrice
-  if (borrowScaled <= 0n || loanAmount <= 0n) return false
-  const lhs = loanAmount * BigInt(thresholdBps) * borrowScaled
-  const rhs = bond.collateralValue * currentScaled * 10_000n
-  return lhs > rhs
-}
-
 function LoanHealthBadge({
   bond,
   loanAmount,
@@ -477,24 +460,20 @@ function LoanHealthBadge({
   prices: Record<ShieldedAsset, number>
   thresholdBps: number
 }): React.ReactElement | null {
-  const priceAsset = bond.collateralAsset ?? loanAsset
-  const priceNow = prices[priceAsset]
-  if (!priceNow || priceNow <= 0) return null
-  const currentScaled = BigInt(Math.floor(priceNow * 1_000_000))
-  const borrowScaled = bond.borrowPrice
-  if (borrowScaled <= 0n || loanAmount <= 0n) return null
-
-  const numerator = bond.collateralValue * currentScaled * 100n
-  const denominator = borrowScaled * loanAmount
-  if (denominator <= 0n) return null
-  const hfPercent = Number(numerator / denominator)
-  const liquidatable = hfPercent * thresholdBps < 10_000 * 100
+  const health = loanHealth({
+    bond,
+    loanAmount,
+    loanAsset,
+    prices,
+    thresholdBps,
+  })
+  if (!health) return null
 
   let variant: "outline" | "warning" | "destructive" = "outline"
-  if (liquidatable) variant = "destructive"
-  else if (hfPercent < 150) variant = "warning"
+  if (health.atRisk) variant = "destructive"
+  else if (health.hfPercent < 150) variant = "warning"
 
-  return <Badge variant={variant}>HF {hfPercent}%</Badge>
+  return <Badge variant={variant}>HF {health.hfPercent}%</Badge>
 }
 
 function LoanAgeBadge({ openedAt }: { openedAt: number }): React.ReactElement {
