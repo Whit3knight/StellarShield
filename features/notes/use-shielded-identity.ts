@@ -77,6 +77,21 @@ export async function legacyIdentityFromAddress(
   return identityFromSeed(seed)
 }
 
+/**
+ * Erase the cached seed for `account`. Non-destructive: the signed
+ * message carries no nonce or timestamp and Ed25519 signatures are
+ * deterministic (RFC 8032), so re-signing with the same wallet
+ * regenerates a byte-identical seed.
+ *
+ * ponytail: clears the named account only. A wallet connected earlier
+ * in this browser profile keeps its seed — sweep the
+ * `stellar-shield:identity:v2:` prefix if multi-account matters.
+ */
+export function forgetShieldedIdentity(account: string): void {
+  if (typeof window === "undefined") return
+  window.localStorage.removeItem(cacheKey(account))
+}
+
 function identityFromSeed(seed: Uint8Array): ScanIdentity {
   const { publicKey, secretKey } = deriveShieldedIdentity(seed)
   return { publicKey, secretKey, skField: bytesToBigInt(secretKey) }

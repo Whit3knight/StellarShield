@@ -12,6 +12,8 @@ import {
   onBorrowConfirmed,
   onRepayConfirmed,
 } from "@/features/borrow-flow/borrow-events"
+import { resetNotes } from "@/features/notes/note-store"
+import { forgetShieldedIdentity } from "@/features/notes/use-shielded-identity"
 
 import {
   cancelWalletConnectConnection,
@@ -32,6 +34,7 @@ type WalletConnectionState = {
   cancelPendingConnection: () => void
   connect: (provider: WalletProvider) => Promise<boolean>
   disconnect: () => void
+  disconnectAndForget: () => void
   error: string | null
   pendingProviderId: WalletProviderId | null
 }
@@ -171,11 +174,24 @@ export function useWalletConnection(): WalletConnectionState {
     setStoredAccount(null)
   }, [])
 
+  // Plain `disconnect` only forgets the address. The shielded identity
+  // seed IS the note spending key, and `withdraw_shielded` does not bind
+  // the recipient into the proof, so anyone who reads that seed off a
+  // shared machine can drain the notes without the wallet key. This is
+  // the "I am done on this device" exit: seed and note cache go too.
+  const disconnectAndForget = React.useCallback(() => {
+    const address = readStoredAccount()?.wallet.address
+    if (address) forgetShieldedIdentity(address)
+    resetNotes()
+    disconnect()
+  }, [disconnect])
+
   return {
     account,
     cancelPendingConnection,
     connect,
     disconnect,
+    disconnectAndForget,
     error,
     pendingProviderId,
   }

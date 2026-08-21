@@ -111,7 +111,17 @@ export function subscribeNotes(listener: () => void): () => void {
   }
 }
 
+/**
+ * Drop the in-memory cache and the localStorage slot it mirrors. Lossy:
+ * a note's `salt` lives only here and inside its on-chain encrypted
+ * memo, so recovery needs the enabling events to still be reachable.
+ * The next `configureNotePersistence` rehydrates from an empty slot.
+ */
 export function resetNotes(): void {
+  if (storageKey !== null && typeof window !== "undefined") {
+    window.localStorage.removeItem(storageKey)
+  }
+  storageKey = null
   cache = []
   for (const listener of listeners) listener()
 }
