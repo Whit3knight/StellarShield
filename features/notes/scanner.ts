@@ -166,10 +166,24 @@ export async function scanShieldedNotes(
   ]
 
   let events: RpcEvent[]
+  let indexerDown: string | null = null
+  const onIndexerDown = (reason: string) => {
+    indexerDown ??= reason
+  }
   try {
     const [eventsA, eventsB] = await Promise.all([
-      fetchAllContractEvents({ server, filters: filtersA, signal }),
-      fetchAllContractEvents({ server, filters: filtersB, signal }),
+      fetchAllContractEvents({
+        server,
+        filters: filtersA,
+        signal,
+        onIndexerDown,
+      }),
+      fetchAllContractEvents({
+        server,
+        filters: filtersB,
+        signal,
+        onIndexerDown,
+      }),
     ])
     console.log("[scanner] fetch A=", eventsA.length, "B=", eventsB.length)
     events = [...eventsA, ...eventsB]
@@ -382,7 +396,80 @@ export async function scanShieldedNotes(
     })
   )
   replaceNotes(merged)
+  // Fire-and-forget: a warning must never delay or fail the scan.
+  if (indexerDown) {
+    void warnRpcOnlyScan(merged, indexerDown).catch((cause) =>
+      console.warn("[scanner] could not raise RPC-only warning", cause)
+    )
+  }
   return merged
+}
+
+/**
+ * Soroban RPC retains events ~7 days. Past that the indexer is the only
+ * source that can re-derive a note's opening, so a note older than this
+ * is one an RPC-only scan can no longer rebuild.
+ */
+const RPC_RETENTION_SECONDS = 7 * 24 * 60 * 60
+
+/**
+ * Live notes whose mint event has aged out of the RPC window — exactly
+ * the ones this scan could not have rebuilt from RPC alone. Spent
+ * tombstones are excluded (nobody's funds ride on them) and so are
+ * notes with an unknown `openedAt`: counting those would fire the
+ * warning on scans where nothing is actually at risk, and a warning
+ * the user learns to ignore is worse than none.
+ */
+export function notesBeyondRpcRetention(
+  notes: ShieldedNote[],
+  nowSeconds = Math.floor(Date.now() / 1000)
+): ShieldedNote[] {
+  const cutoff = nowSeconds - RPC_RETENTION_SECONDS
+  return notes.filter(
+    (note) =>
+      !isSpentNote(note) && note.openedAt !== undefined && note.openedAt < cutoff
+  )
+}
+
+// ponytail: once per page load, not per scan — the scanner re-runs on
+// every confirmation and a repeated modal-level warning is how users
+// learn to dismiss it unread. Upgrade path if this ever needs to
+// re-arm: reset on wallet change.
+let warnedRpcOnlyScan = false
+
+/**
+ * The dangerous combination: this scan ran without the indexer AND the
+ * user holds notes older than RPC retention. Either alone is fine —
+ * RPC-only is the documented fallback, and old notes are safe while the
+ * indexer answers — so only the intersection is worth a toast.
+ */
+async function warnRpcOnlyScan(
+  notes: ShieldedNote[],
+  reason: string
+): Promise<void> {
+  const beyond = notesBeyondRpcRetention(notes)
+  console.warn("[scanner] indexer down — RPC-only scan", {
+    reason,
+    notesBeyondRetention: beyond.length,
+  })
+  // The scanner is importable from node scripts (features/notes/index.ts);
+  // there is no toast host there.
+  if (beyond.length === 0 || warnedRpcOnlyScan || typeof window === "undefined") {
+    return
+  }
+  warnedRpcOnlyScan = true
+  const { toastManager } = await import("@/components/ui/toast")
+  toastManager.add({
+    title: "Scanned without the event indexer",
+    description:
+      `${beyond.length} of your notes ${beyond.length === 1 ? "is" : "are"} ` +
+      `older than the ~7-day RPC event window, so this scan could not ` +
+      `re-derive ${beyond.length === 1 ? "it" : "them"} from chain events — ` +
+      `only from this browser's stored notes. They stay spendable here, but ` +
+      `clearing this browser's storage before the indexer is back would ` +
+      `strand them.`,
+    type: "warning",
+  })
 }
 
 /**

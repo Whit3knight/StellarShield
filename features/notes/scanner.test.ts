@@ -6,6 +6,7 @@ import {
   dedupeNotes,
   eventOpenedAt,
   markSpentNotes,
+  notesBeyondRpcRetention,
   nullifiersByTreeAndAsset,
 } from "./scanner"
 
@@ -104,6 +105,33 @@ describe("carryOverNotes", () => {
     const carried = carryOverNotes(previous, new Set(), spent)
     expect(carried.map((n) => n.spent)).toEqual([true, true])
     expect(carried.map((n) => n.amount)).toEqual([100n, 100n])
+  })
+})
+
+describe("notesBeyondRpcRetention", () => {
+  const now = 10_000_000
+  const week = 7 * 24 * 60 * 60
+  const base = {
+    amount: 100n,
+    asset: "XLM" as const,
+    salt: 1n,
+    sk: 42n,
+    tree: "deposit" as const,
+  }
+
+  it("flags only live notes minted before the retention cutoff", () => {
+    const notes: ShieldedNote[] = [
+      { ...base, index: 0, openedAt: now - week - 1 },
+      { ...base, index: 1, openedAt: now - week + 60 },
+      { ...base, index: 2, openedAt: now - week - 1, spent: true },
+      { ...base, index: 3 },
+    ]
+    expect(notesBeyondRpcRetention(notes, now).map((n) => n.index)).toEqual([0])
+  })
+
+  it("returns nothing when every note is inside the window", () => {
+    const notes: ShieldedNote[] = [{ ...base, index: 0, openedAt: now - 60 }]
+    expect(notesBeyondRpcRetention(notes, now)).toEqual([])
   })
 })
 

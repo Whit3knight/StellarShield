@@ -106,7 +106,11 @@ describe("fetchAllContractEvents merge", () => {
   const stubIndexer = (body: unknown, status = 200) => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => ({ status, json: async () => body }))
+      vi.fn(async () => ({
+        status,
+        json: async () => body,
+        text: async () => JSON.stringify(body),
+      }))
     )
   }
 
@@ -139,6 +143,51 @@ describe("fetchAllContractEvents merge", () => {
       filters,
     })
     expect(events).toEqual(rpcEvents)
+  })
+
+  it("reports the indexer failure while still serving RPC events", async () => {
+    stubIndexer({ error: "indexer not configured" }, 503)
+    const onIndexerDown = vi.fn()
+    const rpcEvents = [{ id: "0000000002-0", topics: ["dep", "XLM"] }]
+    const events = await fetchAllContractEvents({
+      server: makeServer(rpcEvents),
+      filters,
+      onIndexerDown,
+    })
+    expect(events).toEqual(rpcEvents)
+    expect(onIndexerDown).toHaveBeenCalledTimes(1)
+    // The route's two 503 bodies stay distinguishable in the reason.
+    expect(onIndexerDown.mock.calls[0][0]).toContain("503")
+    expect(onIndexerDown.mock.calls[0][0]).toContain("indexer not configured")
+  })
+
+  it("stays quiet when the indexer answers with no matching events", async () => {
+    stubIndexer([{ id: "0000000003-0", topics: ["borrow", "XLM", "USDC"] }])
+    const onIndexerDown = vi.fn()
+    const rpcEvents = [{ id: "0000000002-0", topics: ["dep", "XLM"] }]
+    const events = await fetchAllContractEvents({
+      server: makeServer(rpcEvents),
+      filters,
+      onIndexerDown,
+    })
+    expect(events).toEqual(rpcEvents)
+    expect(onIndexerDown).not.toHaveBeenCalled()
+  })
+
+  it("reports a network-level indexer failure too", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("Failed to fetch")
+      })
+    )
+    const onIndexerDown = vi.fn()
+    await fetchAllContractEvents({
+      server: makeServer([]),
+      filters,
+      onIndexerDown,
+    })
+    expect(onIndexerDown).toHaveBeenCalledWith("Failed to fetch")
   })
 
   it("returns indexer-only when RPC fails but the indexer has events", async () => {

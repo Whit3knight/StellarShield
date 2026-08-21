@@ -7,7 +7,9 @@
 // EVENTS_API_URL elsewhere), its events are merged in — filtered
 // client-side through the caller's EventFilter semantics, deduped by
 // event id against the RPC page — so scans outlive RPC retention.
-// No indexer configured → exactly the RPC-only behavior.
+// No indexer configured → exactly the RPC-only behavior, but the
+// degradation is announced (console.warn + the onIndexerDown hook)
+// instead of looking like an indexer with nothing to say.
 
 import type { rpc } from "@stellar/stellar-sdk"
 
@@ -25,8 +27,16 @@ export async function fetchAllContractEvents(params: {
   server: rpc.Server
   filters: rpc.Api.EventFilter[]
   signal?: AbortSignal
+  /**
+   * Called with a human-readable reason when the indexer contributed
+   * nothing because it is unreachable or unconfigured — NOT when it
+   * simply held no matching events. The scan still succeeds on RPC
+   * alone; the caller decides whether a window narrowed to RPC
+   * retention is worth telling the user about.
+   */
+  onIndexerDown?: (reason: string) => void
 }): Promise<RpcEvent[]> {
-  const { server, filters, signal } = params
+  const { server, filters, signal, onIndexerDown } = params
   const throwIfAborted = () => {
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
   }
@@ -37,16 +47,30 @@ export async function fetchAllContractEvents(params: {
     fetchRpcEvents(server, filters, signal),
     contractId
       ? fetchIndexerEvents(contractId, signal)
-      : Promise.resolve<RpcEvent[]>([]),
+      : Promise.resolve<IndexerResult>({
+          events: [],
+          down: "no contractId in filters",
+        }),
   ])
   throwIfAborted()
 
-  const indexerEvents =
+  const indexer: IndexerResult =
     indexerResult.status === "fulfilled"
-      ? indexerResult.value.filter((event) =>
-          matchesEventFilters(event, filters)
-        )
-      : []
+      ? indexerResult.value
+      : { events: [], down: String(indexerResult.reason) }
+  if (indexer.down) {
+    // The floor: never let the backstop disappear in silence. RPC keeps
+    // events ~7 days, so an RPC-only scan cannot rebuild anything older.
+    console.warn(
+      "[rpc-events] indexer unavailable — scan limited to the RPC " +
+        "retention window (~7d):",
+      indexer.down
+    )
+    onIndexerDown?.(indexer.down)
+  }
+  const indexerEvents = indexer.events.filter((event) =>
+    matchesEventFilters(event, filters)
+  )
 
   if (rpcResult.status === "rejected") {
     if (indexerEvents.length === 0) throw rpcResult.reason
@@ -102,30 +126,58 @@ export function cursorLedger(cursor: string): number {
   return Number(BigInt(cursor.split("-")[0]) >> 32n)
 }
 
+/** Empty `events` with no `down` means the indexer answered, with nothing. */
+export type IndexerResult = { events: RpcEvent[]; down?: string }
+
 /**
  * Indexed events for `contractId` from the Goldsky→Neon route. Never
  * throws — any failure (no config, non-200, network, abort) collapses
- * to [] so the RPC path keeps today's behavior on its own.
+ * to an empty list so the RPC path keeps today's behavior on its own,
+ * but the failure is now named in `down` instead of masquerading as
+ * "the indexer had nothing".
  */
 export async function fetchIndexerEvents(
   contractId: string,
   signal?: AbortSignal
-): Promise<RpcEvent[]> {
+): Promise<IndexerResult> {
   try {
     const base =
       typeof window === "undefined"
         ? process.env.EVENTS_API_URL
         : "/api/events"
-    if (!base) return []
+    if (!base) return { events: [], down: "EVENTS_API_URL not set" }
     const response = await fetch(
       `${base}?contract=${encodeURIComponent(contractId)}`,
       { signal }
     )
-    if (response.status !== 200) return []
+    if (response.status !== 200) {
+      // app/api/events already separates the two 503s in its body —
+      // "indexer not configured" (operator forgot DATABASE_URL) vs
+      // "indexer unavailable" (the query failed). Quoting the body
+      // carries that distinction to the console without inventing a
+      // second status code the client would only re-flatten.
+      return {
+        events: [],
+        down: `HTTP ${response.status}${await errorDetail(response)}`,
+      }
+    }
     const body: unknown = await response.json()
-    return Array.isArray(body) ? (body as RpcEvent[]) : []
+    if (!Array.isArray(body)) return { events: [], down: "non-array body" }
+    return { events: body as RpcEvent[] }
+  } catch (cause) {
+    return {
+      events: [],
+      down: cause instanceof Error ? cause.message : String(cause),
+    }
+  }
+}
+
+async function errorDetail(response: Response): Promise<string> {
+  try {
+    const text = await response.text()
+    return text ? ` ${text.slice(0, 120)}` : ""
   } catch {
-    return []
+    return ""
   }
 }
 
