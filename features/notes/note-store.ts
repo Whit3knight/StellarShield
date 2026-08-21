@@ -14,6 +14,8 @@
 import { isSpentNote, type ShieldedNote } from "./note"
 import { deserializeNote, serializeNote, type SerializedNote } from "./note-serde"
 
+const KEY_PREFIX = "stellar-shield:notes:v1:"
+
 let cache: ShieldedNote[] = []
 const listeners = new Set<() => void>()
 let storageKey: string | null = null
@@ -29,7 +31,7 @@ export function configureNotePersistence(
   account: string
 ): void {
   if (typeof window === "undefined") return
-  const key = `stellar-shield:notes:v1:${contractId}:${account}`
+  const key = `${KEY_PREFIX}${contractId}:${account}`
   if (key === storageKey) return
   storageKey = key
   cache = readPersisted(key)
@@ -90,7 +92,9 @@ export function replaceNotes(next: ShieldedNote[]): void {
 export function upsertNote(note: ShieldedNote): void {
   const existingIndex = cache.findIndex(
     (candidate) =>
-      candidate.tree === note.tree && candidate.index === note.index
+      candidate.tree === note.tree &&
+      candidate.index === note.index &&
+      candidate.asset === note.asset
   )
   if (existingIndex >= 0) {
     if (notesEqual(cache[existingIndex], note)) return
@@ -112,14 +116,29 @@ export function subscribeNotes(listener: () => void): () => void {
 }
 
 /**
- * Drop the in-memory cache and the localStorage slot it mirrors. Lossy:
+ * Drop the in-memory cache and the localStorage slots it mirrors. Lossy:
  * a note's `salt` lives only here and inside its on-chain encrypted
  * memo, so recovery needs the enabling events to still be reachable.
  * The next `configureNotePersistence` rehydrates from an empty slot.
+ *
+ * Pass `account` to also sweep rows this session never pointed at: keys
+ * are per-(contract, account), so redeployed contracts leave orphaned
+ * rows behind and every row holds `sk` — the note spending key.
+ *
+ * ponytail: sweeps the named account only, like
+ * `forgetShieldedIdentity`. Another wallet used in this browser profile
+ * keeps its rows — drop the `endsWith` filter if a full wipe matters.
  */
-export function resetNotes(): void {
-  if (storageKey !== null && typeof window !== "undefined") {
-    window.localStorage.removeItem(storageKey)
+export function resetNotes(account?: string): void {
+  if (typeof window !== "undefined") {
+    if (storageKey !== null) window.localStorage.removeItem(storageKey)
+    if (account) {
+      for (const key of Object.keys(window.localStorage)) {
+        if (key.startsWith(KEY_PREFIX) && key.endsWith(`:${account}`)) {
+          window.localStorage.removeItem(key)
+        }
+      }
+    }
   }
   storageKey = null
   cache = []

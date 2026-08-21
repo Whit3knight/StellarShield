@@ -182,7 +182,7 @@ export function useWalletConnection(): WalletConnectionState {
   const disconnectAndForget = React.useCallback(() => {
     const address = readStoredAccount()?.wallet.address
     if (address) forgetShieldedIdentity(address)
-    resetNotes()
+    resetNotes(address)
     disconnect()
   }, [disconnect])
 
