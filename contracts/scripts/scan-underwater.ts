@@ -330,6 +330,9 @@ async function triggerAll(
     // old code fetched the LOAN asset's USD price to compare against a
     // collateral-denominated bond, which was fail-open — every
     // position looked underwater.
+    //
+    // v3 also has to fix the threshold_bps convention — see the
+    // ponytail: note in components/organisms/loan-health.ts.
     const priceNow = await fetchPriceRatio(collateralAsset, borrowAsset).catch(
       () => null
     )
