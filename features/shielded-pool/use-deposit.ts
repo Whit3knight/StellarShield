@@ -34,14 +34,6 @@ type UseDepositResult = {
     note: ShieldedNote
     txHash: string
   } | null>
-  depositBatch: (
-    asset: ShieldedAsset,
-    count: number
-  ) => Promise<{
-    notes: ShieldedNote[]
-    txHash: string
-    indexes: number[]
-  } | null>
   /**
    * Quad-deposit path: one Groth16 proof for four notes, one on-chain
    * verify, one Freighter signature. Falls back to the legacy singleton
@@ -208,152 +200,6 @@ export function useDeposit(
         const { title, description, rejected } = describeError(
           cause,
           "Deposit failed"
-        )
-        setStatus("failed")
-        setMessage(description)
-        toastManager.add({
-          title,
-          description,
-          type: rejected ? "info" : "error",
-          timeout: 8_000,
-        })
-        return null
-      }
-    },
-    [account, identity]
-  )
-
-  const depositBatch = React.useCallback(
-    async (asset: ShieldedAsset, count: number) => {
-      if (!account || !identity) {
-        setStatus("failed")
-        setMessage("Connect a wallet first.")
-        return null
-      }
-      if (count <= 0) return { notes: [], txHash: "", indexes: [] }
-
-      const contractId = getConfiguredContractId()
-      if (!contractId) {
-        setStatus("failed")
-        setMessage("Contract not configured.")
-        return null
-      }
-
-      const toast = createToastTracker()
-      toast.set(
-        toastManager.add({
-          title: `Generating ${count} deposit proofs`,
-          description: "Poseidon witness + Groth16 per note…",
-          type: "loading",
-        })
-      )
-      setStatus("proving")
-      setMessage(null)
-
-      try {
-        const prepared = []
-        for (let i = 0; i < count; i++) {
-          prepared.push(
-            await prepareDeposit({ account, asset, identity })
-          )
-        }
-
-        toast.set(
-          toastManager.add({
-            title: "Sign in wallet",
-            description: `Approve deposit_shielded_batch for ${count} notes.`,
-            type: "loading",
-          })
-        )
-        setStatus("signing")
-
-        const bindings = await import("@/features/protocol/bindings/borrow-pool")
-        const client = new bindings.Client({
-          contractId,
-          networkPassphrase: getConfiguredNetworkPassphrase(),
-          rpcUrl: getConfiguredSorobanRpcUrl(),
-          publicKey: account,
-        })
-
-        const proofsArr = prepared.map((p) => ({
-          a: Buffer.from(p.proof.a),
-          b: Buffer.from(p.proof.b),
-          c: Buffer.from(p.proof.c),
-          oracle_epoch: BigInt(0),
-          public_signals: p.proof.publicSignals.map(bigintFromBytes),
-        }))
-        const memosArr = prepared.map((p) => Buffer.from(p.memo))
-
-        const assembled = await client.deposit_shielded_batch({
-          from: account,
-          asset,
-          proofs: proofsArr,
-          memos: memosArr,
-        })
-
-        const { signTransaction: freighter } = await import(
-          "@stellar/freighter-api"
-        )
-        const sent = await assembled.signAndSend({
-          signTransaction: (async (
-            xdrToSign: string,
-            opts?: { address?: string; networkPassphrase?: string }
-          ) => {
-            return freighter(xdrToSign, {
-              address: opts?.address ?? account,
-              networkPassphrase:
-                opts?.networkPassphrase ?? getConfiguredNetworkPassphrase(),
-            })
-          }) as unknown as Parameters<
-            typeof assembled.signAndSend
-          >[0] extends undefined
-            ? never
-            : NonNullable<
-                Parameters<typeof assembled.signAndSend>[0]
-              >["signTransaction"],
-        })
-
-        toast.close()
-
-        const hash = sent.sendTransactionResponse?.hash ?? ""
-        const indexResult = sent.result as unknown as
-          | { value: unknown[] }
-          | { error: { message: string } }
-        if (indexResult && "error" in indexResult) {
-          throw new Error(indexResult.error.message)
-        }
-        const rawIndexes =
-          "value" in indexResult ? (indexResult.value as unknown[]) : []
-        const indexes = rawIndexes.map((v) => Number(v as bigint))
-
-        const notesOut: ShieldedNote[] = prepared.map((p, i) => {
-          const stored: ShieldedNote = {
-            ...p.note,
-            index: indexes[i] ?? p.note.index,
-          }
-          upsertNote(stored)
-          return stored
-        })
-        emitDepositConfirmed(hash)
-
-        setStatus("success")
-        setMessage(hash)
-        toastManager.add({
-          title: `Shielded deposit batch confirmed`,
-          description: `${notesOut.length} notes minted.`,
-          type: "success",
-          timeout: 6_000,
-          actionProps: {
-            children: "View Transaction",
-            onClick: () => window.open(getStellarExpertTxUrl(hash), "_blank"),
-          },
-        })
-        return { notes: notesOut, txHash: hash, indexes }
-      } catch (cause) {
-        toast.close()
-        const { title, description, rejected } = describeError(
-          cause,
-          "Deposit batch failed"
         )
         setStatus("failed")
         setMessage(description)
@@ -575,7 +421,7 @@ export function useDeposit(
     [account, identity]
   )
 
-  return { deposit, depositBatch, depositQuad, message, reset, status }
+  return { deposit, depositQuad, message, reset, status }
 }
 
 function bytesToBigIntBE(bytes: Uint8Array): bigint {
