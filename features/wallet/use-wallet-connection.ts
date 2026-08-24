@@ -22,6 +22,7 @@ import {
   WalletConnectionCanceledError,
   WalletConnectionError,
 } from "./connectors"
+import { getConfiguredNetworkPassphrase } from "./network"
 import { isStellarAddress } from "./utils"
 
 const walletConnectionChangeEvent = "stellar-shield:wallet-connection-change"
@@ -126,6 +127,59 @@ export function useWalletConnection(): WalletConnectionState {
       offRepay()
     }
   }, [accountKey])
+
+  // The app trusts a cached localStorage address forever (readStoredAccount
+  // has no liveness check), so locking Freighter, switching its active
+  // account, or switching its network is otherwise invisible — the UI
+  // keeps showing a "connected" address the extension will no longer sign
+  // for. Freighter's own `WatchWalletChanges` polls the SAME underlying
+  // call as `getAddress()` (verified: both resolve via REQUEST_PUBLIC_KEY),
+  // so a lock is exactly what we tested by hand — address goes to "".
+  //
+  // Only `disconnect()`, never `disconnectAndForget()`: a lock is
+  // transient. The identity seed and note cache must survive it so
+  // reconnecting after unlock is instant, with no re-signing.
+  React.useEffect(() => {
+    if (!account || account.wallet.providerId !== "freighter") {
+      return
+    }
+
+    let cancelled = false
+    const address = account.wallet.address
+    const watcherRef: { current: { stop: () => void } | null } = {
+      current: null,
+    }
+
+    void (async () => {
+      const { WatchWalletChanges } = await import("@stellar/freighter-api")
+      if (cancelled) return
+
+      const watcher = new WatchWalletChanges()
+      watcherRef.current = watcher
+      watcher.watch(async ({ address: liveAddress, networkPassphrase }) => {
+        if (cancelled) return
+        if (liveAddress === address && networkPassphrase === getConfiguredNetworkPassphrase()) {
+          return
+        }
+
+        const reason = !liveAddress
+          ? "Freighter locked — reconnect to continue."
+          : liveAddress !== address
+            ? "Freighter switched accounts — reconnect to use the new one."
+            : "Freighter switched network — reconnect on Testnet."
+
+        setError(null)
+        setStoredAccount(null)
+        const { toastManager } = await import("@/components/ui/toast")
+        toastManager.add({ title: "Wallet disconnected", description: reason, type: "info" })
+      })
+    })()
+
+    return () => {
+      cancelled = true
+      watcherRef.current?.stop()
+    }
+  }, [account])
 
   const connect = React.useCallback(async (provider: WalletProvider) => {
     const attemptId = connectionAttemptRef.current + 1

@@ -10,7 +10,46 @@ import {
   refreshConnectedAccountBalances,
   WalletConnectionCanceledError,
 } from "./connectors"
+import { getConfiguredNetworkPassphrase } from "./network"
 import { useWalletConnection } from "./use-wallet-connection"
+
+type WatchCallback = (params: {
+  address: string
+  network: string
+  networkPassphrase: string
+}) => void
+
+class FakeWatcher {
+  static instances: FakeWatcher[] = []
+  private cb: WatchCallback | null = null
+  stopped = false
+
+  watch(cb: WatchCallback): Record<string, never> {
+    this.cb = cb
+    FakeWatcher.instances.push(this)
+    return {}
+  }
+
+  stop(): void {
+    this.stopped = true
+  }
+
+  emit(params: {
+    address: string
+    network: string
+    networkPassphrase: string
+  }): void {
+    this.cb?.(params)
+  }
+}
+
+vi.mock("@stellar/freighter-api", () => ({
+  WatchWalletChanges: FakeWatcher,
+}))
+
+vi.mock("@/components/ui/toast", () => ({
+  toastManager: { add: vi.fn() },
+}))
 
 vi.mock("./connectors", () => {
   class WalletConnectionError extends Error {
@@ -59,6 +98,7 @@ describe("useWalletConnection", () => {
   beforeEach(() => {
     window.localStorage.clear()
     vi.clearAllMocks()
+    FakeWatcher.instances = []
     vi.mocked(refreshConnectedAccountBalances).mockResolvedValue(
       connectedAccount
     )
@@ -169,5 +209,105 @@ describe("useWalletConnection", () => {
     expect(connected).toBe(false)
     expect(result.current.error).toBeNull()
     expect(result.current.pendingProviderId).toBeNull()
+  })
+
+  describe("live wallet watcher", () => {
+    async function renderConnected() {
+      window.localStorage.setItem(
+        appPreferenceKeys.connectedWallet,
+        JSON.stringify(connectedAccount)
+      )
+      const hook = renderHook(() => useWalletConnection())
+      await waitFor(() => expect(FakeWatcher.instances).toHaveLength(1))
+      return { hook, watcher: FakeWatcher.instances[0] }
+    }
+
+    it("disconnects when Freighter reports the address locked away", async () => {
+      const { hook, watcher } = await renderConnected()
+
+      await act(async () => {
+        watcher.emit({
+          address: "",
+          network: "TESTNET",
+          networkPassphrase: getConfiguredNetworkPassphrase(),
+        })
+      })
+
+      expect(hook.result.current.account).toBeNull()
+      expect(
+        window.localStorage.getItem(appPreferenceKeys.connectedWallet)
+      ).toBeNull()
+    })
+
+    it("disconnects when Freighter's active account changes", async () => {
+      const { hook, watcher } = await renderConnected()
+      const otherAddress =
+        "GBOTHERZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"
+
+      await act(async () => {
+        watcher.emit({
+          address: otherAddress,
+          network: "TESTNET",
+          networkPassphrase: getConfiguredNetworkPassphrase(),
+        })
+      })
+
+      expect(hook.result.current.account).toBeNull()
+    })
+
+    it("disconnects when Freighter's network no longer matches the app", async () => {
+      const { hook, watcher } = await renderConnected()
+
+      await act(async () => {
+        watcher.emit({
+          address: connectedAccount.wallet.address,
+          network: "PUBLIC",
+          networkPassphrase: "Public Global Stellar Network ; September 2015",
+        })
+      })
+
+      expect(hook.result.current.account).toBeNull()
+    })
+
+    it("does nothing when address and network still match — no false disconnect", async () => {
+      const { hook, watcher } = await renderConnected()
+
+      await act(async () => {
+        watcher.emit({
+          address: connectedAccount.wallet.address,
+          network: "TESTNET",
+          networkPassphrase: getConfiguredNetworkPassphrase(),
+        })
+      })
+
+      expect(hook.result.current.account?.wallet.address).toBe(
+        connectedAccount.wallet.address
+      )
+    })
+
+    it("stops the watcher on unmount so a stray callback cannot fire after", async () => {
+      const { hook, watcher } = await renderConnected()
+
+      hook.unmount()
+
+      expect(watcher.stopped).toBe(true)
+    })
+
+    it("preserves the identity seed and note cache — a lock is not 'forget this device'", async () => {
+      const identityKey = `stellar-shield:identity:v2:${connectedAccount.wallet.address}`
+      window.localStorage.setItem(identityKey, "a".repeat(64))
+      const { hook, watcher } = await renderConnected()
+
+      await act(async () => {
+        watcher.emit({
+          address: "",
+          network: "TESTNET",
+          networkPassphrase: getConfiguredNetworkPassphrase(),
+        })
+      })
+
+      expect(hook.result.current.account).toBeNull()
+      expect(window.localStorage.getItem(identityKey)).toBe("a".repeat(64))
+    })
   })
 })
