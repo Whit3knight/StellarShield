@@ -4,15 +4,8 @@ import { KeyRoundIcon, ShellIcon, WalletCardsIcon, ZapIcon } from "lucide-react"
 export type WalletProviderId = "freighter" | "hana" | "lobstr" | "xbull"
 
 export type WalletProvider = {
-  /** Official brand accent, background of the connect button. */
+  /** Background of the connect button. See note below on where this came from. */
   brandColor: string
-  /**
-   * Text/icon color against `brandColor`. Not always white — xBull's
-   * lavender and LOBSTR's cyan fail WCAG AA (>=4.5:1) with white text
-   * (2.23:1 and 2.54:1 measured), so those get the app's own dark
-   * neutral instead. Computed once, not derived at render time.
-   */
-  brandForeground: string
   icon: LucideIcon
   id: WalletProviderId
   name: string
@@ -36,41 +29,41 @@ export type ConnectedAccount = {
 // message at all (confirmed: stellarwalletskit.dev/how-to/sign-with-
 // wallet.html) and so could never derive the shielded identity.
 //
-// brandColor is each wallet's own accent, read from their live
-// production stylesheet, not guessed:
-//   Freighter  #7b68ff  --color-accent in freighter.app's compiled CSS
-//   xBull      #c19cfc  dominant color in wallet.xbull.app's CSS (169
-//              occurrences); matches stellarwalletskit.dev's own theme
-//              example, unsurprising since Creit Tech built both
-//   LOBSTR     #00abff  dominant color in lobstr.co's compiled CSS
-//   Hana       #6256e9  base of Hana's own button gradient
-//              (linear-gradient(135deg,#6257E9,#B76BD9)) on hana.money
-//              (hanawallet.io redirects there)
+// brandColor is each wallet's own accent — read from their live
+// production stylesheet, not guessed — darkened 40% toward black so
+// the button stays readable against the connect dialog's light
+// background (the raw brand hex, especially xBull's pale lavender and
+// LOBSTR's bright cyan, washed out against it) and so all four clear
+// WCAG AA (>=4.5:1) with plain white text, letting the button drop the
+// per-color foreground it used to need:
+//   Freighter  raw #7b68ff -> #4a3e99  (--color-accent, freighter.app)
+//   xBull      raw #c19cfc -> #745e97  (dominant in wallet.xbull.app's
+//              CSS, 169 occurrences; matches stellarwalletskit.dev's
+//              own theme example — unsurprising, Creit Tech built both)
+//   LOBSTR     raw #00abff -> #006799  (dominant in lobstr.co's CSS)
+//   Hana       raw #6256e9 -> #3b348c  (base of Hana's own button
+//              gradient on hana.money; hanawallet.io redirects there)
 export const walletProviders: WalletProvider[] = [
   {
-    brandColor: "#7b68ff",
-    brandForeground: "#111827",
+    brandColor: "#4a3e99",
     icon: WalletCardsIcon,
     id: "freighter",
     name: "Freighter",
   },
   {
-    brandColor: "#c19cfc",
-    brandForeground: "#111827",
+    brandColor: "#745e97",
     icon: ZapIcon,
     id: "xbull",
     name: "xBull",
   },
   {
-    brandColor: "#00abff",
-    brandForeground: "#111827",
+    brandColor: "#006799",
     icon: ShellIcon,
     id: "lobstr",
     name: "LOBSTR",
   },
   {
-    brandColor: "#6256e9",
-    brandForeground: "#ffffff",
+    brandColor: "#3b348c",
     icon: KeyRoundIcon,
     id: "hana",
     name: "Hana Wallet",

@@ -21,17 +21,19 @@ export function WalletProviderButton({
 
   return (
     <Button
-      className="after:flex-1 hover:brightness-90"
+      className="text-white after:flex-1 hover:brightness-90"
       disabled={disabled}
       onClick={() => {
         void onConnect(provider)
       }}
-      // brandColor/brandForeground come from data (app/_constants/account.ts),
-      // not fixed per-component classes — Tailwind's JIT scanner only
-      // picks up literal bg-[#..] strings in source, not ones built at
+      // brandColor comes from data (app/_constants/account.ts), not a
+      // fixed per-component class — Tailwind's JIT scanner only picks
+      // up literal bg-[#..] strings in source, not ones built at
       // runtime, so this has to be an inline style rather than an
-      // arbitrary-value class.
-      style={{ backgroundColor: provider.brandColor, color: provider.brandForeground }}
+      // arbitrary-value class. Every brandColor is darkened enough
+      // (see the comment there) that plain white text clears WCAG AA
+      // uniformly — no per-color foreground needed here.
+      style={{ backgroundColor: provider.brandColor }}
       type="button"
       variant="link"
     >

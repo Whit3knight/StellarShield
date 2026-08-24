@@ -7,16 +7,14 @@ import { WalletProviderButton } from "./wallet-provider-button"
 import type { WalletProvider } from "@/app/_constants/account"
 
 const freighter: WalletProvider = {
-  brandColor: "#7b68ff",
-  brandForeground: "#111827",
+  brandColor: "#4a3e99",
   icon: WalletCardsIcon,
   id: "freighter",
   name: "Freighter",
 }
 
 const xbull: WalletProvider = {
-  brandColor: "#c19cfc",
-  brandForeground: "#111827",
+  brandColor: "#745e97",
   icon: ZapIcon,
   id: "xbull",
   name: "xBull",
@@ -44,11 +42,10 @@ describe("WalletProviderButton", () => {
   it("renders each provider's own brand color, not a shared default", () => {
     render(<WalletProviderButton onConnect={vi.fn()} provider={freighter} />)
     const freighterButton = screen.getByRole("button")
-    expect(freighterButton.style.backgroundColor).toBe("rgb(123, 104, 255)")
-    expect(freighterButton.style.color).toBe("rgb(17, 24, 39)")
+    expect(freighterButton.style.backgroundColor).toBe("rgb(74, 62, 153)")
 
     render(<WalletProviderButton onConnect={vi.fn()} provider={xbull} />)
     const xbullButton = screen.getByRole("button", { name: /xBull/ })
-    expect(xbullButton.style.backgroundColor).toBe("rgb(193, 156, 252)")
+    expect(xbullButton.style.backgroundColor).toBe("rgb(116, 94, 151)")
   })
 })
