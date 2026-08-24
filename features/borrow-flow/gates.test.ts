@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest"
 
-import { canSubmitTransaction, shouldShowTransaction } from "./gates"
+import type { MarketStat } from "@/features/markets"
+
+import {
+  canSubmitTransaction,
+  hasBorrowLiquidity,
+  shouldShowTransaction,
+} from "./gates"
 import type { BorrowFlowMetrics, Transaction } from "./types"
 
 const validMetrics = { isLoanValid: true } as BorrowFlowMetrics
@@ -64,5 +70,23 @@ describe("shouldShowTransaction", () => {
         transaction: { status: "Draft" },
       })
     ).toBe(false)
+  })
+})
+
+const stat = (deposits: number, borrows: number): MarketStat =>
+  ({ totalDeposits: deposits, totalBorrows: borrows }) as MarketStat
+
+describe("hasBorrowLiquidity", () => {
+  it("passes when deposits exceed borrows", () => {
+    expect(hasBorrowLiquidity(stat(5, 3))).toBe(true)
+  })
+
+  it("fails when the pool is fully borrowed or empty", () => {
+    expect(hasBorrowLiquidity(stat(3, 3))).toBe(false)
+    expect(hasBorrowLiquidity(stat(0, 0))).toBe(false)
+  })
+
+  it("doesn't block when no snapshot has loaded yet", () => {
+    expect(hasBorrowLiquidity(undefined)).toBe(true)
   })
 })

@@ -3,7 +3,8 @@
 import * as React from "react"
 
 import type { ConnectedAccount } from "@/app/_constants/account"
-import type { MarketCardData } from "@/features/markets"
+import { toastManager } from "@/components/ui/toast"
+import { type MarketCardData, useMarketStats } from "@/features/markets"
 import {
   COLLATERAL_NOTES_PER_BORROW,
   useNotes,
@@ -20,6 +21,7 @@ import { useDeposit } from "@/features/shielded-pool/use-deposit"
 import { useShieldedPoolContext } from "@/features/shielded-pool/shielded-pool-provider"
 
 import { INITIAL_FLOW_STATE } from "../constants"
+import { hasBorrowLiquidity } from "../gates"
 import type { BorrowProof, UserPosition } from "../types"
 import type {
   BorrowActivity,
@@ -69,6 +71,7 @@ export function useShieldedBorrowFlow({
   const providerId = account?.wallet.providerId ?? null
   const { identity } = useShieldedPoolContext()
   const notes = useNotes()
+  const { stats } = useMarketStats()
 
   const collateralAsset = market.collateral as ShieldedAsset
   const borrowAsset = market.symbol as ShieldedAsset
@@ -295,6 +298,21 @@ export function useShieldedBorrowFlow({
       return
     }
 
+    if (!hasBorrowLiquidity(stats[borrowAsset])) {
+      const detail = `The ${borrowAsset} pool doesn't currently have enough reserve to cover this borrow. Try again shortly.`
+      setFlow((currentFlow) => ({
+        ...currentFlow,
+        transaction: { status: "Failed", intent, payload },
+      }))
+      toastManager.add({
+        title: "Pool liquidity low",
+        description: detail,
+        type: "error",
+        timeout: 6_000,
+      })
+      return
+    }
+
     setFlow((currentFlow) => ({
       ...currentFlow,
       transaction: { status: "Signing", intent, payload },
@@ -381,6 +399,7 @@ export function useShieldedBorrowFlow({
     metrics.healthFactor,
     metrics.loanValue,
     metrics.utilization,
+    stats,
     walletAddress,
   ])
 
