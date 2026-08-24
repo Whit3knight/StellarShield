@@ -21,16 +21,22 @@ export function WalletProviderButton({
 
   return (
     <Button
-      className="bg-[#111827] text-white after:flex-1 hover:bg-[#111827]/90"
+      className="after:flex-1 hover:brightness-90"
       disabled={disabled}
       onClick={() => {
         void onConnect(provider)
       }}
+      // brandColor/brandForeground come from data (app/_constants/account.ts),
+      // not fixed per-component classes — Tailwind's JIT scanner only
+      // picks up literal bg-[#..] strings in source, not ones built at
+      // runtime, so this has to be an inline style rather than an
+      // arbitrary-value class.
+      style={{ backgroundColor: provider.brandColor, color: provider.brandForeground }}
       type="button"
       variant="link"
     >
       <span className="pointer-events-none me-2 flex-1">
-        <Icon aria-hidden="true" className="opacity-60" />
+        <Icon aria-hidden="true" className="opacity-70" />
       </span>
       {pending ? "Connecting..." : `Connect with ${provider.name}`}
     </Button>
