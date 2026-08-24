@@ -6,7 +6,7 @@ import * as React from "react"
 import { PrivateValue } from "@/components/atoms/private-value"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { MenuItem } from "@/components/ui/menu"
+import { useNavMenus } from "@/app/_hooks/use-nav-menus"
 import type { ConnectedAccount } from "@/app/_constants/account"
 import { getConfiguredNetworkLabel } from "@/features/wallet/network"
 
@@ -21,6 +21,19 @@ export function WalletDetailPanel({
 }: WalletDetailPanelProps): React.ReactElement {
   const [copied, setCopied] = React.useState(false)
   const networkLabel = getConfiguredNetworkLabel()
+  const { walletMenu } = useNavMenus()
+
+  // A plain <Button>, not a MenuItem — Base UI's mergeProps concatenates
+  // className across a render-prop boundary rather than tw-merging it
+  // (confirmed in Base UI's own docs), so MenuItem's unconditional row
+  // styling and Button's own variant/size classes would land in the DOM
+  // unresolved. One component, one cn() pass, no cross-boundary risk.
+  // The wallet submenu is closed manually since a raw Button — unlike
+  // MenuItem — has no built-in closeOnClick.
+  const handleForgetClick = React.useCallback(() => {
+    walletMenu.setOpen(false)
+    onForgetDevice()
+  }, [onForgetDevice, walletMenu])
 
   const balanceEntries = account.wallet.balances
     ? Object.entries(account.wallet.balances)
@@ -102,14 +115,16 @@ export function WalletDetailPanel({
             menu — a shared-machine escape hatch reads better tucked
             next to "which wallet, which network" than as a peer of
             the everyday Disconnect action. */}
-        <MenuItem
-          className="ms-auto h-auto min-h-0 w-auto gap-1 rounded-full border border-destructive/32 px-2 py-0.5 text-xs text-destructive-foreground data-highlighted:bg-destructive/8 sm:text-xs"
-          closeOnClick
-          onClick={onForgetDevice}
+        <Button
+          className="ms-auto"
+          onClick={handleForgetClick}
+          size="xs"
+          type="button"
+          variant="destructive"
         >
-          <ShieldOffIcon aria-hidden="true" className="size-3" />
+          <ShieldOffIcon aria-hidden="true" />
           Forget device
-        </MenuItem>
+        </Button>
       </section>
     </div>
   )

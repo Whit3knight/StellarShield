@@ -148,7 +148,7 @@ export function UserMenu({
           <PrivacyModeMenuItem />
         </MenuGroup>
         <MenuSeparator />
-        <MenuItem closeOnClick onClick={onDisconnect}>
+        <MenuItem closeOnClick onClick={onDisconnect} variant="destructive">
           <LogOutIcon aria-hidden="true" />
           Disconnect
         </MenuItem>
