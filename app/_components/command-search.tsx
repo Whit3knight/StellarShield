@@ -11,7 +11,6 @@ import {
   LogOutIcon,
   MoonIcon,
   SearchIcon,
-  ShieldCheckIcon,
   ShieldOffIcon,
   SparklesIcon,
   SunIcon,
@@ -70,13 +69,8 @@ export function CommandSearch(): React.ReactElement {
   const [open, setOpen] = React.useState(false)
   const [disconnectOpen, setDisconnectOpen] = React.useState(false)
   const { selectMarket } = useMarketSelection()
-  const {
-    activityDrawer,
-    notifications,
-    positionsDrawer,
-    proofsDrawer,
-    walletMenu,
-  } = useNavMenus()
+  const { activityDrawer, notifications, positionsDrawer, walletMenu } =
+    useNavMenus()
   const { account, disconnect, disconnectAndForget } = useWalletConnection()
   const { resolvedTheme, setTheme } = useTheme()
   const isPrivacyMode = usePrivacyMode()
@@ -168,15 +162,6 @@ export function CommandSearch(): React.ReactElement {
         value: "open positions loans",
       },
       {
-        icon: ShieldCheckIcon,
-        label: "Open proofs",
-        onSelect: () => {
-          proofsDrawer.setOpen(true)
-          setOpen(false)
-        },
-        value: "open proofs",
-      },
-      {
         icon: SparklesIcon,
         label: "Take a tour",
         onSelect: () => {
@@ -247,7 +232,6 @@ export function CommandSearch(): React.ReactElement {
     isPrivacyMode,
     notifications,
     positionsDrawer,
-    proofsDrawer,
     resolvedTheme,
     selectMarket,
     setTheme,

@@ -41,6 +41,15 @@ export {
   useShieldedIdentity,
 } from "./use-shielded-identity"
 export {
+  type ShieldedActivity,
+  type ShieldedActivityType,
+} from "./activity"
+export {
+  configureActivityPersistence,
+  resetActivities,
+} from "./activity-store"
+export { useActivities } from "./use-activities"
+export {
   append,
   DEPTH,
   emptyRoot,

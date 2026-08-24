@@ -19,6 +19,15 @@ export type RpcEvent = {
   topics?: unknown[]
   value?: unknown
   ledgerClosedAt?: string
+  /**
+   * Present on RPC-sourced events (stellar-sdk's `BaseEventResponse.
+   * txHash`, spread through verbatim in `fetchRpcEvents` below — no
+   * mapping needed). Absent on indexer-sourced events: `app/api/
+   * events/route.ts` selects `transaction_hash` from Neon but does not
+   * include it in the response it returns, so this is `undefined` for
+   * any event recovered only through the indexer.
+   */
+  txHash?: string
 }
 
 const PAGE_LIMIT = 500

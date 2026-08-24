@@ -17,6 +17,15 @@
 // A borrow's four nullifiers burn DEPOSIT notes in the COLLATERAL asset
 // (topic 1) while the loan note it mints lives in the borrow asset.
 
+import {
+  mergeActivities,
+  type ShieldedActivity,
+  type ShieldedActivityType,
+} from "./activity"
+import {
+  replaceActivities,
+  snapshotActivities,
+} from "./activity-store"
 import { deriveShieldedIdentity, tryDecryptAnyMemo } from "./memo"
 import {
   DENOMINATION,
@@ -119,11 +128,19 @@ export type ScanIdentity = {
  * so the matching deposit / borrow notes get tombstoned (`spent`)
  * automatically; previously known notes the scan can no longer see
  * are carried over rather than dropped.
+ *
+ * The SAME pass also derives the local activity log — one record per
+ * deposit/borrow/withdraw/repay/liquidate event this connected
+ * `account` performed. Deposit/borrow attribution reuses the memo
+ * decryption already happening for note ownership; withdraw/repay/
+ * liquidate attribution matches `account` against the caller address
+ * the contract emits directly in the event body.
  */
 export async function scanShieldedNotes(
   identity: ScanIdentity,
   legacyIdentities: ScanIdentity[] = [],
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  account?: string
 ): Promise<ShieldedNote[]> {
   if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
 
@@ -233,6 +250,7 @@ export async function scanShieldedNotes(
   console.log("[scanner] events fetched:", events.length)
   const notes: ShieldedNote[] = []
   const spentNullifiers = new Set<string>()
+  const activities: ShieldedActivity[] = []
 
   // Trial-decrypt each memo against every identity that could have
   // minted a note for this wallet, newest scheme first:
@@ -267,31 +285,63 @@ export async function scanShieldedNotes(
     const topicAsset = shieldedAsset(topics[1])
     if (topic === "withdraw") {
       // ("withdraw", asset) burns a deposit note; the loan-tree variant
-      // appends a third topic, Symbol "loan".
-      const nullifier = decodeWithdrawNullifier(sdk, event)
-      if (nullifier !== null && topicAsset) {
+      // appends a third topic, Symbol "loan", and its body carries an
+      // explicit amount (interest-adjusted; a plain deposit withdraw
+      // is always exactly one DENOMINATION).
+      const body = decodeWithdrawBody(sdk, event)
+      if (body.nullifier !== null && topicAsset) {
         const tree: NoteTree = topics[2] === "loan" ? "loan" : "deposit"
-        spentNullifiers.add(spentKey(topicAsset, tree, nullifier))
+        spentNullifiers.add(spentKey(topicAsset, tree, body.nullifier))
+        if (account && body.to === account) {
+          activities.push({
+            amount: body.amount ?? DENOMINATION[topicAsset],
+            asset: topicAsset,
+            id: activityId(event, "withdraw", body.nullifier),
+            timestamp: eventOpenedAt(event),
+            txHash: event.txHash,
+            type: "withdraw",
+          })
+        }
       }
       continue
     }
     if (topic === "repay") {
       // Body is (loanNullifier, depositNullifier, from): one note burned
       // in each tree, both in the topic's asset.
-      const { loan, deposit } = decodeRepayNullifiers(sdk, event)
+      const body = decodeRepayBody(sdk, event)
       if (topicAsset) {
-        if (loan !== null) spentNullifiers.add(spentKey(topicAsset, "loan", loan))
-        if (deposit !== null) {
-          spentNullifiers.add(spentKey(topicAsset, "deposit", deposit))
+        if (body.loan !== null) {
+          spentNullifiers.add(spentKey(topicAsset, "loan", body.loan))
+        }
+        if (body.deposit !== null) {
+          spentNullifiers.add(spentKey(topicAsset, "deposit", body.deposit))
+        }
+        if (account && body.from === account && body.loan !== null) {
+          activities.push({
+            asset: topicAsset,
+            id: activityId(event, "repay", body.loan),
+            timestamp: eventOpenedAt(event),
+            txHash: event.txHash,
+            type: "repay",
+          })
         }
       }
       continue
     }
     if (topic === "liquidat") {
       // ("liquidat", borrowAsset) — burns the loan note in that asset.
-      const nullifier = decodeLiquidateNullifier(sdk, event)
-      if (nullifier !== null && topicAsset) {
-        spentNullifiers.add(spentKey(topicAsset, "loan", nullifier))
+      const body = decodeLiquidateBody(sdk, event)
+      if (body.nullifier !== null && topicAsset) {
+        spentNullifiers.add(spentKey(topicAsset, "loan", body.nullifier))
+        if (account && body.liquidator === account) {
+          activities.push({
+            asset: topicAsset,
+            id: activityId(event, "liquidate", body.nullifier),
+            timestamp: eventOpenedAt(event),
+            txHash: event.txHash,
+            type: "liquidate",
+          })
+        }
       }
       continue
     }
@@ -365,6 +415,16 @@ export async function scanShieldedNotes(
         sk: skForNote,
         tree: "deposit",
       })
+      // Ownership is already proven above (the memo decrypted), so —
+      // unlike withdraw/repay/liquidate — no address match is needed.
+      activities.push({
+        amount: DENOMINATION[asset],
+        asset,
+        id: activityId(event, "deposit", BigInt(decoded.index)),
+        timestamp: openedAt,
+        txHash: event.txHash,
+        type: "deposit",
+      })
     } else {
       // Borrow memos carry the freshly minted loan-note amount
       // (client-side derived from oracle price × collateral × LTV).
@@ -399,6 +459,14 @@ export async function scanShieldedNotes(
         salt: BigInt(plaintext.salt),
         sk: skForNote,
         tree: "loan",
+      })
+      activities.push({
+        amount,
+        asset,
+        id: activityId(event, "borrow", BigInt(decoded.index)),
+        timestamp: openedAt,
+        txHash: event.txHash,
+        type: "borrow",
       })
     }
   }
@@ -457,6 +525,7 @@ export async function scanShieldedNotes(
     })
   )
   replaceNotes(merged)
+  replaceActivities(mergeActivities(snapshotActivities(), activities))
   // Fire-and-forget: a warning must never delay or fail the scan.
   if (indexerDown) {
     void warnRpcOnlyScan(merged, indexerDown).catch((cause) =>
@@ -657,58 +726,21 @@ export function dedupeNotes(notes: ShieldedNote[]): ShieldedNote[] {
   return out
 }
 
-function decodeWithdrawNullifier(
-  sdk: typeof import("@stellar/stellar-sdk"),
-  event: RpcEvent
-): bigint | null {
-  const value = toScVal(sdk, event.value)
-  if (!value) return null
-  let native: unknown
-  try {
-    native = sdk.scValToNative(value)
-  } catch {
-    return null
-  }
-  if (!Array.isArray(native) || native.length < 1) return null
-  const raw = native[0]
-  if (raw instanceof Uint8Array) return uintToBigint(raw)
-  if (raw && typeof raw === "object" && "length" in raw) {
-    const arr = raw as { length: number; [key: number]: number }
-    const bytes = new Uint8Array(arr.length)
-    for (let i = 0; i < arr.length; i++) bytes[i] = arr[i]
-    return uintToBigint(bytes)
-  }
-  return null
-}
-
-function decodeLiquidateNullifier(
-  sdk: typeof import("@stellar/stellar-sdk"),
-  event: RpcEvent
-): bigint | null {
-  const value = toScVal(sdk, event.value)
-  if (!value) return null
-  let native: unknown
-  try {
-    native = sdk.scValToNative(value)
-  } catch {
-    return null
-  }
-  // Contract emits (loan_commit, nullifier, liquidator). Nullifier is
-  // the second entry.
-  if (!Array.isArray(native) || native.length < 2) return null
-  return rawToBigInt(native[1])
-}
-
 /**
- * Repay body is `(loan_nullifier, deposit_nullifier, from)`. Returned
- * positionally, not as a list: the two burn notes in DIFFERENT trees, so
- * losing which slot a value came from loses its namespace.
+ * Withdraw body is `(nullifier, to)` for a deposit-tree burn, or
+ * `(nullifier, to, amount)` for the loan-tree claim variant — `amount`
+ * is `null` on the fixed-denomination case, where it's implied.
+ * `to` decodes straight to a G-address string: stellar-sdk's
+ * scValToNative resolves an scvAddress via
+ * `Address.fromScVal(scv).toString()` (verified in
+ * node_modules/@stellar/stellar-sdk/lib/esm/base/scval.js), so it is
+ * directly comparable to the connected account.
  */
-function decodeRepayNullifiers(
+function decodeWithdrawBody(
   sdk: typeof import("@stellar/stellar-sdk"),
   event: RpcEvent
-): { loan: bigint | null; deposit: bigint | null } {
-  const none = { loan: null, deposit: null }
+): { nullifier: bigint | null; to: string | null; amount: bigint | null } {
+  const none = { nullifier: null, to: null, amount: null }
   const value = toScVal(sdk, event.value)
   if (!value) return none
   let native: unknown
@@ -718,7 +750,76 @@ function decodeRepayNullifiers(
     return none
   }
   if (!Array.isArray(native) || native.length < 2) return none
-  return { loan: rawToBigInt(native[0]), deposit: rawToBigInt(native[1]) }
+  return {
+    nullifier: rawToBigInt(native[0]),
+    to: typeof native[1] === "string" ? native[1] : null,
+    amount: native.length >= 3 ? rawToBigInt(native[2]) : null,
+  }
+}
+
+/**
+ * Liquidate body is `(loan_commit, nullifier, liquidator)`.
+ */
+function decodeLiquidateBody(
+  sdk: typeof import("@stellar/stellar-sdk"),
+  event: RpcEvent
+): { nullifier: bigint | null; liquidator: string | null } {
+  const none = { nullifier: null, liquidator: null }
+  const value = toScVal(sdk, event.value)
+  if (!value) return none
+  let native: unknown
+  try {
+    native = sdk.scValToNative(value)
+  } catch {
+    return none
+  }
+  if (!Array.isArray(native) || native.length < 3) return none
+  return {
+    nullifier: rawToBigInt(native[1]),
+    liquidator: typeof native[2] === "string" ? native[2] : null,
+  }
+}
+
+/**
+ * Repay body is `(loan_nullifier, deposit_nullifier, from)`. Returned
+ * positionally, not as a list: the two burn notes in DIFFERENT trees, so
+ * losing which slot a value came from loses its namespace.
+ */
+function decodeRepayBody(
+  sdk: typeof import("@stellar/stellar-sdk"),
+  event: RpcEvent
+): { loan: bigint | null; deposit: bigint | null; from: string | null } {
+  const none = { loan: null, deposit: null, from: null }
+  const value = toScVal(sdk, event.value)
+  if (!value) return none
+  let native: unknown
+  try {
+    native = sdk.scValToNative(value)
+  } catch {
+    return none
+  }
+  if (!Array.isArray(native) || native.length < 3) return none
+  return {
+    loan: rawToBigInt(native[0]),
+    deposit: rawToBigInt(native[1]),
+    from: typeof native[2] === "string" ? native[2] : null,
+  }
+}
+
+/**
+ * Stable id for an activity record: the event's own RPC/indexer id
+ * when present (globally unique — `mergeById` in rpc-events.ts already
+ * relies on this), falling back to a type+seed composite (the note
+ * index for deposit/borrow, the nullifier for withdraw/repay/
+ * liquidate) so a decode that somehow lost the event id still dedupes
+ * sanely instead of duplicating on every scan.
+ */
+function activityId(
+  event: RpcEvent,
+  type: ShieldedActivityType,
+  fallbackSeed: bigint
+): string {
+  return event.id ? `${type}-${event.id}` : `${type}-${fallbackSeed}`
 }
 
 function rawToBigInt(raw: unknown): bigint | null {

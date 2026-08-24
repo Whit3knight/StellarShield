@@ -9,6 +9,7 @@ import {
   onRepayConfirmed,
 } from "@/features/borrow-flow/borrow-events"
 import {
+  configureActivityPersistence,
   configureNotePersistence,
   legacyIdentityFromAddress,
   scanShieldedNotes,
@@ -46,7 +47,10 @@ export function useShieldedPool(
     // Hydrate the persisted note store BEFORE the first scan so
     // carried-over notes survive events expiring from RPC retention.
     const contractId = getConfiguredContractId()
-    if (contractId) configureNotePersistence(contractId, account)
+    if (contractId) {
+      configureNotePersistence(contractId, account)
+      configureActivityPersistence(contractId, account)
+    }
     const controller = new AbortController()
     void (async () => {
       setIsScanning(true)
@@ -54,7 +58,12 @@ export function useShieldedPool(
         // Legacy address-derived identity lets notes minted before the
         // R1 signature migration still decrypt and spend.
         const legacyIdentities = [await legacyIdentityFromAddress(account)]
-        await scanShieldedNotes(identity, legacyIdentities, controller.signal)
+        await scanShieldedNotes(
+          identity,
+          legacyIdentities,
+          controller.signal,
+          account
+        )
       } catch {
         // swallow; retry on next confirm
       } finally {

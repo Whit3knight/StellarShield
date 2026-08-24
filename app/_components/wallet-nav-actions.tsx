@@ -5,7 +5,6 @@ import * as React from "react"
 import { ActivityDrawer } from "@/components/organisms/activity-drawer"
 import { ConnectWalletDialog } from "@/components/organisms/connect-wallet-dialog"
 import { PositionsDrawer } from "@/components/organisms/positions-drawer"
-import { ProofsDrawer } from "@/components/organisms/proofs-drawer"
 import {
   AlertDialog,
   AlertDialogClose,
@@ -16,9 +15,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
-import { useBorrowSession } from "@/features/borrow-flow/session-store"
-import { useMergedActivities } from "@/features/borrow-flow/use-chain-activities"
-import { useChainPositions } from "@/features/borrow-flow/use-chain-positions"
+import { useActivities } from "@/features/notes"
 import { useWalletConnection } from "@/features/wallet/use-wallet-connection"
 
 import { walletProviders, type WalletProvider } from "../_constants/account"
@@ -87,7 +84,7 @@ export function WalletNavActions(): React.ReactElement {
           providers={walletProviders}
         />
       )}
-      <SessionDrawers account={account?.wallet.address ?? null} />
+      <SessionDrawers />
     </>
   )
 }
@@ -137,25 +134,12 @@ export function DisconnectDialog({
   )
 }
 
-function SessionDrawers({
-  account,
-}: {
-  account: string | null
-}): React.ReactElement {
-  const { activityDrawer, positionsDrawer, proofsDrawer } = useNavMenus()
-  const { proofs } = useBorrowSession()
-  // Positions drawer reads from `useNotes()` now, but the activity
-  // drawer still merges legacy chain receipts with client-side proof
-  // history, so the chain read stays gated on the activity drawer.
-  const chainReadEnabled = activityDrawer.open
-  const { receipts: chainPositions } = useChainPositions(
-    account,
-    chainReadEnabled
-  )
-  const activities = useMergedActivities({
-    chainReceipts: chainPositions,
-    proofs,
-  })
+function SessionDrawers(): React.ReactElement {
+  const { activityDrawer, positionsDrawer } = useNavMenus()
+  // Populated by the same scanner pass that builds the note inventory
+  // (features/notes/scanner.ts) — real chain events attributed to this
+  // account, not a client-side session log.
+  const activities = useActivities()
 
   return (
     <>
@@ -167,11 +151,6 @@ function SessionDrawers({
       <PositionsDrawer
         onOpenChange={positionsDrawer.setOpen}
         open={positionsDrawer.open}
-      />
-      <ProofsDrawer
-        onOpenChange={proofsDrawer.setOpen}
-        open={proofsDrawer.open}
-        proofs={proofs}
       />
     </>
   )

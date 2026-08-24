@@ -6,7 +6,6 @@ import {
   ExternalLinkIcon,
   LayersIcon,
   LogOutIcon,
-  ShieldCheckIcon,
   WalletCardsIcon,
   WalletIcon,
 } from "lucide-react"
@@ -49,7 +48,6 @@ export function UserMenu({
   const {
     activityDrawer,
     positionsDrawer,
-    proofsDrawer,
     walletMenu,
   } = useNavMenus()
   const explorerUrl = getStellarExpertAccountUrl(account.wallet.address)
@@ -105,13 +103,6 @@ export function UserMenu({
           >
             <LayersIcon aria-hidden="true" />
             Positions
-          </MenuItem>
-          <MenuItem
-            closeOnClick
-            onClick={() => proofsDrawer.setOpen(true)}
-          >
-            <ShieldCheckIcon aria-hidden="true" />
-            Proofs
           </MenuItem>
           <MenuItem
             closeOnClick
