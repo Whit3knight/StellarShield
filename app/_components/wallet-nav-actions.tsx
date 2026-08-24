@@ -66,15 +66,12 @@ export function WalletNavActions(): React.ReactElement {
       {account ? (
         <>
           <NotificationMenu />
-          {/* ponytail: the menu's single Disconnect entry opens this
-              sheet instead of a second menu item — `user-menu.tsx` takes
-              one `onDisconnect` prop and nothing else. */}
           <UserMenu
             account={account}
-            onDisconnect={() => setDisconnectOpen(true)}
+            onDisconnect={disconnect}
+            onForgetDevice={() => setDisconnectOpen(true)}
           />
           <DisconnectDialog
-            onDisconnect={disconnect}
             onForget={disconnectAndForget}
             onOpenChange={setDisconnectOpen}
             open={disconnectOpen}
@@ -96,17 +93,19 @@ export function WalletNavActions(): React.ReactElement {
 }
 
 /**
- * Confirms the two ways out of a session. Plain disconnect only drops
- * the cached address; forgetting also erases the shielded identity seed
- * (the note spending key) and the local note cache.
+ * Confirms the one lossy exit. Plain disconnect (menu item, palette)
+ * is a direct one-click call — nothing to confirm, since it only drops
+ * the cached address and leaves the shielded identity seed and note
+ * cache intact for an instant reconnect. Only "forget this device"
+ * lands here: it erases both, so re-deriving the identity needs a
+ * fresh signature and notes rebuild only from chain events still
+ * within the retention window.
  */
 export function DisconnectDialog({
-  onDisconnect,
   onForget,
   onOpenChange,
   open,
 }: {
-  onDisconnect: () => void
   onForget: () => void
   onOpenChange: (open: boolean) => void
   open: boolean
@@ -115,12 +114,11 @@ export function DisconnectDialog({
     <AlertDialog onOpenChange={onOpenChange} open={open}>
       <AlertDialogPopup className="max-w-md">
         <AlertDialogHeader>
-          <AlertDialogTitle>Disconnect wallet</AlertDialogTitle>
+          <AlertDialogTitle>Forget this device?</AlertDialogTitle>
           <AlertDialogDescription>
-            Disconnecting leaves your shielded identity and note cache on this
-            device. Forgetting erases both — you sign again to restore the
-            identity, and notes are rebuilt only from chain events still within
-            the retention window.
+            Erases your shielded identity and note cache from this browser.
+            You&apos;ll sign again to restore the identity, and notes rebuild
+            only from chain events still within the retention window.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
@@ -131,10 +129,7 @@ export function DisconnectDialog({
             onClick={onForget}
             render={<Button variant="destructive" />}
           >
-            Disconnect and forget device
-          </AlertDialogClose>
-          <AlertDialogClose onClick={onDisconnect} render={<Button />}>
-            Disconnect
+            Forget device
           </AlertDialogClose>
         </AlertDialogFooter>
       </AlertDialogPopup>

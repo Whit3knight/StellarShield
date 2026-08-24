@@ -7,6 +7,7 @@ import {
   LayersIcon,
   LogOutIcon,
   ShieldCheckIcon,
+  ShieldOffIcon,
   WalletCardsIcon,
   WalletIcon,
 } from "lucide-react"
@@ -40,9 +41,11 @@ import { ThemeModeMenuItem } from "./theme-mode-menu-item"
 export function UserMenu({
   account,
   onDisconnect,
+  onForgetDevice,
 }: {
   account: ConnectedAccount
   onDisconnect: () => void
+  onForgetDevice: () => void
 }): React.ReactElement {
   const {
     activityDrawer,
@@ -143,9 +146,13 @@ export function UserMenu({
           <PrivacyModeMenuItem />
         </MenuGroup>
         <MenuSeparator />
-        <MenuItem closeOnClick onClick={onDisconnect} variant="destructive">
+        <MenuItem closeOnClick onClick={onDisconnect}>
           <LogOutIcon aria-hidden="true" />
           Disconnect
+        </MenuItem>
+        <MenuItem closeOnClick onClick={onForgetDevice} variant="destructive">
+          <ShieldOffIcon aria-hidden="true" />
+          Forget this device
         </MenuItem>
       </MenuPopup>
     </Menu>

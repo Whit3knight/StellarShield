@@ -332,7 +332,6 @@ export function CommandSearch(): React.ReactElement {
         </CommandDialogPopup>
       </CommandDialog>
       <DisconnectDialog
-        onDisconnect={disconnect}
         onForget={disconnectAndForget}
         onOpenChange={setDisconnectOpen}
         open={disconnectOpen}
