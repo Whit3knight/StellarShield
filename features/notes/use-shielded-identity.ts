@@ -2,6 +2,8 @@
 
 import * as React from "react"
 
+import type { WalletProviderId } from "@/app/_constants/account"
+import { signMessageWithWallet } from "@/features/wallet/connectors"
 import { getConfiguredNetworkPassphrase } from "@/features/wallet/network"
 
 import { deriveShieldedIdentity } from "./memo"
@@ -34,19 +36,20 @@ const cacheKey = (account: string): string =>
  * privacy guarantee, not a bug).
  */
 export function useShieldedIdentity(
-  account: string | null
+  account: string | null,
+  providerId: WalletProviderId | null
 ): ScanIdentity | null {
   const [identity, setIdentity] = React.useState<ScanIdentity | null>(null)
 
   React.useEffect(() => {
     let cancelled = false
     void (async () => {
-      if (!account) {
+      if (!account || !providerId) {
         setIdentity(null)
         return
       }
       try {
-        const seed = await resolveSeed(account)
+        const seed = await resolveSeed(account, providerId)
         if (cancelled) return
         setIdentity(identityFromSeed(seed))
       } catch (err) {
@@ -59,7 +62,7 @@ export function useShieldedIdentity(
     return () => {
       cancelled = true
     }
-  }, [account])
+  }, [account, providerId])
 
   return identity
 }
@@ -97,37 +100,39 @@ function identityFromSeed(seed: Uint8Array): ScanIdentity {
   return { publicKey, secretKey, skField: bytesToBigInt(secretKey) }
 }
 
-async function resolveSeed(account: string): Promise<Uint8Array> {
+async function resolveSeed(
+  account: string,
+  providerId: WalletProviderId
+): Promise<Uint8Array> {
   const cached = readCachedSeed(account)
   if (cached) return cached
 
-  const seed = await deriveSeedFromSignature(account)
+  const seed = await deriveSeedFromSignature(account, providerId)
   writeCachedSeed(account, seed)
   return seed
 }
 
-async function deriveSeedFromSignature(account: string): Promise<Uint8Array> {
+async function deriveSeedFromSignature(
+  account: string,
+  providerId: WalletProviderId
+): Promise<Uint8Array> {
   const passphrase = getConfiguredNetworkPassphrase()
-  const { signMessage } = await import("@stellar/freighter-api")
-  const result = await signMessage(IDENTITY_MESSAGE(passphrase), {
-    address: account,
-  })
-  if (result.error || !result.signedMessage) {
-    throw new Error(
-      `Freighter signMessage failed: ${result.error?.message ?? "no signature returned"}`
-    )
-  }
-  const sig = signatureToBytes(result.signedMessage)
-  const buffer = sig.buffer.slice(
-    sig.byteOffset,
-    sig.byteOffset + sig.byteLength
+  const signedMessage = await signMessageWithWallet(
+    IDENTITY_MESSAGE(passphrase),
+    { address: account, networkPassphrase: passphrase, providerId }
+  )
+  const bytes = signatureToBytes(signedMessage)
+  const buffer = bytes.buffer.slice(
+    bytes.byteOffset,
+    bytes.byteOffset + bytes.byteLength
   ) as ArrayBuffer
   return new Uint8Array(await crypto.subtle.digest("SHA-256", buffer))
 }
 
-// Freighter V3 returns a Buffer, V4 a base64 string; normalize to bytes.
-function signatureToBytes(signed: Uint8Array | string): Uint8Array {
-  if (typeof signed !== "string") return new Uint8Array(signed)
+// The kit's signMessage always returns a base64 string (its Freighter
+// module normalizes Freighter's own Buffer-vs-string version drift
+// internally), so this is just a decode, not a type dance.
+function signatureToBytes(signed: string): Uint8Array {
   const binary = atob(signed)
   const bytes = new Uint8Array(binary.length)
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)

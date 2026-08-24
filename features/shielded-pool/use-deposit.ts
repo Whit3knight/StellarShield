@@ -2,8 +2,10 @@
 
 import * as React from "react"
 
+import type { WalletProviderId } from "@/app/_constants/account"
 import { toastManager } from "@/components/ui/toast"
 import { upsertNote, type ShieldedAsset, type ShieldedNote } from "@/features/notes"
+import { signTransactionWithWallet } from "@/features/wallet/connectors"
 import {
   getConfiguredContractId,
   getConfiguredNetworkPassphrase,
@@ -57,7 +59,8 @@ type UseDepositResult = {
  */
 export function useDeposit(
   account: string | null,
-  identity: ScanIdentity | null
+  identity: ScanIdentity | null,
+  providerId: WalletProviderId | null
 ): UseDepositResult {
   const [status, setStatus] = React.useState<Status>("idle")
   const [message, setMessage] = React.useState<string | null>(null)
@@ -134,19 +137,19 @@ export function useDeposit(
           memo: Buffer.from(prepared.memo),
         })
 
-        const { signTransaction: freighter } = await import(
-          "@stellar/freighter-api"
-        )
         const sent = await assembled.signAndSend({
           signTransaction: (async (
             xdrToSign: string,
             opts?: { address?: string; networkPassphrase?: string }
           ) => {
-            return freighter(xdrToSign, {
+            if (!providerId) throw new Error("No wallet connected.")
+            const signedTxXdr = await signTransactionWithWallet(xdrToSign, {
               address: opts?.address ?? account,
               networkPassphrase:
                 opts?.networkPassphrase ?? getConfiguredNetworkPassphrase(),
+              providerId,
             })
+            return { signedTxXdr }
           }) as unknown as Parameters<
             typeof assembled.signAndSend
           >[0] extends undefined
@@ -212,7 +215,7 @@ export function useDeposit(
         return null
       }
     },
-    [account, identity]
+    [account, identity, providerId]
   )
 
   const depositQuad = React.useCallback(
@@ -334,19 +337,19 @@ export function useDeposit(
           memos: memoBytes.map((m) => Buffer.from(m)),
         })
 
-        const { signTransaction: freighter } = await import(
-          "@stellar/freighter-api"
-        )
         const sent = await assembled.signAndSend({
           signTransaction: (async (
             xdrToSign: string,
             opts?: { address?: string; networkPassphrase?: string }
           ) => {
-            return freighter(xdrToSign, {
+            if (!providerId) throw new Error("No wallet connected.")
+            const signedTxXdr = await signTransactionWithWallet(xdrToSign, {
               address: opts?.address ?? account,
               networkPassphrase:
                 opts?.networkPassphrase ?? getConfiguredNetworkPassphrase(),
+              providerId,
             })
+            return { signedTxXdr }
           }) as unknown as Parameters<
             typeof assembled.signAndSend
           >[0] extends undefined
@@ -418,7 +421,7 @@ export function useDeposit(
         return null
       }
     },
-    [account, identity]
+    [account, identity, providerId]
   )
 
   return { deposit, depositQuad, message, reset, status }

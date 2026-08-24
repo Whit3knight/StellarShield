@@ -2,12 +2,14 @@
 
 import * as React from "react"
 
+import type { WalletProviderId } from "@/app/_constants/account"
 import { toastManager } from "@/components/ui/toast"
 import {
   computeCommitment,
   type ShieldedNote,
   upsertNote,
 } from "@/features/notes"
+import { signTransactionWithWallet } from "@/features/wallet/connectors"
 import {
   getConfiguredContractId,
   getConfiguredNetworkPassphrase,
@@ -45,7 +47,10 @@ type UseRepayResult = {
  * repayer accepts giving up a deposit note worth >= loan amount in
  * exchange for closing the debt.
  */
-export function useRepay(account: string | null): UseRepayResult {
+export function useRepay(
+  account: string | null,
+  providerId: WalletProviderId | null
+): UseRepayResult {
   const [status, setStatus] = React.useState<Status>("idle")
   const [message, setMessage] = React.useState<string | null>(null)
   const [activeLoanIndex, setActiveLoanIndex] = React.useState<number | null>(
@@ -222,19 +227,19 @@ export function useRepay(account: string | null): UseRepayResult {
           proof: proofBuffers,
         })
 
-        const { signTransaction: freighter } = await import(
-          "@stellar/freighter-api"
-        )
         const sent = await assembled.signAndSend({
           signTransaction: (async (
             xdrToSign: string,
             opts?: { address?: string; networkPassphrase?: string }
           ) => {
-            return freighter(xdrToSign, {
+            if (!providerId) throw new Error("No wallet connected.")
+            const signedTxXdr = await signTransactionWithWallet(xdrToSign, {
               address: opts?.address ?? account,
               networkPassphrase:
                 opts?.networkPassphrase ?? getConfiguredNetworkPassphrase(),
+              providerId,
             })
+            return { signedTxXdr }
           }) as unknown as Parameters<
             typeof assembled.signAndSend
           >[0] extends undefined
@@ -282,7 +287,7 @@ export function useRepay(account: string | null): UseRepayResult {
         return null
       }
     },
-    [account]
+    [account, providerId]
   )
 
   return { activeLoanIndex, message, reset, status, repay }

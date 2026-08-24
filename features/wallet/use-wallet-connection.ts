@@ -16,7 +16,6 @@ import { resetNotes } from "@/features/notes/note-store"
 import { forgetShieldedIdentity } from "@/features/notes/use-shielded-identity"
 
 import {
-  cancelWalletConnectConnection,
   connectWalletProvider,
   refreshConnectedAccountBalances,
   WalletConnectionCanceledError,
@@ -220,7 +219,6 @@ export function useWalletConnection(): WalletConnectionState {
     connectionAttemptRef.current += 1
     setError(null)
     setPendingProviderId(null)
-    cancelWalletConnectConnection()
   }, [])
 
   const disconnect = React.useCallback(() => {

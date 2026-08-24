@@ -2,6 +2,7 @@
 
 import * as React from "react"
 
+import type { WalletProviderId } from "@/app/_constants/account"
 import { useWalletConnection } from "@/features/wallet/use-wallet-connection"
 
 import { useShieldedPool } from "./use-shielded-pool"
@@ -11,6 +12,7 @@ type ShieldedPoolContextValue = {
   account: string | null
   identity: ScanIdentity | null
   isScanning: boolean
+  providerId: WalletProviderId | null
   refresh: () => void
 }
 
@@ -30,11 +32,15 @@ export function ShieldedPoolProvider({
 }): React.ReactElement {
   const { account } = useWalletConnection()
   const address = account?.wallet.address ?? null
-  const { identity, isScanning, refresh } = useShieldedPool(address)
+  const providerId = account?.wallet.providerId ?? null
+  const { identity, isScanning, refresh } = useShieldedPool(
+    address,
+    providerId
+  )
 
   const value = React.useMemo<ShieldedPoolContextValue>(
-    () => ({ account: address, identity, isScanning, refresh }),
-    [address, identity, isScanning, refresh]
+    () => ({ account: address, identity, isScanning, providerId, refresh }),
+    [address, identity, isScanning, providerId, refresh]
   )
 
   return (

@@ -51,7 +51,7 @@ export function PositionsDrawer({
   open,
 }: PositionsDrawerProps): React.ReactElement {
   const isMobile = useMediaQuery("max-lg")
-  const { account, identity, isScanning } = useShieldedPoolContext()
+  const { account, identity, isScanning, providerId } = useShieldedPoolContext()
   const notes = useNotes()
   const prices = useAssetPrices()
   const risk = useRiskParams()
@@ -60,17 +60,17 @@ export function PositionsDrawer({
     activeNoteIndex: withdrawingIndex,
     status: withdrawStatus,
     withdraw,
-  } = useWithdraw(account)
+  } = useWithdraw(account, providerId)
   const {
     activeLoanIndex: repayingIndex,
     status: repayStatus,
     repay,
-  } = useRepay(account)
+  } = useRepay(account, providerId)
   const {
     activeLoanIndex: liquidatingIndex,
     status: liquidateStatus,
     liquidate,
-  } = useLiquidate(account, identity)
+  } = useLiquidate(account, identity, providerId)
 
   const showWithdrawBusy =
     withdrawStatus !== "idle" && withdrawStatus !== "success"

@@ -5,7 +5,6 @@ import { appPreferenceKeys } from "@/app/_constants/preferences"
 import { walletProviders, type ConnectedAccount } from "@/app/_constants/account"
 
 import {
-  cancelWalletConnectConnection,
   connectWalletProvider,
   refreshConnectedAccountBalances,
   WalletConnectionCanceledError,
@@ -67,7 +66,6 @@ vi.mock("./connectors", () => {
   }
 
   return {
-    cancelWalletConnectConnection: vi.fn(),
     connectWalletProvider: vi.fn(),
     refreshConnectedAccountBalances: vi.fn(),
     WalletConnectionCanceledError,
@@ -172,13 +170,12 @@ describe("useWalletConnection", () => {
       connectResult = result.current.connect(walletProviders[1])
     })
 
-    expect(result.current.pendingProviderId).toBe("walletconnect")
+    expect(result.current.pendingProviderId).toBe("xbull")
 
     act(() => {
       result.current.cancelPendingConnection()
     })
 
-    expect(cancelWalletConnectConnection).toHaveBeenCalledTimes(1)
     expect(result.current.pendingProviderId).toBeNull()
 
     let connected = true

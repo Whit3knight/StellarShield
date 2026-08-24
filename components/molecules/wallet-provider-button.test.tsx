@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react"
-import { SmartphoneIcon, WalletCardsIcon } from "lucide-react"
+import { WalletCardsIcon, ZapIcon } from "lucide-react"
 import { describe, expect, it, vi } from "vitest"
 
 import { WalletProviderButton } from "./wallet-provider-button"
@@ -12,11 +12,10 @@ const freighter: WalletProvider = {
   name: "Freighter",
 }
 
-const walletConnect: WalletProvider = {
-  icon: SmartphoneIcon,
-  id: "walletconnect",
-  name: "WalletConnect",
-  unsupported: "Signing needs the Freighter extension.",
+const xbull: WalletProvider = {
+  icon: ZapIcon,
+  id: "xbull",
+  name: "xBull",
 }
 
 describe("WalletProviderButton", () => {
@@ -30,20 +29,11 @@ describe("WalletProviderButton", () => {
     expect(onConnect).toHaveBeenCalledWith(freighter)
   })
 
-  it("renders an unsupported provider as an inert row, never a button", () => {
+  it("connects any provider, not just Freighter", () => {
     const onConnect = vi.fn()
-    render(
-      <WalletProviderButton onConnect={onConnect} provider={walletConnect} />
-    )
+    render(<WalletProviderButton onConnect={onConnect} provider={xbull} />)
 
-    // No clickable affordance at all — a disabled button would still
-    // invite a retry that can never succeed.
-    expect(screen.queryByRole("button")).toBeNull()
-    expect(screen.getByText("WalletConnect")).toBeInTheDocument()
-    expect(screen.getByText("Unavailable")).toBeInTheDocument()
-    expect(
-      screen.getByText(/Signing needs the Freighter extension/)
-    ).toBeInTheDocument()
-    expect(onConnect).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole("button", { name: /Connect with xBull/ }))
+    expect(onConnect).toHaveBeenCalledWith(xbull)
   })
 })

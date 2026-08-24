@@ -23,7 +23,11 @@ are raw token units (stroops, 7 decimals).
 - **Circuit**: Circom 2.2.3 with snarkjs Groth16 over BLS12-381.
 - **Contract**: `soroban-sdk = 22.0.8`, verifier uses Protocol 22 BLS12-381 host fns.
 - **Oracle**: Reflector Pulse (SEP-40 interface) — CEX/DEX + FX feeds via Soroban simulate.
-- **Wallet**: Freighter (primary), WalletConnect scaffolding present.
+- **Wallet**: Freighter, xBull, LOBSTR, Hana — via `@creit-tech/stellar-wallets-kit`'s
+  unified `signTransaction`/`signMessage` (`features/wallet/connectors.ts`).
+  WalletConnect was tried and removed: its protocol has no `signMessage`
+  method, which the shielded-identity derivation requires, so it could
+  never work here regardless of how well it was wired.
 - **Package manager**: **Bun**.
 
 ## Testnet contract
@@ -73,9 +77,8 @@ keep them equal.
 ```bash
 bun install
 cp .env.example .env.local
-# fill in NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID (optional). Testnet
-# defaults for RPC, Horizon, contract IDs, and Reflector feeds ship in
-# .env.example.
+# Testnet defaults for RPC, Horizon, contract IDs, and Reflector feeds
+# ship in .env.example — nothing to fill in for a local run.
 
 bun run dev       # http://localhost:3000
 bun run lint

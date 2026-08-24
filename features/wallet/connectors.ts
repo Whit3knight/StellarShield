@@ -1,5 +1,8 @@
-import type { ConnectedAccount, WalletProvider } from "@/app/_constants/account"
-import type { ModuleInterface } from "@creit-tech/stellar-wallets-kit"
+import type {
+  ConnectedAccount,
+  WalletProvider,
+  WalletProviderId,
+} from "@/app/_constants/account"
 
 import {
   getConfiguredHorizonUrl,
@@ -27,39 +30,10 @@ type WalletBalanceResult = {
   balances: Record<string, string>
 }
 
-type WalletConnectModalState = {
-  open: boolean
-}
-
-type WalletConnectModal = {
-  close?: () => Promise<void> | void
-  getState?: () => WalletConnectModalState
-  subscribeState?: (
-    callback: (state: WalletConnectModalState) => void
-  ) => () => void
-}
-
-type WalletConnectModuleWithModal = ModuleInterface & {
-  modal?: WalletConnectModal
-}
-
-type WalletConnectRuntime = {
-  addressRequest?: Promise<{ address: string }>
-  configKey: string
-  module: ModuleInterface
-}
-
-type WalletConnectGlobal = typeof globalThis & {
-  __stellarShieldWalletConnectRuntime?: WalletConnectRuntime
-}
-
-type FreighterError = {
+type KitError = {
   code?: number
+  ext?: string
   message?: string
-}
-
-type FreighterResult = {
-  error?: FreighterError
 }
 
 export class WalletConnectionError extends Error {
@@ -76,14 +50,190 @@ export class WalletConnectionCanceledError extends Error {
   }
 }
 
+// All four providers route through this one kit — its unified
+// signTransaction/signMessage dispatch to whichever module is currently
+// selected (features/wallet/network.ts:114's Freighter-specific network
+// check aside, the connect and sign paths below are identical per
+// provider). Modules are dynamic-imported and the kit is only
+// initialized once per page load; check:bundle enforces every caller of
+// @stellar/freighter-api dynamic-imports it, and the Freighter module
+// pulls it in transitively, so this stays compliant automatically as
+// long as nothing here becomes a static top-level import.
+let kitPromise: Promise<{
+  Kit: typeof import("@creit-tech/stellar-wallets-kit").StellarWalletsKit
+}> | null = null
+
+function ensureKit(): Promise<{
+  Kit: typeof import("@creit-tech/stellar-wallets-kit").StellarWalletsKit
+}> {
+  kitPromise ??= (async () => {
+    const [
+      { Networks, StellarWalletsKit },
+      { FreighterModule },
+      { xBullModule },
+      { LobstrModule },
+      { HanaModule },
+    ] = await Promise.all([
+      import("@creit-tech/stellar-wallets-kit"),
+      import("@creit-tech/stellar-wallets-kit/modules/freighter"),
+      import("@creit-tech/stellar-wallets-kit/modules/xbull"),
+      import("@creit-tech/stellar-wallets-kit/modules/lobstr"),
+      import("@creit-tech/stellar-wallets-kit/modules/hana"),
+    ])
+
+    const network = getConfiguredStellarNetwork()
+    const kitNetwork =
+      network === "public"
+        ? Networks.PUBLIC
+        : network === "futurenet"
+          ? Networks.FUTURENET
+          : Networks.TESTNET
+
+    StellarWalletsKit.init({
+      modules: [
+        new FreighterModule(),
+        new xBullModule(),
+        new LobstrModule(),
+        new HanaModule(),
+      ],
+      network: kitNetwork,
+    })
+
+    return { Kit: StellarWalletsKit }
+  })()
+
+  return kitPromise
+}
+
 export async function connectWalletProvider(
   provider: WalletProvider
 ): Promise<ConnectedAccount> {
-  if (provider.id === "freighter") {
-    return connectFreighter(provider)
+  if (typeof window === "undefined") {
+    throw new WalletConnectionError(
+      `${provider.name} can only be connected from a browser.`
+    )
   }
 
-  return connectWalletConnect(provider)
+  const { Kit } = await ensureKit()
+  Kit.setWallet(provider.id)
+
+  let address: string
+  try {
+    address = (await Kit.fetchAddress()).address
+  } catch (cause) {
+    throw new WalletConnectionError(describeKitError(cause, provider))
+  }
+
+  if (!address) {
+    throw new WalletConnectionError(
+      `${provider.name} did not return a wallet address.`
+    )
+  }
+
+  // Only Freighter's module reliably implements getNetwork() — xBull,
+  // Lobstr, and Hana all reject it outright (verified by reading each
+  // module's source), so a pre-connect network check only exists for
+  // Freighter. The other three get whatever network they're on; every
+  // sign call still passes an explicit networkPassphrase, so a mismatch
+  // surfaces as a sign-time rejection instead of a connect-time one.
+  if (provider.id === "freighter") {
+    try {
+      const networkDetails = await Kit.selectedModule.getNetwork()
+      if (!isFreighterNetworkCompatible(networkDetails)) {
+        throw new WalletConnectionError(
+          `Switch Freighter to ${getConfiguredNetworkLabel()} and try again.`
+        )
+      }
+    } catch (cause) {
+      if (cause instanceof WalletConnectionError) throw cause
+      // getNetwork() itself failing shouldn't block connecting.
+    }
+  }
+
+  const balanceResult = await getWalletBalances(address)
+
+  return createConnectedAccount({
+    address,
+    balance: balanceResult.balance,
+    balances: balanceResult.balances,
+    provider,
+  })
+}
+
+/**
+ * Sign a transaction XDR with whichever wallet `providerId` names.
+ * Every operation hook (deposit, borrow, withdraw, repay, liquidate)
+ * routes through this instead of importing a wallet SDK directly, so
+ * adding a wallet is one module registration in `ensureKit`, not a
+ * signing call site rewritten in six files.
+ */
+export async function signTransactionWithWallet(
+  xdrToSign: string,
+  opts: {
+    address: string
+    networkPassphrase: string
+    providerId: WalletProviderId
+  }
+): Promise<string> {
+  const { Kit } = await ensureKit()
+  Kit.setWallet(opts.providerId)
+  try {
+    const { signedTxXdr } = await Kit.signTransaction(xdrToSign, {
+      address: opts.address,
+      networkPassphrase: opts.networkPassphrase,
+    })
+    return signedTxXdr
+  } catch (cause) {
+    throw new WalletConnectionError(
+      describeKitError(cause, { id: opts.providerId, name: opts.providerId })
+    )
+  }
+}
+
+/**
+ * Sign an arbitrary message with whichever wallet `providerId` names.
+ * The shielded identity seed is `SHA-256` of this signature
+ * (features/notes/use-shielded-identity.ts) — every provider wired
+ * here supports signMessage (verified per-module); WalletConnect,
+ * which this replaced, structurally cannot (the protocol has no
+ * signMessage method), which is why it could never derive an identity
+ * no matter how well its transaction-signing was wired.
+ */
+export async function signMessageWithWallet(
+  message: string,
+  opts: {
+    address: string
+    networkPassphrase: string
+    providerId: WalletProviderId
+  }
+): Promise<string> {
+  const { Kit } = await ensureKit()
+  Kit.setWallet(opts.providerId)
+  try {
+    const { signedMessage } = await Kit.signMessage(message, {
+      address: opts.address,
+      networkPassphrase: opts.networkPassphrase,
+    })
+    return signedMessage
+  } catch (cause) {
+    throw new WalletConnectionError(
+      describeKitError(cause, { id: opts.providerId, name: opts.providerId })
+    )
+  }
+}
+
+function describeKitError(
+  cause: unknown,
+  provider: { id: string; name: string }
+): string {
+  const error = cause as KitError | undefined
+  const message = error?.message
+
+  if (message?.includes("is not connected") || message?.includes("is not installed")) {
+    return `${provider.name} is not installed or not connected in this browser.`
+  }
+
+  return message ?? `Unable to connect ${provider.name}. Try again.`
 }
 
 export async function refreshConnectedAccountBalances(
@@ -101,324 +251,6 @@ export async function refreshConnectedAccountBalances(
       balance: balanceResult.balance,
       balances: balanceResult.balances,
     },
-  }
-}
-
-async function connectFreighter(
-  provider: WalletProvider
-): Promise<ConnectedAccount> {
-  if (typeof window === "undefined") {
-    throw new WalletConnectionError(
-      "Freighter can only be connected from a browser."
-    )
-  }
-
-  const { getNetworkDetails, isConnected, requestAccess } = await import(
-    "@stellar/freighter-api"
-  )
-
-  const connection = await isConnected()
-  assertFreighterResult(connection)
-
-  if (!connection.isConnected) {
-    throw new WalletConnectionError(
-      "Freighter is not installed or not enabled in this browser."
-    )
-  }
-
-  const access = await requestAccess()
-  assertFreighterResult(access)
-
-  const address = access.address
-
-  if (!address) {
-    throw new WalletConnectionError(
-      "Freighter did not return a wallet address."
-    )
-  }
-
-  const networkDetails = await getNetworkDetails()
-  assertFreighterResult(networkDetails)
-
-  if (!isFreighterNetworkCompatible(networkDetails)) {
-    throw new WalletConnectionError(
-      `Switch Freighter to ${getConfiguredNetworkLabel()} and try again.`
-    )
-  }
-
-  const balanceResult = await getWalletBalances(address)
-
-  return createConnectedAccount({
-    address,
-    balance: balanceResult.balance,
-    balances: balanceResult.balances,
-    provider,
-  })
-}
-
-const walletConnectCloseGraceMs = 150
-const walletConnectStoragePrefix = "stellar-shield"
-
-export function cancelWalletConnectConnection(): void {
-  const walletModule = getWalletConnectGlobal()
-    .__stellarShieldWalletConnectRuntime?.module
-  const modal = walletModule ? getWalletConnectModal(walletModule) : null
-
-  if (!modal?.close) {
-    return
-  }
-
-  void Promise.resolve(modal.close()).catch(() => undefined)
-}
-
-async function connectWalletConnect(
-  provider: WalletProvider
-): Promise<ConnectedAccount> {
-  if (typeof window === "undefined") {
-    throw new WalletConnectionError(
-      "WalletConnect can only be opened from a browser."
-    )
-  }
-
-  const projectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID?.trim()
-
-  if (!projectId) {
-    throw new WalletConnectionError(
-      "Missing NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID."
-    )
-  }
-
-  const { Networks, StellarWalletsKit } = await import(
-    "@creit-tech/stellar-wallets-kit"
-  )
-  const {
-    WALLET_CONNECT_ID,
-    WalletConnectModule,
-    WalletConnectTargetChain,
-  } = await import("@creit-tech/stellar-wallets-kit/modules/wallet-connect")
-  const network = getConfiguredStellarNetwork()
-
-  if (network === "futurenet") {
-    throw new WalletConnectionError(
-      "WalletConnect supports Public and Testnet only."
-    )
-  }
-
-  const kitNetwork =
-    network === "public" ? Networks.PUBLIC : Networks.TESTNET
-  const allowedChain =
-    network === "public"
-      ? WalletConnectTargetChain.PUBLIC
-      : WalletConnectTargetChain.TESTNET
-  const configKey = [
-    "walletconnect",
-    walletConnectStoragePrefix,
-    projectId,
-    network,
-    allowedChain,
-    window.location.origin,
-  ].join(":")
-
-  const runtime = getWalletConnectRuntime(configKey)
-
-  if (!runtime) {
-    const appKitOptions = {
-      enableReconnect: false,
-      features: {
-        analytics: false,
-        email: false,
-        history: false,
-        onramp: false,
-        socials: false,
-        swaps: false,
-      },
-    } as ConstructorParameters<
-      typeof WalletConnectModule
-    >[0]["appKitOptions"]
-
-    const walletModule = new WalletConnectModule({
-      appKitOptions,
-      allowedChains: [allowedChain],
-      metadata: {
-        description:
-          "Private lending and borrowing on Stellar with ZKP verification.",
-        icons: [`${window.location.origin}/stellar-shield-black.svg`],
-        name: "Stellar Shield",
-        url: window.location.origin,
-      },
-      projectId,
-      signClientOptions: {
-        customStoragePrefix: walletConnectStoragePrefix,
-        telemetryEnabled: false,
-      },
-    })
-
-    StellarWalletsKit.init({
-      modules: [walletModule],
-      network: kitNetwork,
-      selectedWalletId: WALLET_CONNECT_ID,
-    })
-
-    setWalletConnectRuntime({
-      configKey,
-      module: walletModule,
-    })
-  }
-
-  const walletConnectRuntime = getWalletConnectRuntime(configKey)
-  const walletConnectModule = walletConnectRuntime?.module
-
-  if (!walletConnectRuntime || !walletConnectModule) {
-    throw new WalletConnectionError("WalletConnect failed to initialize.")
-  }
-
-  await waitForWalletConnectModule(walletConnectModule)
-  StellarWalletsKit.setNetwork(kitNetwork)
-  StellarWalletsKit.setWallet(WALLET_CONNECT_ID)
-
-  const { address } = await fetchWalletConnectAddressOnce(
-    StellarWalletsKit,
-    walletConnectRuntime
-  )
-
-  if (!address) {
-    throw new WalletConnectionError(
-      "WalletConnect did not return a wallet address."
-    )
-  }
-
-  const balanceResult = await getWalletBalances(address)
-
-  return createConnectedAccount({
-    address,
-    balance: balanceResult.balance,
-    balances: balanceResult.balances,
-    provider,
-  })
-}
-
-function getWalletConnectRuntime(
-  configKey: string
-): WalletConnectRuntime | null {
-  const runtime =
-    getWalletConnectGlobal().__stellarShieldWalletConnectRuntime
-
-  if (runtime?.configKey === configKey) {
-    return runtime
-  }
-
-  return null
-}
-
-function setWalletConnectRuntime(runtime: WalletConnectRuntime): void {
-  getWalletConnectGlobal().__stellarShieldWalletConnectRuntime = runtime
-}
-
-function getWalletConnectGlobal(): WalletConnectGlobal {
-  return globalThis as WalletConnectGlobal
-}
-
-function fetchWalletConnectAddressOnce(
-  StellarWalletsKit: typeof import("@creit-tech/stellar-wallets-kit").StellarWalletsKit,
-  runtime: WalletConnectRuntime
-): Promise<{ address: string }> {
-  if (runtime.addressRequest) {
-    return runtime.addressRequest
-  }
-
-  const request = fetchWalletConnectAddress(
-    StellarWalletsKit,
-    runtime.module
-  ).finally(() => {
-    if (runtime.addressRequest === request) {
-      runtime.addressRequest = undefined
-    }
-  })
-
-  runtime.addressRequest = request
-  return request
-}
-
-async function fetchWalletConnectAddress(
-  StellarWalletsKit: typeof import("@creit-tech/stellar-wallets-kit").StellarWalletsKit,
-  module: ModuleInterface
-): Promise<{ address: string }> {
-  const modal = getWalletConnectModal(module)
-
-  if (!modal?.subscribeState) {
-    return StellarWalletsKit.fetchAddress()
-  }
-
-  let hasOpened = modal.getState?.().open ?? false
-  let closeTimer: number | null = null
-  let unsubscribe: (() => void) | null = null
-
-  return new Promise((resolve, reject) => {
-    const settle = (callback: () => void): void => {
-      if (closeTimer !== null) {
-        window.clearTimeout(closeTimer)
-      }
-
-      unsubscribe?.()
-      unsubscribe = null
-      callback()
-    }
-
-    unsubscribe = modal.subscribeState?.((state) => {
-      if (state.open) {
-        hasOpened = true
-        return
-      }
-
-      if (!hasOpened || closeTimer !== null) {
-        return
-      }
-
-      closeTimer = window.setTimeout(() => {
-        settle(() => {
-          reject(new WalletConnectionCanceledError())
-        })
-      }, walletConnectCloseGraceMs)
-    }) ?? null
-
-    StellarWalletsKit.fetchAddress()
-      .then((result) => {
-        settle(() => {
-          resolve(result)
-        })
-      })
-      .catch((error: unknown) => {
-        settle(() => {
-          reject(error)
-        })
-      })
-  })
-}
-
-function getWalletConnectModal(module: ModuleInterface): WalletConnectModal | null {
-  return (module as WalletConnectModuleWithModal).modal ?? null
-}
-
-async function waitForWalletConnectModule(
-  module: ModuleInterface,
-  timeoutMs = 5000
-): Promise<void> {
-  const startedAt = Date.now()
-
-  while (!(await module.isAvailable())) {
-    if (Date.now() - startedAt > timeoutMs) {
-      throw new WalletConnectionError("WalletConnect failed to start.")
-    }
-
-    await new Promise((resolve) => window.setTimeout(resolve, 100))
-  }
-}
-
-function assertFreighterResult(result: FreighterResult): void {
-  if (result.error) {
-    throw new WalletConnectionError(
-      result.error.message ?? "Freighter returned an error."
-    )
   }
 }
 

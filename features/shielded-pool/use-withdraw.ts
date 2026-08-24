@@ -2,6 +2,7 @@
 
 import * as React from "react"
 
+import type { WalletProviderId } from "@/app/_constants/account"
 import { toastManager } from "@/components/ui/toast"
 import { formatRawAmount } from "@/features/markets"
 import {
@@ -10,6 +11,7 @@ import {
   computeCommitment,
   upsertNote,
 } from "@/features/notes"
+import { signTransactionWithWallet } from "@/features/wallet/connectors"
 import {
   getConfiguredContractId,
   getConfiguredNetworkPassphrase,
@@ -37,7 +39,10 @@ type UseWithdrawResult = {
  * merkle tree from every deposit event to derive the note's
  * inclusion witness, then generates the proof + submits via Freighter.
  */
-export function useWithdraw(account: string | null): UseWithdrawResult {
+export function useWithdraw(
+  account: string | null,
+  providerId: WalletProviderId | null
+): UseWithdrawResult {
   const [status, setStatus] = React.useState<Status>("idle")
   const [message, setMessage] = React.useState<string | null>(null)
   const [activeNoteIndex, setActiveNoteIndex] = React.useState<number | null>(
@@ -154,19 +159,19 @@ export function useWithdraw(account: string | null): UseWithdrawResult {
                 proof: proofBuffers,
               })
 
-        const { signTransaction: freighter } = await import(
-          "@stellar/freighter-api"
-        )
         const sent = await assembled.signAndSend({
           signTransaction: (async (
             xdrToSign: string,
             opts?: { address?: string; networkPassphrase?: string }
           ) => {
-            return freighter(xdrToSign, {
+            if (!providerId) throw new Error("No wallet connected.")
+            const signedTxXdr = await signTransactionWithWallet(xdrToSign, {
               address: opts?.address ?? account,
               networkPassphrase:
                 opts?.networkPassphrase ?? getConfiguredNetworkPassphrase(),
+              providerId,
             })
+            return { signedTxXdr }
           }) as unknown as Parameters<
             typeof assembled.signAndSend
           >[0] extends undefined
@@ -216,7 +221,7 @@ export function useWithdraw(account: string | null): UseWithdrawResult {
         return null
       }
     },
-    [account]
+    [account, providerId]
   )
 
   return { activeNoteIndex, message, reset, status, withdraw }

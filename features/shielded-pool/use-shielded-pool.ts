@@ -2,6 +2,7 @@
 
 import * as React from "react"
 
+import type { WalletProviderId } from "@/app/_constants/account"
 import {
   onBorrowConfirmed,
   onDepositConfirmed,
@@ -24,12 +25,15 @@ import { getConfiguredContractId } from "@/features/wallet/network"
  *
  * Consumers only need `useNotes()` — this hook fires and forgets.
  */
-export function useShieldedPool(account: string | null): {
+export function useShieldedPool(
+  account: string | null,
+  providerId: WalletProviderId | null
+): {
   identity: ScanIdentity | null
   isScanning: boolean
   refresh: () => void
 } {
-  const identity = useShieldedIdentity(account)
+  const identity = useShieldedIdentity(account, providerId)
   const [isScanning, setIsScanning] = React.useState(false)
   const [refreshToken, setRefreshToken] = React.useState(0)
 

@@ -66,14 +66,15 @@ export function useShieldedBorrowFlow({
   const [flow, setFlow] = React.useState<BorrowFlowState>(INITIAL_FLOW_STATE)
   const [position, setPosition] = React.useState<UserPosition | null>(null)
   const walletAddress = account?.wallet.address ?? null
+  const providerId = account?.wallet.providerId ?? null
   const { identity } = useShieldedPoolContext()
   const notes = useNotes()
 
   const collateralAsset = market.collateral as ShieldedAsset
   const borrowAsset = market.symbol as ShieldedAsset
 
-  const { deposit, depositQuad } = useDeposit(walletAddress, identity)
-  const { borrow } = useBorrow(walletAddress, identity)
+  const { deposit, depositQuad } = useDeposit(walletAddress, identity, providerId)
+  const { borrow } = useBorrow(walletAddress, identity, providerId)
 
   const deferredCollateralAmount = React.useDeferredValue(flow.collateralAmount)
   const deferredLoanAmount = React.useDeferredValue(flow.loanAmount)

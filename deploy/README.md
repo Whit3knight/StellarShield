@@ -28,8 +28,7 @@ Already configured; nothing to build by hand.
    install/build auto-detect Bun from `bun.lock` (build = `bun run build`).
 2. **Vercel → Settings → Environment Variables** — set the `NEXT_PUBLIC_*`
    values from `build.env.example` (they are inlined into the client bundle at
-   build; none are secret — they're public chain identifiers). Add
-   `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID`.
+   build; none are secret — they're public chain identifiers).
 3. **GitHub repo secrets** for the CI deploy: `VERCEL_TOKEN`, `VERCEL_ORG_ID`,
    `VERCEL_PROJECT_ID` (from `vercel link` / the Vercel dashboard).
 4. Point your domain at Vercel (or use the `*.vercel.app` URL).

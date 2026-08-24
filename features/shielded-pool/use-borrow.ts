@@ -2,6 +2,7 @@
 
 import * as React from "react"
 
+import type { WalletProviderId } from "@/app/_constants/account"
 import { toastManager } from "@/components/ui/toast"
 import {
   COLLATERAL_NOTES_PER_BORROW,
@@ -13,6 +14,7 @@ import {
   type ShieldedNote,
 } from "@/features/notes"
 import { getRiskParams } from "@/features/protocol/risk-params"
+import { signTransactionWithWallet } from "@/features/wallet/connectors"
 import {
   getConfiguredContractId,
   getConfiguredNetworkPassphrase,
@@ -57,7 +59,8 @@ type UseBorrowResult = {
  */
 export function useBorrow(
   account: string | null,
-  identity: ScanIdentity | null
+  identity: ScanIdentity | null,
+  providerId: WalletProviderId | null
 ): UseBorrowResult {
   const notes = useNotes()
   const [status, setStatus] = React.useState<Status>("idle")
@@ -241,19 +244,19 @@ export function useBorrow(
           memo: Buffer.from(prepared.memo),
         })
 
-        const { signTransaction: freighter } = await import(
-          "@stellar/freighter-api"
-        )
         const sent = await assembled.signAndSend({
           signTransaction: (async (
             xdrToSign: string,
             opts?: { address?: string; networkPassphrase?: string }
           ) => {
-            return freighter(xdrToSign, {
+            if (!providerId) throw new Error("No wallet connected.")
+            const signedTxXdr = await signTransactionWithWallet(xdrToSign, {
               address: opts?.address ?? account,
               networkPassphrase:
                 opts?.networkPassphrase ?? getConfiguredNetworkPassphrase(),
+              providerId,
             })
+            return { signedTxXdr }
           }) as unknown as Parameters<
             typeof assembled.signAndSend
           >[0] extends undefined
@@ -317,7 +320,7 @@ export function useBorrow(
         return null
       }
     },
-    [account, availableCollateral, identity]
+    [account, availableCollateral, identity, providerId]
   )
 
   return { availableCollateral, borrow, message, reset, status }
