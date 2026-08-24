@@ -20,7 +20,7 @@ composition root is `features/shielded-pool/shielded-pool-provider.tsx` with no
 
 ## 1. Product Overview
 
-Stellar Shield is a Zcash-style shielded lending pool on Stellar with a Next.js
+Stellar Shield is a Zcash-style shielded borrow pool on Stellar with a Next.js
 16 dashboard. Users deposit fixed-denomination notes into per-asset commitment
 trees (Merkle depth 20; deposit + loan trees), borrow against exactly 4
 collateral notes behind a Groth16 proof of note ownership, then **either**

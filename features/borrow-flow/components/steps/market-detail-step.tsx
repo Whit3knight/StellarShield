@@ -14,6 +14,7 @@ import {
   useMarketStats,
   type MarketCardData,
 } from "@/features/markets"
+import { useRateParams } from "@/features/protocol/rate-params"
 import { getWalletAssetBalanceDisplay } from "@/features/wallet/utils"
 
 import { formatPairPrice } from "../../format"
@@ -34,7 +35,11 @@ export function MarketDetailStep({
   )
 
   const { stats } = useMarketStats()
-  const metrics = deriveMarketMetrics(stats[market.symbol], market.symbol)
+  const rateParams = useRateParams()
+  const metrics = deriveMarketMetrics(stats[market.symbol], market.symbol, {
+    baseApr: rateParams.baseAprBps / 10_000,
+    slopeApr: rateParams.slopeAprBps / 10_000,
+  })
   const chartPoints = normalizeChart(metrics.chart)
 
   return (
@@ -51,10 +56,6 @@ export function MarketDetailStep({
       </Card>
 
       <div className="grid grid-cols-2 gap-3">
-        <MetricTile
-          label="Supply APY"
-          value={formatPercent(metrics.supplyApy * 100)}
-        />
         <MetricTile label="Pair price" value={formatPairPrice(market)} />
         <MetricTile label={`${market.symbol} balance`} value={borrowBalance} />
         <MetricTile

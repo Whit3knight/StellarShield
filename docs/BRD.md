@@ -35,7 +35,7 @@ is a liability for serious borrowers — it enables liquidation front-running,
 financial doxxing, and copy-trading. No lending protocol on Stellar offers
 position privacy today.
 
-Stellar Shield is a privacy-preserving lending pool on Stellar's Soroban smart
+Stellar Shield is a privacy-preserving borrow pool on Stellar's Soroban smart
 contract platform. It lets a user deposit collateral, prove they are eligible to
 borrow, and take a loan — without revealing their wallet, balances, or position
 size on-chain. Ownership of the collateral being spent is proven with
@@ -190,7 +190,7 @@ observed yet; validating them is Open Question OQ-1.
 
 | Segment | Job-to-be-done | Status |
 |---------|----------------|--------|
-| Privacy-conscious Stellar holders | "Earn yield or take leverage without broadcasting my balance sheet to the world." | Hypothesis — unvalidated |
+| Privacy-conscious Stellar holders | "Take leverage without broadcasting my balance sheet to the world." | Hypothesis — unvalidated |
 | Professional borrowers (funds, market makers) | "Borrow without leaking my position size and liquidation level to competitors and liquidation bots." | Hypothesis — unvalidated |
 | Liquidation service operators | "Keep the pool solvent and earn a bounty for triggering liquidations on underwater positions." | Watchlist + triage tooling shipped and permissionless-capable by design, but no bounty is earnable — triggering is inert (BR8) |
 | Internal development team | "Prove the concept works and de-risk a future product decision." | Actual current user |
@@ -198,7 +198,7 @@ observed yet; validating them is Open Question OQ-1.
 ## 5. Value Proposition & Differentiation
 
 **Core value proposition:** *Borrow in the open market, keep your position in the
-dark.* Users get the economic function of a lending market (collateralized
+dark.* Users get the economic function of a borrowing market (collateralized
 borrowing against live oracle prices) without the surveillance cost of a fully
 public position.
 
@@ -207,14 +207,14 @@ public position.
 > **For** professional and privacy-conscious borrowers on Stellar **who** need
 > collateralized leverage but cannot afford to broadcast their balance sheet,
 > position size, and liquidation level to the entire chain, **Stellar Shield is**
-> a privacy-preserving lending pool **that** lets you borrow against collateral
+> a privacy-preserving borrow pool **that** lets you borrow against collateral
 > you prove you own, while your wallet, balances, and position size stay hidden
 > on-chain.
 > **Unlike** transparent Stellar lenders (Blend and every other Stellar lending
 > market), which expose every position publicly, **and unlike** shielded-*transfer*
 > tools (Zcash, Tornado-style pools), which hide payments but offer no borrowing
 > primitive, **Stellar Shield** is the only option that combines shielded privacy
-> *with* a lending market on Stellar — **because** eligibility is enforced by a
+> *with* a borrowing protocol on Stellar — **because** eligibility is enforced by a
 > real zero-knowledge proof verified *on-chain* via Protocol 22 BLS12-381 host
 > functions, proofs are generated *client-side* so no server ever custodies a
 > user's keys, and a user's private position can be rebuilt from public chain data
@@ -222,7 +222,7 @@ public position.
 
 **What makes it uniquely defensible:**
 
-- **Category of one on Stellar.** It is the only *shielded lending* option in the
+- **Category of one on Stellar.** It is the only *shielded borrowing* option in the
   Stellar ecosystem — a gap, not a head-to-head fight with an incumbent (§2).
 - **On-chain ZK verification, not off-chain trust.** Every shielded operation is
   gated by a zk-SNARK verified directly on-chain using Protocol 22 BLS12-381
@@ -284,14 +284,16 @@ be baked into the interest index or note math, never charged per account. That
 narrows the answer to essentially one mechanism: a **reserve factor** — the
 protocol keeps a fraction (benchmark: Aave 10% on stablecoins, 10–35% on
 volatile assets) of the interest borrowers pay. It is the Aave/Compound
-standard, it is *already implemented* in the contract's rate math
-(`reserve_factor_bps`), and it collects in aggregate — the borrow index grows
-faster than the supply index and the wedge accrues to the protocol — without
-ever deanonymizing a user. Illustratively, revenue runs **~0.5–1.0% of TVL per
-year**, putting order-of-magnitude break-even near **~$10M TVL** for lean solo
-operation (see WHITEPAPER.md §16 for the scenario math). Origination fees, a
-liquidation-bounty cut, and the latent repay-retention are marginal or fight
-the design and are not the plan.
+standard, and the rate *split* is already implemented in the contract's rate
+math (`reserve_factor_bps`) — the borrow index is designed to grow faster than
+the supply index. But no protocol-owned position currently captures that
+wedge, so today `reserve_factor_bps` only *lowers supplier yield*; turning it
+into actual protocol revenue requires the treasury-sink code described below,
+without ever deanonymizing a user. Illustratively, once that code exists,
+revenue would run **~0.5–1.0% of TVL per year**, putting order-of-magnitude
+break-even near **~$10M TVL** for lean solo operation (see WHITEPAPER.md §16
+for the scenario math). Origination fees, a liquidation-bounty cut, and the
+latent repay-retention are marginal or fight the design and are not the plan.
 
 **This revenue model is conditional on a legal gate that may fail.** The
 money-transmitter question (§9) is a **first-order go/no-go, evaluated before
@@ -386,11 +388,11 @@ not reproduced here.
 | BR1 | **Unproven demand.** There is no evidence that users on Stellar want on-chain privacy at meaningful scale. Stellar's ecosystem skews compliance-heavy (regulated anchors, KYC'd assets), which is a counter-signal. | Market | The entire product thesis may be wrong. | Treat Stage 2 as a demand-validation experiment before any build-out (OQ-1). |
 | BR2 | **Regulatory exposure of privacy pools.** The Tornado Cash precedent is genuine, not theoretical, and cuts both ways. OFAC sanctioned the Tornado Cash smart contracts on **2022-08-08** [S11]; the Fifth Circuit ruled in **Nov 2024** that OFAC overstepped (immutable contracts are not "property" under IEEPA) and Treasury **delisted** the addresses on **2025-03-21** [S15, S16] — a partial legal reprieve for the *contracts*. But developer liability remains live: co-founder Roman Storm was **convicted on 2025-08-06** of conspiracy to operate an unlicensed money-transmitting business (jury deadlocked on the money-laundering and sanctions-violation counts) [S17]. The lesson for a single-developer privacy protocol is that code being lawful does not shield the *operator* from money-transmission liability. | Regulatory/legal | Could make mainnet deployment legally unviable or personally risky for the developer. | A documented legal position — covering money-transmitter status, not just sanctions — is a *gating input* to any mainnet decision, not a post-launch add-on (OQ-3). |
 | BR3 | **Privacy that isn't yet private.** At testnet volume the anonymity set is effectively zero, so positions are correlatable despite the cryptography. If launched prematurely, the product would over-promise. | Product credibility | Reputational damage; users assume privacy they don't have. | Do not market as privacy-delivering until anonymity-set KPI (§8) is met. |
-| BR4 | **Single-developer execution capacity.** A lending protocol demands audit-grade rigor across cryptography, smart contracts, oracle integration, and in-browser proving — currently held by one person. | Execution | The system must not custody real value under this model; velocity and bus-factor are constrained. | Keep on testnet; mainnet requires additional people and independent audit. |
+| BR4 | **Single-developer execution capacity.** A borrowing protocol demands audit-grade rigor across cryptography, smart contracts, oracle integration, and in-browser proving — currently held by one person. | Execution | The system must not custody real value under this model; velocity and bus-factor are constrained. | Keep on testnet; mainnet requires additional people and independent audit. |
 | BR5 | **Sole oracle dependency.** Pricing depends entirely on a single oracle provider — Reflector, a SEP-40-compliant Stellar price oracle run as a P2P consensus of ecosystem-operated nodes [S18]. It is real and widely used Stellar infrastructure (its V3 contract was audited via Code4rena in Oct 2025 [S18]), and SEP-40 is an established interface with multiple providers (e.g. RedStone adopted it in 2026 [S19]) — so the *interface* is not a lock-in, but Stellar Shield currently wires to one feed. | Operational | An oracle outage, mispricing, or discontinuation directly threatens solvency and availability. | Interface is SEP-40-standard and swappable in principle; a cross-checked fallback source is a mainnet prerequisite. |
 | BR6 | **Trusted liquidation operator.** The party running the liquidation service can currently see every borrower's position. | Product/privacy | Weakens the privacy promise against an insider; centralizes a sensitive role. | Disclosed as an accepted limitation; decentralizing it is the only removal path. |
 | BR7 | **First-mover with no proven playbook.** Being early on Stellar ZK means no reference users, no established demand, and no peer protocols to learn from. | Strategic | Higher uncertainty; may be early to a market that doesn't materialize. | Frame as an option/credibility play, not a committed product bet. |
-| BR8 | **No working liquidation.** Every liquidation component is built — bond commitments, both circuits, both contract entry points, the hook, the operator CLI — but the underwater proof is dimensionally mismatched and cannot be generated for any position. It fails closed; an earlier version of the same comparison failed *open*, marking every position underwater. Nothing at any test level covers liquidation proving. | Product/solvency | A lending pool that cannot liquidate has no mechanism to close a bad position. On testnet this is contained by the loan cap; with real value it is disqualifying. | Contract-side cap (one denomination per loan, four notes of collateral) contains the exposure today. A v3 liquidate circuit with an explicit divisor plus a contract-read price is the fix, gated behind a proving fixture that would have caught both failure directions. Hard mainnet blocker. |
+| BR8 | **No working liquidation.** Every liquidation component is built — bond commitments, both circuits, both contract entry points, the hook, the operator CLI — but the underwater proof is dimensionally mismatched and cannot be generated for any position. It fails closed; an earlier version of the same comparison failed *open*, marking every position underwater. Nothing at any test level covers liquidation proving. | Product/solvency | A borrow pool that cannot liquidate has no mechanism to close a bad position. On testnet this is contained by the loan cap; with real value it is disqualifying. | Contract-side cap (one denomination per loan, four notes of collateral) contains the exposure today. A v3 liquidate circuit with an explicit divisor plus a contract-read price is the fix, gated behind a proving fixture that would have caught both failure directions. Hard mainnet blocker. |
 | BR9 | **Loan sizing is capped, not risk-priced.** Collateralization is not enforced by the proof — the circuit's LTV band is decorative because its price input is an unconstrained witness — so the contract caps every loan at one denomination regardless of the collateral's actual value. | Product/economics | Safe, but blunt: capital efficiency is fixed and cannot respond to collateral value, which weakens the borrowing proposition for the professional-borrower persona the product targets. | Accepted on testnet. A price-bound circuit constraint is bundled with the on-chain oracle cross-check and the trusted-setup ceremony (all three regenerate the proving keys). |
 
 ### Key business assumptions

@@ -17,6 +17,7 @@ import {
   useMarketStats,
   type MarketCardData,
 } from "@/features/markets"
+import { useRateParams } from "@/features/protocol/rate-params"
 import { cn } from "@/lib/utils"
 
 export function MarketCard({
@@ -37,14 +38,17 @@ export function MarketCard({
   // Utilisation and liquidity are properties of the asset pool, not of
   // a specific borrow/collateral pair.
   const marketStat = stats[market.symbol]
-  const metrics = deriveMarketMetrics(marketStat, market.symbol)
+  const rateParams = useRateParams()
+  const metrics = deriveMarketMetrics(marketStat, market.symbol, {
+    baseApr: rateParams.baseAprBps / 10_000,
+    slopeApr: rateParams.slopeAprBps / 10_000,
+  })
 
   const risk = pickRisk(metrics.utilization)
   const chartPoints = normalizeChart(metrics.chart)
   const chartValue = formatPercent(metrics.borrowApr * 100)
 
   const marketMetrics = [
-    { label: "Supply APY", value: formatPercent(metrics.supplyApy * 100) },
     {
       label: `${market.symbol} price`,
       value: `$${borrowPrice.toLocaleString("en-US", {

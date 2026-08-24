@@ -43,6 +43,7 @@ import {
   useMarketStats,
   type MarketCardData,
 } from "@/features/markets"
+import { useRateParams } from "@/features/protocol/rate-params"
 import { useWalletConnection } from "@/features/wallet/use-wallet-connection"
 import { setPrivacyMode, usePrivacyMode } from "@/hooks/use-privacy-mode"
 
@@ -330,7 +331,11 @@ function MarketBadges({
   market: MarketCardData
 }): React.ReactElement {
   const { stats } = useMarketStats()
-  const metrics = deriveMarketMetrics(stats[market.symbol], market.symbol)
+  const rateParams = useRateParams()
+  const metrics = deriveMarketMetrics(stats[market.symbol], market.symbol, {
+    baseApr: rateParams.baseAprBps / 10_000,
+    slopeApr: rateParams.slopeAprBps / 10_000,
+  })
   const risk = pickRisk(metrics.utilization)
   return (
     <span className="ms-auto flex items-center gap-1.5 text-xs text-muted-foreground">

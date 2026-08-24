@@ -44,7 +44,7 @@ const sections: LegalSection[] = [
       <>
         <p>
           Stellar Shield is a privacy-preserving (&ldquo;shielded&rdquo;)
-          lending pool deployed on <strong>Stellar testnet</strong>, together
+          borrow pool deployed on <strong>Stellar testnet</strong>, together
           with a browser dashboard.
         </p>
         <p>

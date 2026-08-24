@@ -39,8 +39,11 @@ pub fn utilization(env: &Env, asset: &Symbol) -> u128 {
         / denom
 }
 
-/// Instant borrow APR in 1e18 fixed point. Matches
-/// `deriveMarketMetrics` on the frontend.
+/// Instant borrow APR in 1e18 fixed point:
+/// `base_apr_bps + slope_apr_bps * utilization`. The frontend
+/// (`derive-metrics.ts`) computes the same formula against real
+/// `rate_params()` fetched from this contract — if either side's
+/// utilization formula changes, check the other still matches.
 pub fn borrow_rate(params: &RateParams, utilization_1e18: u128) -> u128 {
     let base = (params.base_apr_bps as u128) * ONE_E18 / BPS_DENOMINATOR;
     let slope_term = (params.slope_apr_bps as u128)
@@ -50,7 +53,10 @@ pub fn borrow_rate(params: &RateParams, utilization_1e18: u128) -> u128 {
     base + slope_term
 }
 
-/// Supply APY approximation `borrowRate × U × (1 - reserveFactor)`.
+/// Supply-side accrual rate: `borrowRate × U × (1 - reserveFactor)`.
+/// Not currently paid out to depositors — `accrue_liquidity_index`'s
+/// only caller is the read-only `liquidity_index` view; no withdraw
+/// path consumes it. See BRD.md §16 for revenue-model status.
 pub fn supply_rate(
     params: &RateParams,
     utilization_1e18: u128,

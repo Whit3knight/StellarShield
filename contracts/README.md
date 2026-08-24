@@ -50,5 +50,12 @@ Copy the returned contract id into
 
 ## Scope
 
-Skeleton. No liquidity accounting, oracle prices, interest accrual, or
-repay/liquidate. Extend once economics are pinned.
+Deposit / borrow / withdraw / repay / liquidate are all live, each behind a
+Groth16 proof verified on-chain, over per-asset commitment trees. Interest
+accrues on borrows via a linear-index curve (`rate.rs`); prices come from
+Reflector (SEP-40). What's still missing: v1's repay circuit burns collateral
+permanently (no collateral-recovery repay), there is no supply-side yield
+payout (depositors earn nothing — `rate.rs::accrue_liquidity_index`'s output
+is never read by any payout path), and liquidation's trigger inequality is
+dimensionally broken so `liquidate_shielded` cannot currently be called (see
+`docs/REMEDIATION.md`).

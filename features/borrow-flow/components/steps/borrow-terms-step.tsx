@@ -25,6 +25,7 @@ import {
   useMarketStats,
   type MarketCardData,
 } from "@/features/markets"
+import { useRateParams } from "@/features/protocol/rate-params"
 
 import { MIN_COLLATERAL_VALUE, MIN_LOAN_VALUE } from "../../constants"
 import type {
@@ -70,7 +71,11 @@ export function BorrowTermsStep({
   )
   const marketPair = getMarketPair(market)
   const { stats } = useMarketStats()
-  const derived = deriveMarketMetrics(stats[market.symbol], market.symbol)
+  const rateParams = useRateParams()
+  const derived = deriveMarketMetrics(stats[market.symbol], market.symbol, {
+    baseApr: rateParams.baseAprBps / 10_000,
+    slopeApr: rateParams.slopeAprBps / 10_000,
+  })
   const liveBorrowApr = formatPercent(derived.borrowApr * 100)
   const minimumCollateralAmount =
     MIN_COLLATERAL_VALUE / getAssetPriceUsd(market.collateral)

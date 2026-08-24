@@ -27,7 +27,7 @@ const sections: LegalSection[] = [
     body: (
       <>
         <p>
-          Stellar Shield is a shielded lending pool on Stellar testnet. It is
+          Stellar Shield is a shielded borrow pool on Stellar testnet. It is
           built to be private, but <strong>privacy is not yet delivered</strong>.
         </p>
         <p>

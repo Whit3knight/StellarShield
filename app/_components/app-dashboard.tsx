@@ -6,7 +6,7 @@ export function AppDashboard(): React.ReactElement {
   return (
     <main className="min-h-0 flex-1 overflow-hidden bg-muted/30">
       <section
-        aria-label="Lending markets"
+        aria-label="Markets"
         className="h-full min-h-0 w-full"
       >
         <MarketWorkspace />
