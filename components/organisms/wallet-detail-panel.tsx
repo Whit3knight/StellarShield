@@ -1,20 +1,23 @@
 "use client"
 
-import { CheckIcon, CopyIcon } from "lucide-react"
+import { CheckIcon, CopyIcon, ShieldOffIcon } from "lucide-react"
 import * as React from "react"
 
 import { PrivateValue } from "@/components/atoms/private-value"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { MenuItem } from "@/components/ui/menu"
 import type { ConnectedAccount } from "@/app/_constants/account"
 import { getConfiguredNetworkLabel } from "@/features/wallet/network"
 
 type WalletDetailPanelProps = {
   account: ConnectedAccount
+  onForgetDevice: () => void
 }
 
 export function WalletDetailPanel({
   account,
+  onForgetDevice,
 }: WalletDetailPanelProps): React.ReactElement {
   const [copied, setCopied] = React.useState(false)
   const networkLabel = getConfiguredNetworkLabel()
@@ -95,6 +98,18 @@ export function WalletDetailPanel({
       <section className="flex flex-wrap items-center gap-2">
         <Badge variant="outline">{account.wallet.providerName}</Badge>
         <Badge variant="outline">{networkLabel}</Badge>
+        {/* Sits beside the network badge rather than in the top-level
+            menu — a shared-machine escape hatch reads better tucked
+            next to "which wallet, which network" than as a peer of
+            the everyday Disconnect action. */}
+        <MenuItem
+          className="ms-auto h-auto min-h-0 w-auto gap-1 rounded-full border border-destructive/32 px-2 py-0.5 text-xs text-destructive-foreground data-highlighted:bg-destructive/8 sm:text-xs"
+          closeOnClick
+          onClick={onForgetDevice}
+        >
+          <ShieldOffIcon aria-hidden="true" className="size-3" />
+          Forget device
+        </MenuItem>
       </section>
     </div>
   )

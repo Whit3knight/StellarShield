@@ -7,7 +7,6 @@ import {
   LayersIcon,
   LogOutIcon,
   ShieldCheckIcon,
-  ShieldOffIcon,
   WalletCardsIcon,
   WalletIcon,
 } from "lucide-react"
@@ -80,7 +79,10 @@ export function UserMenu({
               Wallet
             </MenuSubTrigger>
             <MenuSubPopup className="w-80">
-              <WalletDetailPanel account={account} />
+              <WalletDetailPanel
+                account={account}
+                onForgetDevice={onForgetDevice}
+              />
             </MenuSubPopup>
           </MenuSub>
           <MenuLinkItem href={explorerUrl} rel="noreferrer" target="_blank">
@@ -149,10 +151,6 @@ export function UserMenu({
         <MenuItem closeOnClick onClick={onDisconnect}>
           <LogOutIcon aria-hidden="true" />
           Disconnect
-        </MenuItem>
-        <MenuItem closeOnClick onClick={onForgetDevice} variant="destructive">
-          <ShieldOffIcon aria-hidden="true" />
-          Forget this device
         </MenuItem>
       </MenuPopup>
     </Menu>
