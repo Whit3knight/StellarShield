@@ -174,7 +174,17 @@ export function useShieldedBorrowFlow({
     // missing — one Groth16 proof + one tx = one Freighter prompt.
     // The circuit is fixed at 4 leaves, so any partial gap falls back
     // to the singleton path.
-    if (missing === 4) {
+    //
+    // ponytail: quad only for XLM. Verified live: deposit_shielded_quad
+    // for USDC/EURC (trustline-backed SEP-41 assets, unlike native XLM)
+    // throws "HostError: Error(Budget, ExceededLimit)" at simulation —
+    // reproduced with both a cold and a warmed deposit tree, so it's
+    // not a first-write cost; most likely the trustline-asset transfer
+    // path adds enough overhead on top of quad's 4x proof/write cost to
+    // tip over the simulation budget, while XLM's native transfer stays
+    // under it. Fix the real cost (contract/circuit work, needs
+    // profiling + redeploy) before re-enabling quad here for non-XLM.
+    if (missing === 4 && collateralAsset === "XLM") {
       const quadResult = await depositQuad(collateralAsset)
       if (!quadResult) {
         console.log("[verify] quad failed")
