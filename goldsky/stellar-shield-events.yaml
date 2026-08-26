@@ -7,13 +7,19 @@ sources:
     type: dataset
     dataset_name: stellar_testnet.events
     version: 1.2.0
-    # Contract created at ledger ~3902450 — nothing before it matters.
-    # Full "earliest" would chew through ~100M+ irrelevant testnet
-    # events before reaching our first ledger. On a testnet reset or
-    # a redeploy to a fresh contract, update this to the new creation
-    # ledger. (Rows from retired contracts persist in the table and
-    # are filtered out by the /api/events contract param.)
-    start_at: "3902400"
+    # Contract redeployed 2026-08-02 (commit 680f846); RPC's ~7-day
+    # retention had already pruned that far back by the time this was
+    # next checked, so the creation ledger below is estimated, not
+    # RPC-verified: stellar.expert's contract API gives created=
+    # unix 1785657475, converted using the ledger rate measured live
+    # from RPC's getHealth oldest->latest window that day (~5.01s per
+    # ledger over 120,959 ledgers) -> ~3,927,635, minus a ~15,000-ledger
+    # (~21h) safety margin so a small rate-estimate error still
+    # backfills from before the real creation point rather than after
+    # it. On a future redeploy, update this to the new contract's
+    # creation ledger. (Rows from retired contracts persist in the
+    # table and are filtered out by the /api/events contract param.)
+    start_at: "3912635"
     filter: type = 'contract' AND in_successful_contract_call = true
 
 transforms:
