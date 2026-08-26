@@ -27,27 +27,12 @@ export const assetPricesUsd: Record<SupportedAssetSymbol, number> = {
   XLM: assets.XLM.priceUsd,
 }
 
+// Only XLM-borrow markets are offered — this product lets users
+// borrow XLM (against USDC or EURC collateral), not the reverse.
+// USDC/XLM, EURC/USDC, USDC/EURC, and EURC/XLM are all registered
+// on-chain (`list_markets` returns all 6 pairs) but deliberately not
+// surfaced here.
 export const marketCards: Market[] = [
-  {
-    availableFunds: "$840K",
-    borrowApr: "7.4%",
-    chart: [
-      { label: "Mon", value: 5.8 },
-      { label: "Tue", value: 6.4 },
-      { label: "Wed", value: 6.1 },
-      { label: "Thu", value: 6.9 },
-      { label: "Fri", value: 7.4 },
-      { label: "Sat", value: 7.1 },
-      { label: "Sun", value: 7.4 },
-    ],
-    chartTone: "success",
-    collateral: "XLM",
-    risk: "Standard",
-    status: "live",
-    supplyApy: "4.1%",
-    symbol: "USDC",
-    utilization: "68%",
-  },
   {
     availableFunds: "$1.2M",
     borrowApr: "6.8%",
@@ -67,66 +52,6 @@ export const marketCards: Market[] = [
     supplyApy: "3.2%",
     symbol: "XLM",
     utilization: "54%",
-  },
-  {
-    availableFunds: "$620K",
-    borrowApr: "7.9%",
-    chart: [
-      { label: "Mon", value: 6.6 },
-      { label: "Tue", value: 6.9 },
-      { label: "Wed", value: 7.2 },
-      { label: "Thu", value: 7.0 },
-      { label: "Fri", value: 7.5 },
-      { label: "Sat", value: 7.7 },
-      { label: "Sun", value: 7.9 },
-    ],
-    chartTone: "success",
-    collateral: "USDC",
-    risk: "Standard",
-    status: "comingSoon",
-    supplyApy: "4.6%",
-    symbol: "EURC",
-    utilization: "61%",
-  },
-  {
-    availableFunds: "$710K",
-    borrowApr: "7.2%",
-    chart: [
-      { label: "Mon", value: 6.0 },
-      { label: "Tue", value: 6.3 },
-      { label: "Wed", value: 6.7 },
-      { label: "Thu", value: 6.6 },
-      { label: "Fri", value: 6.9 },
-      { label: "Sat", value: 7.0 },
-      { label: "Sun", value: 7.2 },
-    ],
-    chartTone: "success",
-    collateral: "EURC",
-    risk: "Conservative",
-    status: "comingSoon",
-    supplyApy: "3.8%",
-    symbol: "USDC",
-    utilization: "57%",
-  },
-  {
-    availableFunds: "$480K",
-    borrowApr: "8.1%",
-    chart: [
-      { label: "Mon", value: 6.9 },
-      { label: "Tue", value: 7.1 },
-      { label: "Wed", value: 7.4 },
-      { label: "Thu", value: 7.6 },
-      { label: "Fri", value: 7.8 },
-      { label: "Sat", value: 7.9 },
-      { label: "Sun", value: 8.1 },
-    ],
-    chartTone: "success",
-    collateral: "XLM",
-    risk: "Standard",
-    status: "comingSoon",
-    supplyApy: "4.4%",
-    symbol: "EURC",
-    utilization: "63%",
   },
   {
     availableFunds: "$560K",

@@ -31,10 +31,10 @@ describe("getMarketSearchValue", () => {
   })
 
   it("filters case-insensitively on partial asset-name queries", () => {
-    const usdcMarket = marketCards.find((m) => m.symbol === "USDC")
-    if (!usdcMarket) throw new Error("USDC market missing")
+    const xlmMarket = marketCards.find((m) => m.symbol === "XLM")
+    if (!xlmMarket) throw new Error("XLM market missing")
 
-    const value = getMarketSearchValue(usdcMarket)
+    const value = getMarketSearchValue(xlmMarket)
 
     expect(value.includes("usd coin")).toBe(true)
     expect(value.includes("stellar lumens")).toBe(true)

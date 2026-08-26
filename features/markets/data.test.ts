@@ -3,27 +3,20 @@ import { describe, expect, it } from "vitest"
 import { assetPricesUsd, getMarketPair, marketCards } from "."
 
 describe("market data", () => {
-  it("lists the supported USDC, EURC, and XLM pair universe", () => {
+  it("only offers XLM-borrow pairs", () => {
     expect(marketCards.map((market) => getMarketPair(market))).toEqual([
-      "USDC/XLM",
       "XLM/USDC",
-      "EURC/USDC",
-      "USDC/EURC",
-      "EURC/XLM",
       "XLM/EURC",
     ])
+    expect(marketCards.every((market) => market.symbol === "XLM")).toBe(true)
   })
 
-  it("exposes the USDC/XLM pairs as live, the rest coming soon", () => {
+  it("exposes the XLM/USDC pair as live, XLM/EURC as coming soon", () => {
     const byPair = Object.fromEntries(
       marketCards.map((market) => [getMarketPair(market), market.status])
     )
     expect(byPair).toEqual({
-      "USDC/XLM": "live",
       "XLM/USDC": "live",
-      "EURC/USDC": "comingSoon",
-      "USDC/EURC": "comingSoon",
-      "EURC/XLM": "comingSoon",
       "XLM/EURC": "comingSoon",
     })
   })

@@ -5,12 +5,12 @@ import { writeCachedAssetPrice } from "@/features/markets/price-cache"
 
 import { createBorrowQuote } from "./quote"
 
-// USDC/XLM: loan = USDC, collateral = XLM.
+// XLM/USDC: loan = XLM, collateral = USDC.
 function requireMarket() {
   const found = marketCards.find(
-    (m) => m.symbol === "USDC" && m.collateral === "XLM"
+    (m) => m.symbol === "XLM" && m.collateral === "USDC"
   )
-  if (!found) throw new Error("USDC/XLM market fixture missing")
+  if (!found) throw new Error("XLM/USDC market fixture missing")
   return found
 }
 const market = requireMarket()
@@ -36,7 +36,7 @@ afterEach(() => {
 })
 
 describe("createBorrowQuote math", () => {
-  // 100 XLM @ $1 collateral, 50 USDC @ $1 loan.
+  // 100 USDC @ $1 collateral, 50 XLM @ $1 loan.
   // borrowingPower = 100 * 0.625 = 62.5
   // healthFactor   = (100 * 0.8) / 50 = 1.6
   // utilization    = 50 / 62.5 = 0.8
