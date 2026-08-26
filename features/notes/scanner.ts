@@ -845,7 +845,7 @@ function uintToBigint(bytes: Uint8Array): bigint {
  * slot 1 the asset that scopes its nullifiers, so the scanner needs the
  * whole list, not just the head.
  */
-function decodeTopicSymbols(
+export function decodeTopicSymbols(
   sdk: typeof import("@stellar/stellar-sdk"),
   event: RpcEvent
 ): (string | null)[] {
@@ -865,7 +865,7 @@ function decodeTopicSymbols(
   })
 }
 
-function shieldedAsset(value: string | null | undefined): ShieldedAsset | null {
+export function shieldedAsset(value: string | null | undefined): ShieldedAsset | null {
   return value && (SUPPORTED_ASSETS as readonly string[]).includes(value)
     ? (value as ShieldedAsset)
     : null

@@ -22,6 +22,33 @@ export type DerivedMarketMetrics = {
   utilization: number
 }
 
+/** Mirrors the contract's own formula (`rate.rs::utilization`). */
+export function computeUtilization(
+  totalDeposits: number,
+  totalBorrows: number
+): number {
+  return totalDeposits === 0 || totalBorrows === 0
+    ? 0
+    : totalBorrows / (totalDeposits + totalBorrows)
+}
+
+/**
+ * Shared by `deriveMarketMetrics` (current state) and
+ * `market-history.ts` (past buckets, replayed from the same formula)
+ * so the two never drift apart the way the old hardcoded utilization
+ * math once did.
+ */
+export function computeBorrowApr(
+  totalDeposits: number,
+  totalBorrows: number,
+  rateParams?: { baseApr: number; slopeApr: number }
+): number {
+  const utilization = computeUtilization(totalDeposits, totalBorrows)
+  const baseApr = rateParams?.baseApr ?? BASE_APR
+  const slopeApr = rateParams?.slopeApr ?? SLOPE_APR
+  return baseApr + slopeApr * utilization
+}
+
 export function deriveMarketMetrics(
   stat: MarketStat | undefined,
   borrowSymbol?: string,
@@ -30,13 +57,8 @@ export function deriveMarketMetrics(
   const totalDeposits = stat?.totalDeposits ?? 0
   const totalBorrows = stat?.totalBorrows ?? 0
   const openPositions = stat?.openPositions ?? totalBorrows
-  const utilization =
-    totalDeposits === 0 || totalBorrows === 0
-      ? 0
-      : totalBorrows / (totalDeposits + totalBorrows)
-  const baseApr = rateParams?.baseApr ?? BASE_APR
-  const slopeApr = rateParams?.slopeApr ?? SLOPE_APR
-  const borrowApr = baseApr + slopeApr * utilization
+  const utilization = computeUtilization(totalDeposits, totalBorrows)
+  const borrowApr = computeBorrowApr(totalDeposits, totalBorrows, rateParams)
 
   // Available liquidity in the borrow asset's pool = `deposits -
   // borrows` (in whole notes), priced through Reflector so the tile

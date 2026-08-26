@@ -1,9 +1,12 @@
 import { SUPPORTED_ASSETS, type ShieldedAsset } from "@/features/notes"
+import { getRateParams } from "@/features/protocol/rate-params"
 import {
   getConfiguredContractId,
   getConfiguredNetworkPassphrase,
   getConfiguredSorobanRpcUrl,
 } from "@/features/wallet/network"
+
+import { fetchMarketHistory, type CurrentTotals } from "./market-history"
 
 // Contract view-derived market stats. Reads
 // `total_deposit(asset)` + `total_borrow(asset)` +
@@ -17,7 +20,9 @@ import {
 // receipt-registry event shape (`borrow_symbol` / `collateral_symbol`
 // on the event body) that the shielded borrow flow no longer emits,
 // so cards were bottoming out on stale zeros. Contract views are the
-// canonical source now.
+// canonical source now. `chart` is populated separately by
+// `fetchMarketHistory`, replaying real deposit/borrow/withdraw/repay
+// events backward from these same totals.
 
 export type MarketStat = {
   chart: { label: string; value: number }[]
@@ -28,10 +33,6 @@ export type MarketStat = {
   totalDeposits: number
   totalRepays: number
 }
-
-// Chart bucketing kept as-is so the mini rate chart on the card still
-// draws a shape; per-bucket value is not populated by the view path.
-const CHART_BUCKETS = 8
 
 /**
  * Snapshot every supported asset's on-chain view counters and shape
@@ -52,7 +53,7 @@ export async function fetchMarketStats(
   // transaction and Soroban requires a source account even for
   // read-only reads.
   const SIMULATION_SOURCE =
-    "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP66"
+    "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"
   const client = new bindings.Client({
     contractId,
     networkPassphrase: getConfiguredNetworkPassphrase(),
@@ -60,7 +61,7 @@ export async function fetchMarketStats(
     publicKey: SIMULATION_SOURCE,
   })
 
-  const stats: Record<string, MarketStat> = {}
+  const counters: Partial<Record<ShieldedAsset, AssetCounters>> = {}
   await Promise.all(
     SUPPORTED_ASSETS.map(async (asset) => {
       const readCounters = readAssetCounters(client, asset)
@@ -70,17 +71,44 @@ export async function fetchMarketStats(
       const raced = await Promise.race([readCounters, timeout])
       if (signal?.aborted) return
       if (!raced) return
-      stats[asset] = {
-        chart: makeEmptyChart(),
-        latestActivityAt: null,
-        loanNextIndex: raced.loanNextIndex,
-        openPositions: raced.totalBorrows,
-        totalBorrows: raced.totalBorrows,
-        totalDeposits: raced.totalDeposits,
-        totalRepays: 0,
-      }
+      counters[asset] = raced
     })
   )
+  if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
+
+  const currentTotals = Object.fromEntries(
+    SUPPORTED_ASSETS.map((asset) => [
+      asset,
+      {
+        totalBorrows: counters[asset]?.totalBorrows ?? 0,
+        totalDeposits: counters[asset]?.totalDeposits ?? 0,
+      },
+    ])
+  ) as CurrentTotals
+
+  const liveRateParams = await getRateParams().catch(() => null)
+  const rateParams = liveRateParams
+    ? {
+        baseApr: liveRateParams.baseAprBps / 10_000,
+        slopeApr: liveRateParams.slopeAprBps / 10_000,
+      }
+    : undefined
+  const history = await fetchMarketHistory({ currentTotals, rateParams, signal })
+
+  const stats: Record<string, MarketStat> = {}
+  for (const asset of SUPPORTED_ASSETS) {
+    const raced = counters[asset]
+    if (!raced) continue
+    stats[asset] = {
+      chart: history[asset],
+      latestActivityAt: null,
+      loanNextIndex: raced.loanNextIndex,
+      openPositions: raced.totalBorrows,
+      totalBorrows: raced.totalBorrows,
+      totalDeposits: raced.totalDeposits,
+      totalRepays: 0,
+    }
+  }
 
   return stats
 }
@@ -119,11 +147,4 @@ async function readAssetCounters(
   } catch {
     return null
   }
-}
-
-function makeEmptyChart(): { label: string; value: number }[] {
-  return Array.from({ length: CHART_BUCKETS }, (_, index) => ({
-    label: `-${CHART_BUCKETS - index}`,
-    value: 0,
-  }))
 }
