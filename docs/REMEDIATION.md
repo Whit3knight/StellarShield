@@ -176,6 +176,83 @@ README documents `CBJZP45H…4N7L`; `.env.local` runs `CATPLYD…52YX`. **Fix:**
 
 **Effort:** S · **Success:** `rg` for stale ID returns zero; `list_markets` against documented ID returns live markets; no mock refs in `types.ts`.
 
+### R17 — Fixed-denomination notes block variable loan/collateral amounts [LOW — scoped, deferred]
+
+**Root cause.** Note amounts are fixed per-asset denominations (`DENOMINATION` in
+`features/notes/note.ts`, mirrored in `contracts/borrow-pool/src/notes.rs`:
+`XLM: 10_000_000`, `USDC`/`EURC: 5_000_000`). `deposit_shielded`,
+`deposit_shielded_quad`, and `deposit_shielded_batch` each carry their own
+inline `!= denomination` equality check (`lib.rs:420-424,511-513,654-656` —
+three separate sites, not a shared helper). `borrow_shielded` caps at one
+denomination via `> max_borrow` (`lib.rs:852-856`, already a ceiling, not an
+equality — tolerant of smaller amounts already). `borrow.circom` never
+computes or exposes a real collateral value on a public signal, so today's
+solvency guard is entirely the flat contract-side cap (S3, `09471e9`).
+Variable amounts need the circuit to surface collateral value somehow —
+that's the open design question below.
+
+**Two paths scoped this session, neither chosen or built:**
+
+1. **Reveal-sum.** Promote the already-computed `total_collateral_value`
+   (`borrow.circom`'s `partial_values[0..3]` sum) to a new public Groth16
+   signal; contract reads a live Reflector price (no Rust Reflector client
+   exists today — `state::reflector` stores an address but nothing ever
+   calls it, confirmed via repo-wide grep) and computes a dynamic cap:
+   `min(denomination(borrow_asset), real_price * total_collateral_value * max_ltv_bps/10000 * 9500/10000)`.
+   Circuit diff is small — zero new constraints (the value is already
+   computed, only its public/private declaration changes), ~6.7% on-chain
+   verification cost increase (15→16 public signals; the pairing check,
+   which dominates BLS12-381 Groth16 verification cost, is unaffected by
+   public-input count). Still needs: a new `.zkey`/verifying key, the new
+   Rust Reflector-client code, and a contract redeploy. **Tradeoff:** leaks
+   total collateral value on-chain — a real new leak once amounts vary
+   (today it's an implicit constant, so nothing new leaks). Comparable in
+   kind to the loan-claim-amount leak already accepted at
+   `withdraw_loan_shielded` (`lib.rs:983`, "accepted trade-off for MVP").
+   Conflicts with `docs/PRD.md:71`'s current claim that the borrow proof
+   works "without revealing amounts" — that line would need updating
+   alongside the circuit change, not just this entry.
+2. **Hide-everything (Pedersen-style homomorphic commitment), Zcash-style.**
+   No new leak. Blocked, not just harder: every live circuit (all 8,
+   confirmed via each `build/verification_key.json`'s `"curve": "bls12381"`)
+   compiles against BLS12-381. circomlib's vendored Pedersen commitment
+   (`node_modules/circomlib/circuits/pedersen.circom`) is built on Baby
+   Jubjub, a curve embedded in BN254's scalar field — a different field
+   than BLS12-381's `Fr`. No BLS12-381-native Pedersen/homomorphic-commitment
+   template exists anywhere in this toolchain; building one is unproven R&D,
+   not an integration task. Constraint-cost estimate if it existed: a
+   fixed-base EC commitment runs roughly 1,000-2,500 constraints per
+   instance (aggregate-only) against this circuit's current ~18-22K-constraint
+   budget — a real but survivable +20-50% overhead, not the blocker. The
+   curve mismatch is the blocker.
+
+Not recommending one path over the other here — (1) is buildable in this
+toolchain today at a known, bounded cost; (2) needs a cryptographic primitive
+that doesn't exist yet for this curve. Revisit path 2 only if a BLS12-381-native
+homomorphic scheme becomes available, or if real demand makes the (1)-style
+leak unacceptable.
+
+**Also touches (accounting blast radius, either path):** `total_deposit`/
+`total_borrow` are pure note counters today (`+1`/`+4`/`-1` per event,
+`lib.rs:458,772-775,920-928,1053-1056,1169-1177,1285-1319,1438-1465`) — would
+need to become value sums. `features/markets/market-stats.ts` and
+`derive-metrics.ts`'s `computeUtilization` read/consume those counters
+directly (formula itself doesn't change — it's dimensionless — only the
+input semantics do). `features/markets/market-history.ts`'s event-replay
+(`undoDelta()`) applies hardcoded per-event-type deltas and would need the
+real amount instead of a fixed unit. `features/notes/scanner.ts` already
+reads explicit amounts for loan/withdraw notes but hardcodes
+`DENOMINATION[asset]` for deposit notes (memos never carry an amount today —
+needs a memo schema change). `borrow-prover.ts`'s `validateCollateralNotes`
+hard-equality-checks `note.amount !== DENOMINATION[asset]` and would become
+a sum/range check. `repay.circom` and `withdraw.circom` already support
+variable amounts today — no circuit change needed there.
+
+**Effort:** Unscoped · **Status:** Deferred, no timeline — gated on demand
+validation per `docs/BRD.md` BR1, not slotted into M1-M4. Revisit only when
+real usage shows the fixed-denomination cap is a binding constraint, not
+preemptively.
+
 ### Small items (slot into sequence)
 
 - **Zero Rust contract tests** — blocked on soroban-sdk 23. One README line stating the block + stopgap (TS fixtures + R6 e2e). Re-check next sdk release.
