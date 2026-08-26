@@ -1,5 +1,5 @@
-import { MIN_COLLATERAL_VALUE, MIN_LOAN_VALUE } from "./constants"
-import { formatUsd } from "./format"
+import { MIN_COLLATERAL_VALUE, MIN_LOAN_AMOUNT } from "./constants"
+import { formatAssetAmount, formatUsd } from "./format"
 
 export function getCollateralValidationError({
   amount,
@@ -39,15 +39,20 @@ export function getCollateralValidationError({
 }
 
 export function getLoanValidationError(
+  amount: number,
+  symbol: string,
   valueUsd: number,
   borrowingPower: number
 ): string | null {
-  if (valueUsd <= 0) {
+  if (amount <= 0) {
     return null
   }
 
-  if (valueUsd < MIN_LOAN_VALUE) {
-    return `Loan amount must be at least ${formatUsd(MIN_LOAN_VALUE)}.`
+  if (amount < MIN_LOAN_AMOUNT) {
+    return `Loan amount must be at least ${formatAssetAmount(
+      MIN_LOAN_AMOUNT,
+      symbol
+    )}.`
   }
 
   if (valueUsd > borrowingPower) {

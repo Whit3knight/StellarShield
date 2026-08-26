@@ -125,7 +125,12 @@ export function createBorrowQuote({
     symbol: market.collateral,
     valueUsd: collateralValue,
   })
-  const loanError = getLoanValidationError(loanValue, borrowingPower)
+  const loanError = getLoanValidationError(
+    loanAmount,
+    market.symbol,
+    loanValue,
+    borrowingPower
+  )
   const validationError = collateralError ?? loanError
   const isLoanValid =
     !validationError &&

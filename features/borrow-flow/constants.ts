@@ -19,9 +19,8 @@ export const HEALTH_FACTOR_MIN = 1.25
 export const MAX_LOAN_TO_VALUE = 0.625
 export const LIQUIDATION_THRESHOLD = 0.8
 export const MIN_COLLATERAL_VALUE = 10
-// $6 → minimumLoanAmount = 6 / 0.12 (XLM price) = exactly 50 XLM, the
-// minimum loan-amount placeholder shown in borrow-terms-step.tsx.
-export const MIN_LOAN_VALUE = 6
+/** Flat unit floor (not USD-derived) so it doesn't move with price. */
+export const MIN_LOAN_AMOUNT = 25
 
 export const DESKTOP_FOOTER_CLASS =
   "flex w-full flex-row items-center justify-between gap-2 border-t bg-muted/72 px-6 pt-4 pb-[calc(env(safe-area-inset-bottom,0px)+--spacing(4))]"

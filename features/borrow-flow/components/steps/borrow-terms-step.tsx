@@ -27,7 +27,7 @@ import {
 } from "@/features/markets"
 import { useRateParams } from "@/features/protocol/rate-params"
 
-import { MIN_COLLATERAL_VALUE, MIN_LOAN_VALUE } from "../../constants"
+import { MIN_COLLATERAL_VALUE, MIN_LOAN_AMOUNT } from "../../constants"
 import type {
   BorrowField,
   BorrowFlowMetrics,
@@ -66,6 +66,8 @@ export function BorrowTermsStep({
     valueUsd: metrics.collateralValue,
   })
   const loanError = getLoanValidationError(
+    metrics.loanAmount,
+    market.symbol,
     metrics.loanValue,
     metrics.borrowingPower
   )
@@ -79,7 +81,7 @@ export function BorrowTermsStep({
   const liveBorrowApr = formatPercent(derived.borrowApr * 100)
   const minimumCollateralAmount =
     MIN_COLLATERAL_VALUE / getAssetPriceUsd(market.collateral)
-  const minimumLoanAmount = MIN_LOAN_VALUE / getAssetPriceUsd(market.symbol)
+  const minimumLoanAmount = MIN_LOAN_AMOUNT
   const liquidationPrice =
     metrics.quote.liquidationPrice === null
       ? "N/A"
