@@ -32,6 +32,13 @@ export type MarketStat = {
   totalBorrows: number
   totalDeposits: number
   totalRepays: number
+  /** R17: real value deposited/borrowed, in the asset's RAW token
+   * units — distinct from `totalDeposits`/`totalBorrows` above (note
+   * counts, still used for `openPositions` and tree-indexing
+   * semantics). Utilization/APR/available-liquidity math should read
+   * these, not the counts, now that note amounts vary. */
+  totalDepositsValue: number
+  totalBorrowsValue: number
 }
 
 /**
@@ -76,12 +83,14 @@ export async function fetchMarketStats(
   )
   if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
 
+  // R17: the history replay's utilization math needs real VALUE, not
+  // note counts — feed it the value counters, not totalDeposits/totalBorrows.
   const currentTotals = Object.fromEntries(
     SUPPORTED_ASSETS.map((asset) => [
       asset,
       {
-        totalBorrows: counters[asset]?.totalBorrows ?? 0,
-        totalDeposits: counters[asset]?.totalDeposits ?? 0,
+        totalBorrows: counters[asset]?.totalBorrowsValue ?? 0,
+        totalDeposits: counters[asset]?.totalDepositsValue ?? 0,
       },
     ])
   ) as CurrentTotals
@@ -107,6 +116,8 @@ export async function fetchMarketStats(
       totalBorrows: raced.totalBorrows,
       totalDeposits: raced.totalDeposits,
       totalRepays: 0,
+      totalBorrowsValue: raced.totalBorrowsValue,
+      totalDepositsValue: raced.totalDepositsValue,
     }
   }
 
@@ -117,6 +128,8 @@ type AssetCounters = {
   totalDeposits: number
   totalBorrows: number
   loanNextIndex: number
+  totalDepositsValue: number
+  totalBorrowsValue: number
 }
 
 async function readAssetCounters(
@@ -130,19 +143,30 @@ async function readAssetCounters(
     loan_next_index: (
       args: { asset: string }
     ) => Promise<{ result: bigint | undefined }>
+    total_deposit_value: (
+      args: { asset: string }
+    ) => Promise<{ result: bigint | undefined }>
+    total_borrow_value: (
+      args: { asset: string }
+    ) => Promise<{ result: bigint | undefined }>
   },
   asset: ShieldedAsset
 ): Promise<AssetCounters | null> {
   try {
-    const [depositTx, borrowTx, loanIndexTx] = await Promise.all([
-      client.total_deposit({ asset }),
-      client.total_borrow({ asset }),
-      client.loan_next_index({ asset }),
-    ])
+    const [depositTx, borrowTx, loanIndexTx, depositValueTx, borrowValueTx] =
+      await Promise.all([
+        client.total_deposit({ asset }),
+        client.total_borrow({ asset }),
+        client.loan_next_index({ asset }),
+        client.total_deposit_value({ asset }),
+        client.total_borrow_value({ asset }),
+      ])
     return {
       totalDeposits: Number(depositTx.result ?? 0n),
       totalBorrows: Number(borrowTx.result ?? 0n),
       loanNextIndex: Number(loanIndexTx.result ?? 0n),
+      totalDepositsValue: Number(depositValueTx.result ?? 0n),
+      totalBorrowsValue: Number(borrowValueTx.result ?? 0n),
     }
   } catch {
     return null

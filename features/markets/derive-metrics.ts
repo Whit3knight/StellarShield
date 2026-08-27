@@ -54,25 +54,36 @@ export function deriveMarketMetrics(
   borrowSymbol?: string,
   rateParams?: { baseApr: number; slopeApr: number }
 ): DerivedMarketMetrics {
-  const totalDeposits = stat?.totalDeposits ?? 0
+  // R17: utilization/APR/available-liquidity are economic (value)
+  // questions now that notes vary in size — read the value counters,
+  // not `totalDeposits`/`totalBorrows` (note counts, still exposed
+  // for `openPositions`'s "how many open loans" count semantic).
+  const totalDepositsValue = stat?.totalDepositsValue ?? 0
+  const totalBorrowsValue = stat?.totalBorrowsValue ?? 0
   const totalBorrows = stat?.totalBorrows ?? 0
   const openPositions = stat?.openPositions ?? totalBorrows
-  const utilization = computeUtilization(totalDeposits, totalBorrows)
-  const borrowApr = computeBorrowApr(totalDeposits, totalBorrows, rateParams)
+  const utilization = computeUtilization(totalDepositsValue, totalBorrowsValue)
+  const borrowApr = computeBorrowApr(
+    totalDepositsValue,
+    totalBorrowsValue,
+    rateParams
+  )
 
-  // Available liquidity in the borrow asset's pool = `deposits -
-  // borrows` (in whole notes), priced through Reflector so the tile
-  // reads in USD. `DENOMINATION` is in raw token units (stroops), so
-  // scale it down before applying a per-whole-unit USD price. Falls
-  // back to a 1-note floor so the card never shows `$0` when the pool
+  // Available liquidity in the borrow asset's pool = `depositsValue -
+  // borrowsValue` (already RAW token units, no DENOMINATION multiply
+  // needed now that these are real value counters, not note counts),
+  // priced through Reflector so the tile reads in USD. Falls back to
+  // a 1-denomination floor so the card never shows `$0` when the pool
   // is exactly balanced.
   const asset = pickShieldedAsset(borrowSymbol)
-  const availableNotes = Math.max(1, totalDeposits - totalBorrows)
+  const availableRaw = Math.max(
+    asset ? Number(DENOMINATION[asset]) : 1,
+    totalDepositsValue - totalBorrowsValue
+  )
   const availableFundsUsd = asset
-    ? availableNotes *
-      (Number(DENOMINATION[asset]) / 10 ** assets[asset].decimals) *
+    ? (availableRaw / 10 ** assets[asset].decimals) *
       Math.max(0, getAssetPriceUsd(asset))
-    : availableNotes
+    : availableRaw
   const chart = stat?.chart ?? []
   const latestActivityAt = stat?.latestActivityAt ?? null
 

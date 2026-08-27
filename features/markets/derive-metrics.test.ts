@@ -15,13 +15,15 @@ const stat = (overrides: Partial<MarketStat> = {}): MarketStat => ({
   totalBorrows: 0,
   totalDeposits: 0,
   totalRepays: 0,
+  totalBorrowsValue: 0,
+  totalDepositsValue: 0,
   ...overrides,
 })
 
 describe("deriveMarketMetrics utilization", () => {
   it("matches the contract's formula, not a naive deposit-only ratio", () => {
     const metrics = deriveMarketMetrics(
-      stat({ totalBorrows: 1, totalDeposits: 1 })
+      stat({ totalBorrowsValue: 1, totalDepositsValue: 1 })
     )
     expect(metrics.utilization).toBe(0.5)
   })
@@ -33,21 +35,21 @@ describe("deriveMarketMetrics utilization", () => {
 
   it("is 0 when deposits are 0, even with outstanding borrows", () => {
     const metrics = deriveMarketMetrics(
-      stat({ totalBorrows: 5, totalDeposits: 0 })
+      stat({ totalBorrowsValue: 5, totalDepositsValue: 0 })
     )
     expect(metrics.utilization).toBe(0)
   })
 
   it("is 0 when borrows are 0, regardless of deposits", () => {
     const metrics = deriveMarketMetrics(
-      stat({ totalBorrows: 0, totalDeposits: 5 })
+      stat({ totalBorrowsValue: 0, totalDepositsValue: 5 })
     )
     expect(metrics.utilization).toBe(0)
   })
 
   it("computes borrow / (deposit + borrow) in the general case", () => {
     const metrics = deriveMarketMetrics(
-      stat({ totalBorrows: 1, totalDeposits: 3 })
+      stat({ totalBorrowsValue: 1, totalDepositsValue: 3 })
     )
     expect(metrics.utilization).toBe(0.25)
   })
@@ -56,7 +58,7 @@ describe("deriveMarketMetrics utilization", () => {
 describe("deriveMarketMetrics borrowApr", () => {
   it("falls back to BASE_APR/SLOPE_APR when no rateParams are given", () => {
     const metrics = deriveMarketMetrics(
-      stat({ totalBorrows: 1, totalDeposits: 3 })
+      stat({ totalBorrowsValue: 1, totalDepositsValue: 3 })
     )
     expect(metrics.borrowApr).toBeCloseTo(
       BASE_APR + SLOPE_APR * metrics.utilization,
@@ -66,7 +68,7 @@ describe("deriveMarketMetrics borrowApr", () => {
 
   it("uses the supplied rateParams instead of the hardcoded fallback", () => {
     const metrics = deriveMarketMetrics(
-      stat({ totalBorrows: 1, totalDeposits: 3 }),
+      stat({ totalBorrowsValue: 1, totalDepositsValue: 3 }),
       undefined,
       { baseApr: 0.05, slopeApr: 0.2 }
     )
@@ -75,5 +77,14 @@ describe("deriveMarketMetrics borrowApr", () => {
       BASE_APR + SLOPE_APR * metrics.utilization,
       10
     )
+  })
+})
+
+describe("deriveMarketMetrics openPositions", () => {
+  it("stays a note count independent of value totals", () => {
+    const metrics = deriveMarketMetrics(
+      stat({ openPositions: 7, totalBorrowsValue: 999_999, totalDepositsValue: 1 })
+    )
+    expect(metrics.openPositions).toBe(7)
   })
 })

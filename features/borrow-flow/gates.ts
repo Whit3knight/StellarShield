@@ -1,4 +1,5 @@
 import type { MarketStat } from "@/features/markets"
+import { DENOMINATION, type ShieldedAsset } from "@/features/notes"
 
 import type {
   BorrowFlowMetrics,
@@ -54,14 +55,21 @@ export function shouldShowTransaction({
 }
 
 /**
- * Whether the borrow asset's pool has at least one note of headroom
- * before a user burns ~10-30s generating a borrow proof. Advisory
- * only: `stat` can be up to 60s stale (`useMarketStats`) and this is
- * not a substitute for a contract-side reservation check — it just
- * moves the common "proof succeeds, Claim fails later" case earlier
- * than a wasted proving cycle.
+ * Whether the borrow asset's pool has at least one denomination's
+ * worth of real value as headroom before a user burns ~10-30s
+ * generating a borrow proof. Advisory only: `stat` can be up to 60s
+ * stale (`useMarketStats`) and this is not a substitute for a
+ * contract-side reservation check — it just moves the common "proof
+ * succeeds, Claim fails later" case earlier than a wasted proving
+ * cycle. R17: compares real value counters against `DENOMINATION` as
+ * a "meaningfully more than zero" floor — comparing against a bare
+ * `>= 1` (raw stroop) would make this check pass almost always once
+ * `totalDeposits`/`totalBorrows` mean value instead of note counts.
  */
-export function hasBorrowLiquidity(stat: MarketStat | undefined): boolean {
+export function hasBorrowLiquidity(
+  stat: MarketStat | undefined,
+  asset: ShieldedAsset
+): boolean {
   if (!stat) return true // no snapshot yet — don't block on missing data
-  return stat.totalDeposits - stat.totalBorrows >= 1
+  return stat.totalDepositsValue - stat.totalBorrowsValue >= DENOMINATION[asset]
 }

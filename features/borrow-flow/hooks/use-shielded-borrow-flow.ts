@@ -308,7 +308,7 @@ export function useShieldedBorrowFlow({
       return
     }
 
-    if (!hasBorrowLiquidity(stats[borrowAsset])) {
+    if (!hasBorrowLiquidity(stats[borrowAsset], borrowAsset)) {
       const detail = `The ${borrowAsset} pool doesn't currently have enough reserve to cover this borrow. Try again shortly.`
       setFlow((currentFlow) => ({
         ...currentFlow,

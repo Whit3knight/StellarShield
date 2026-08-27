@@ -285,9 +285,10 @@ export async function scanShieldedNotes(
     const topicAsset = shieldedAsset(topics[1])
     if (topic === "withdraw") {
       // ("withdraw", asset) burns a deposit note; the loan-tree variant
-      // appends a third topic, Symbol "loan", and its body carries an
-      // explicit amount (interest-adjusted; a plain deposit withdraw
-      // is always exactly one DENOMINATION).
+      // appends a third topic, Symbol "loan". Both variants' bodies
+      // carry an explicit real amount (R17: variable, not a fixed
+      // DENOMINATION) — `?? DENOMINATION` below only covers pre-R17
+      // events still in the RPC retention window.
       const body = decodeWithdrawBody(sdk, event)
       if (body.nullifier !== null && topicAsset) {
         const tree: NoteTree = topics[2] === "loan" ? "loan" : "deposit"
@@ -379,12 +380,25 @@ export async function scanShieldedNotes(
       }
     }
     if (!plaintext) continue
+    // R17: deposit amounts are real user input now, not a fixed
+    // denomination — the memo carries the real amount (already
+    // populated on the write side), mirroring the borrow-note
+    // branch's own amount handling below. Falls back to DENOMINATION
+    // for pre-R17 memos that never carried an amount field.
+    const depositAmount =
+      typeof plaintext.amount === "string" && plaintext.amount.length > 0
+        ? BigInt(plaintext.amount)
+        : (SUPPORTED_ASSETS as readonly string[]).includes(
+              plaintext.asset as string
+            )
+          ? DENOMINATION[plaintext.asset as ShieldedAsset]
+          : 0n
     if (topic === "deposit") {
       const asset = plaintext.asset as ShieldedAsset
       const computedCommitment =
         (SUPPORTED_ASSETS as readonly string[]).includes(asset)
           ? computeCommitment({
-              amount: DENOMINATION[asset],
+              amount: depositAmount,
               asset,
               salt: BigInt(plaintext.salt),
               sk: skForNote,
@@ -407,7 +421,7 @@ export async function scanShieldedNotes(
     const openedAt = eventOpenedAt(event)
     if (topic === "deposit") {
       notes.push({
-        amount: DENOMINATION[asset],
+        amount: depositAmount,
         asset,
         index: decoded.index,
         openedAt,
@@ -418,7 +432,7 @@ export async function scanShieldedNotes(
       // Ownership is already proven above (the memo decrypted), so —
       // unlike withdraw/repay/liquidate — no address match is needed.
       activities.push({
-        amount: DENOMINATION[asset],
+        amount: depositAmount,
         asset,
         id: activityId(event, "deposit", BigInt(decoded.index)),
         timestamp: openedAt,
@@ -967,6 +981,26 @@ function memoBytes(raw: unknown): Uint8Array | null {
     return out
   }
   return null
+}
+
+/**
+ * Decodes an event's `value` into its native tuple array, or `null` on
+ * any decode failure. Shared primitive so amount-bearing consumers
+ * (`market-history.ts`) don't hand-roll their own toScVal/scValToNative
+ * pair and risk drifting from this file's own decode conventions.
+ */
+export function decodeEventBody(
+  sdk: typeof import("@stellar/stellar-sdk"),
+  event: RpcEvent
+): unknown[] | null {
+  const value = toScVal(sdk, event.value)
+  if (!value) return null
+  try {
+    const native = sdk.scValToNative(value)
+    return Array.isArray(native) ? native : null
+  } catch {
+    return null
+  }
 }
 
 function toScVal(

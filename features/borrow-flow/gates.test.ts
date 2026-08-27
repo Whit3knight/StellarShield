@@ -73,20 +73,30 @@ describe("shouldShowTransaction", () => {
   })
 })
 
-const stat = (deposits: number, borrows: number): MarketStat =>
-  ({ totalDeposits: deposits, totalBorrows: borrows }) as MarketStat
+const stat = (depositsValue: number, borrowsValue: number): MarketStat =>
+  ({
+    totalDepositsValue: depositsValue,
+    totalBorrowsValue: borrowsValue,
+  }) as MarketStat
 
 describe("hasBorrowLiquidity", () => {
-  it("passes when deposits exceed borrows", () => {
-    expect(hasBorrowLiquidity(stat(5, 3))).toBe(true)
+  it("passes when deposited value clears one denomination of headroom", () => {
+    expect(hasBorrowLiquidity(stat(15_000_000, 3_000_000), "XLM")).toBe(true)
   })
 
-  it("fails when the pool is fully borrowed or empty", () => {
-    expect(hasBorrowLiquidity(stat(3, 3))).toBe(false)
-    expect(hasBorrowLiquidity(stat(0, 0))).toBe(false)
+  it("fails when headroom is below one denomination", () => {
+    expect(hasBorrowLiquidity(stat(3_000_000, 3_000_000), "XLM")).toBe(false)
+    expect(hasBorrowLiquidity(stat(0, 0), "XLM")).toBe(false)
+  })
+
+  it("uses the asset's own denomination as the floor", () => {
+    // USDC's denomination (5_000_000) is half XLM's — the same raw
+    // headroom clears USDC's floor but not XLM's.
+    expect(hasBorrowLiquidity(stat(7_000_000, 0), "USDC")).toBe(true)
+    expect(hasBorrowLiquidity(stat(7_000_000, 0), "XLM")).toBe(false)
   })
 
   it("doesn't block when no snapshot has loaded yet", () => {
-    expect(hasBorrowLiquidity(undefined)).toBe(true)
+    expect(hasBorrowLiquidity(undefined, "XLM")).toBe(true)
   })
 })

@@ -24,7 +24,9 @@
 
 import { computeBorrowApr } from "./derive-metrics"
 
+import { DENOMINATION } from "@/features/notes"
 import {
+  decodeEventBody,
   decodeTopicSymbols,
   eventOpenedAt,
   shieldedAsset,
@@ -87,17 +89,28 @@ export async function fetchMarketHistory(params: {
       asset2: ShieldedAsset | null
       isLoan: boolean
       timestamp: number
+      amount: bigint | null
+      collateralAmount: bigint | null
     }[] = []
     for (const event of events) {
       const topics = decodeTopicSymbols(sdk, event)
       const timestamp = eventOpenedAt(event)
       if (timestamp === undefined) continue
+      const type = topics[0] ?? ""
+      const asset1 = shieldedAsset(topics[1])
+      const { amount, collateralAmount } = decodeEventAmounts(
+        sdk,
+        event,
+        type
+      )
       decoded.push({
-        type: topics[0] ?? "",
-        asset1: shieldedAsset(topics[1]),
-        asset2: topics[0] === "borrow" ? shieldedAsset(topics[2]) : null,
+        type,
+        asset1,
+        asset2: type === "borrow" ? shieldedAsset(topics[2]) : null,
         isLoan: topics[2] === "loan",
         timestamp,
+        amount,
+        collateralAmount,
       })
     }
     // Newest first — we walk backward from "now", undoing each delta.
@@ -150,6 +163,49 @@ export async function fetchMarketHistory(params: {
   }
 }
 
+/**
+ * Extracts the real amount(s) an event carries, in RAW token units —
+ * `null` when the event predates the field it needs (pre-R17 events
+ * still in the RPC retention window) or, for repay, always (repay's
+ * amounts are private circuit witnesses with no public signal at all;
+ * this is a permanent limitation, not a decode gap — see
+ * `docs/REMEDIATION.md` R17's note on `repay_shielded` not adjusting
+ * the value counters either). Callers fall back to `DENOMINATION` for
+ * `null`, same convention `undoDelta` already used before real
+ * amounts existed.
+ */
+function decodeEventAmounts(
+  sdk: typeof import("@stellar/stellar-sdk"),
+  event: RpcEvent,
+  type: string
+): { amount: bigint | null; collateralAmount: bigint | null } {
+  const body = decodeEventBody(sdk, event)
+  if (!body) return { amount: null, collateralAmount: null }
+  const toBigint = (raw: unknown): bigint | null => {
+    if (typeof raw === "bigint") return raw
+    if (typeof raw === "number") return BigInt(raw)
+    return null
+  }
+  if (type === "deposit") {
+    // (index, root, leaf, memo, amount) post-R17; 4 elements pre-R17.
+    return { amount: toBigint(body[4]), collateralAmount: null }
+  }
+  if (type === "borrow") {
+    // (index, root, leaf, memo, n0..n3, declared_borrow_amount,
+    // total_collateral_amount) post-R19; 9 elements post-R17 (no
+    // collateral amount yet); 8 pre-R17 (neither amount).
+    return {
+      amount: toBigint(body[8]),
+      collateralAmount: toBigint(body[9]),
+    }
+  }
+  if (type === "withdraw") {
+    // (nullifier_bytes, to, amount) — both variants, always 3.
+    return { amount: toBigint(body[2]), collateralAmount: null }
+  }
+  return { amount: null, collateralAmount: null }
+}
+
 export function undoDelta(
   running: CurrentTotals,
   event: {
@@ -157,24 +213,36 @@ export function undoDelta(
     asset1: ShieldedAsset | null
     asset2: ShieldedAsset | null
     isLoan: boolean
+    amount?: bigint | null
+    collateralAmount?: bigint | null
   }
 ): void {
-  const { type, asset1, asset2, isLoan } = event
+  const { type, asset1, asset2, isLoan, amount, collateralAmount } = event
+  const amountValue = (asset: ShieldedAsset, value: bigint | null | undefined) =>
+    Number(value ?? DENOMINATION[asset])
   if (type === "deposit" && asset1) {
-    running[asset1].totalDeposits -= 1
+    running[asset1].totalDeposits -= amountValue(asset1, amount)
   } else if (type === "borrow" && asset1 && asset2) {
     // asset1 = collateral (4 notes spent), asset2 = borrow (1 loan note minted).
-    running[asset1].totalDeposits += 4
-    running[asset2].totalBorrows -= 1
+    running[asset1].totalDeposits += Number(
+      collateralAmount ?? DENOMINATION[asset1] * 4n
+    )
+    running[asset2].totalBorrows -= amountValue(asset2, amount)
   } else if (type === "withdraw" && asset1) {
     if (isLoan) {
-      running[asset1].totalBorrows += 1
+      running[asset1].totalBorrows += amountValue(asset1, amount)
     } else {
-      running[asset1].totalDeposits += 1
+      running[asset1].totalDeposits += amountValue(asset1, amount)
     }
   } else if (type === "repay" && asset1) {
-    running[asset1].totalBorrows += 1
-    running[asset1].totalDeposits += 1
+    // repay_shielded never publishes an amount (private witness, no
+    // public signal — see docs/REMEDIATION.md R17) and the contract's
+    // own total_deposit_value/total_borrow_value counters don't adjust
+    // on repay either, so this flat-denomination approximation is
+    // consistent with the on-chain source of truth's own limitation,
+    // not a gap this function could close on its own.
+    running[asset1].totalBorrows += Number(DENOMINATION[asset1])
+    running[asset1].totalDeposits += Number(DENOMINATION[asset1])
   }
 }
 
