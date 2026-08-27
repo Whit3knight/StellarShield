@@ -15,7 +15,6 @@ import {
   computeCommitment,
   encodeMemoBundle,
   encryptMemo,
-  DENOMINATION,
   randomFieldElement,
   type ShieldedAsset,
   type ShieldedNote,
@@ -31,6 +30,10 @@ import { proveDeposit } from "./deposit-prover"
 export type DepositParams = {
   account: string
   asset: ShieldedAsset
+  // R17: real user-typed amount (raw token units), not a fixed
+  // denomination. `deposit-prover.ts` range-checks it (`> 0n`, under
+  // the contract's sane ceiling) before proving.
+  amount: bigint
   // The address-derived shielded identity from `useShieldedPool` /
   // `useShieldedIdentity`. Passed through as-is — DO NOT wrap in
   // another `deriveShieldedIdentity` call. Doing so double-hashes
@@ -61,13 +64,13 @@ export async function prepareDeposit(params: DepositParams): Promise<{
   note: ShieldedNote
   proof: Awaited<ReturnType<typeof proveDeposit>>
 }> {
-  const denomination = DENOMINATION[params.asset]
+  const amount = params.amount
   const sk = params.identity.skField
   const salt = randomFieldElement()
 
   const proof = await proveDeposit(
     {
-      amount: denomination,
+      amount,
       asset: params.asset,
       salt,
       sk,
@@ -106,7 +109,7 @@ export async function prepareDeposit(params: DepositParams): Promise<{
         frontier[i] = bytesToBigInt(frontierRaw[i])
       }
       const leaf = computeCommitment({
-        amount: denomination,
+        amount,
         asset: params.asset,
         salt,
         sk,
@@ -131,7 +134,7 @@ export async function prepareDeposit(params: DepositParams): Promise<{
   }
 
   const note: ShieldedNote = {
-    amount: denomination,
+    amount,
     asset: params.asset,
     index: leafIndexHint, // authoritative index arrives with the tx result
     salt,
@@ -142,7 +145,7 @@ export async function prepareDeposit(params: DepositParams): Promise<{
 
   const memoBundle = encryptMemo({
     plaintext: {
-      amount: denomination.toString(),
+      amount: amount.toString(),
       asset: params.asset,
       index: 0,
       salt: salt.toString(),

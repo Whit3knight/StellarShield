@@ -13,7 +13,7 @@
 import {
   assetTag,
   computeCommitment,
-  DENOMINATION,
+  MAX_NOTE_AMOUNT,
   type ShieldedAsset,
 } from "@/features/notes"
 import { fetchArtefact } from "./artifacts"
@@ -23,7 +23,11 @@ const DEFAULT_WASM_URL = "/circuits-circom/shielded/deposit_quad/deposit.wasm"
 const DEFAULT_ZKEY_URL = "/circuits-circom/shielded/deposit_quad/deposit.zkey"
 
 export type DepositQuadProofInputs = {
-  amount: bigint // must equal DENOMINATION[asset]
+  // R17: real user input, shared across all 4 notes (circuit
+  // constraint: one amount for the whole quad) — must be > 0 and
+  // under MAX_NOTE_AMOUNT. A user wanting 4 differently-sized notes
+  // needs 4 singleton deposits instead.
+  amount: bigint
   asset: ShieldedAsset
   salt: [bigint, bigint, bigint, bigint]
   sk: bigint
@@ -41,9 +45,9 @@ export async function proveDepositQuad(
   inputs: DepositQuadProofInputs,
   options: { wasmUrl?: string; zkeyUrl?: string } = {}
 ): Promise<DepositQuadProofResult> {
-  if (inputs.amount !== DENOMINATION[inputs.asset]) {
+  if (inputs.amount <= 0n || inputs.amount > MAX_NOTE_AMOUNT) {
     throw new Error(
-      `deposit-quad prover: amount ${inputs.amount} must equal denomination ${DENOMINATION[inputs.asset]} for ${inputs.asset}`
+      `deposit-quad prover: amount ${inputs.amount} must be > 0 and <= ${MAX_NOTE_AMOUNT}`
     )
   }
 

@@ -37,7 +37,11 @@ type Status =
 
 type UseBorrowResult = {
   availableCollateral: ShieldedNote[]
+  // R17 Phase 3: `amount` is real user-typed input (raw borrow-asset
+  // units) — `prepareBorrow` validates it against the contract's own
+  // dynamic-cap formula before proving.
   borrow: (params: {
+    amount: bigint
     borrowAsset: ShieldedAsset
     collateralAsset: ShieldedAsset
   }) => Promise<{ txHash: string } | null>
@@ -82,9 +86,11 @@ export function useBorrow(
 
   const borrow = React.useCallback(
     async ({
+      amount,
       borrowAsset,
       collateralAsset,
     }: {
+      amount: bigint
       borrowAsset: ShieldedAsset
       collateralAsset: ShieldedAsset
     }) => {
@@ -201,6 +207,7 @@ export function useBorrow(
         const risk = await getRiskParams()
         const prepared = await prepareBorrow({
           account,
+          amount,
           borrowAsset,
           collateralAsset,
           collateralNotes,

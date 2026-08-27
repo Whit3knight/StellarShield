@@ -9,7 +9,6 @@
 //      borrower can recover it after localStorage loss.
 
 import {
-  DENOMINATION,
   computeCommitment,
   encodeMemoBundle,
   encodeMemoBundleMulti,
@@ -22,11 +21,19 @@ import {
 import { fetchPriceRatio, PRICE_RATIO_SCALE } from "@/features/markets/prices"
 import { getLiquidationServicePk } from "@/features/protocol/liquidation-service"
 
-import { proveBorrow, validateCollateralNotes } from "./borrow-prover"
+import {
+  computeBorrowAmount,
+  proveBorrow,
+  validateCollateralNotes,
+} from "./borrow-prover"
 import { fetchDepositWitnesses } from "./withdraw-tree"
 
 export type PrepareBorrowParams = {
   account: string
+  // R17 Phase 3: real user-typed loan amount, raw borrow-asset units.
+  // Caller must validate this against `computeBorrowAmount(...)`'s
+  // dynamic cap before calling `prepareBorrow` — see `use-borrow.ts`.
+  amount: bigint
   borrowAsset: ShieldedAsset
   collateralAsset: ShieldedAsset
   collateralNotes: ShieldedNote[] // exactly 4
@@ -155,6 +162,24 @@ export async function prepareBorrow(
     params.borrowAsset
   ).catch(() => PRICE_RATIO_SCALE)
 
+  // R17 Phase 3: validate the real typed amount against the same
+  // dynamic-cap formula the contract enforces BEFORE spending 10-15s
+  // generating a proof the contract would reject anyway.
+  const totalCollateral = params.collateralNotes.reduce(
+    (acc, n) => acc + n.amount,
+    0n
+  )
+  const maxBorrow = computeBorrowAmount({
+    totalCollateral,
+    ratio: oraclePrice,
+    maxLtvBps: params.maxLtvBps,
+  })
+  if (params.amount > maxBorrow) {
+    throw new Error(
+      `Requested amount ${params.amount} exceeds the dynamic borrow cap ${maxBorrow} for this collateral.`
+    )
+  }
+
   const borrowSalt = randomFieldElement()
   const bondSaltAmount = randomFieldElement()
   const bondSaltValue = randomFieldElement()
@@ -162,6 +187,7 @@ export async function prepareBorrow(
 
   const proof = await proveBorrow(
     {
+      amount: params.amount,
       borrowAsset: params.borrowAsset,
       borrowSalt,
       collateralAsset: params.collateralAsset,
@@ -189,10 +215,6 @@ export async function prepareBorrow(
     tree: "loan",
   }
 
-  const totalCollateral = params.collateralNotes.reduce(
-    (acc, n) => acc + n.amount,
-    0n
-  )
   const plaintext = {
     amount: proof.borrowAmount.toString(),
     asset: params.borrowAsset,
@@ -220,9 +242,6 @@ export async function prepareBorrow(
     : encodeMemoBundle(
         encryptMemo({ plaintext, recipientPk: params.identity.publicKey })
       )
-
-  // Silence unused import — DENOMINATION consumed via validateCollateralNotes.
-  void DENOMINATION
 
   return {
     memo,

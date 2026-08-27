@@ -3,10 +3,11 @@ import {
   getAsset,
   getAssetPriceUsd,
   getMarketPair,
+  PRICE_RATIO_SCALE,
   type MarketCardData,
 } from "@/features/markets"
 import {
-  div,
+  decimal,
   divToNumber,
   fromNumber,
   fromString,
@@ -14,6 +15,7 @@ import {
   mulNumber,
   toNumber,
 } from "@/features/shared/money"
+import { computeBorrowAmount } from "@/features/shielded-pool"
 import { getWalletAssetBalance } from "@/features/wallet/utils"
 
 import {
@@ -77,16 +79,25 @@ export function createBorrowQuote({
   const collateralValue = toNumber(collateralValueDecimal)
   const loanValue = toNumber(loanValueDecimal)
   const borrowingPower = toNumber(borrowingPowerDecimal)
-  const maxLoanAmount =
+  // R17 Phase 3: mirrors the contract's own `dynamic_borrow_cap`
+  // formula (raw units, cross-asset ratio, 9500/10000 safety margin)
+  // instead of a flat MAX_LOAN_TO_VALUE-only USD approximation, so
+  // this preview doesn't drift from what `borrow_shielded` will
+  // actually accept. Cross-asset ratio is approximated from cached
+  // USD prices (quote.ts is sync — the live Reflector ratio needs an
+  // RPC round trip, done only at actual borrow time in `borrow.ts`).
+  const crossAssetRatio =
     loanPriceUsd > 0
-      ? toNumber(
-          div(
-            borrowingPowerDecimal,
-            fromNumber(loanPriceUsd, 12),
-            loanAsset.decimals
-          )
-        )
-      : borrowingPower
+      ? fromNumber(collateralPriceUsd / loanPriceUsd, 14).value
+      : PRICE_RATIO_SCALE
+  const maxLoanAmountRaw = computeBorrowAmount({
+    totalCollateral: collateralAmountDecimal.value,
+    ratio: crossAssetRatio,
+    maxLtvBps: Math.round(MAX_LOAN_TO_VALUE * 10_000),
+  })
+  const maxLoanAmount = toNumber(
+    decimal(maxLoanAmountRaw, loanAsset.decimals)
+  )
   const utilization = isZero(borrowingPowerDecimal)
     ? 0
     : divToNumber(loanValueDecimal, borrowingPowerDecimal)

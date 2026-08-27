@@ -4,14 +4,14 @@
 // this shape once their circuits land.
 //
 // Circuit at contracts/circuits/shielded-deposit/. Public signals:
-//   [0] amount        (fixed denomination in raw token units)
+//   [0] amount        (R17: real user input, raw token units)
 //   [1] asset_tag     (0 = XLM, 1 = USDC, 2 = EURC)
 //   [2] commitment    (Poseidon output — new deposit tree leaf)
 
 import {
   assetTag,
   computeCommitment,
-  DENOMINATION,
+  MAX_NOTE_AMOUNT,
   type ShieldedAsset,
 } from "@/features/notes"
 import { fetchArtefact } from "./artifacts"
@@ -21,7 +21,7 @@ const DEFAULT_WASM_URL = "/circuits-circom/shielded/deposit/deposit.wasm"
 const DEFAULT_ZKEY_URL = "/circuits-circom/shielded/deposit/deposit.zkey"
 
 export type DepositProofInputs = {
-  amount: bigint // must equal DENOMINATION[asset]
+  amount: bigint // R17: real user input; must be > 0 and under MAX_NOTE_AMOUNT
   asset: ShieldedAsset
   salt: bigint
   sk: bigint
@@ -45,9 +45,9 @@ export async function proveDeposit(
   inputs: DepositProofInputs,
   options: { wasmUrl?: string; zkeyUrl?: string } = {}
 ): Promise<DepositProofResult> {
-  if (inputs.amount !== DENOMINATION[inputs.asset]) {
+  if (inputs.amount <= 0n || inputs.amount > MAX_NOTE_AMOUNT) {
     throw new Error(
-      `deposit prover: amount ${inputs.amount} must equal denomination ${DENOMINATION[inputs.asset]} for ${inputs.asset}`
+      `deposit prover: amount ${inputs.amount} must be > 0 and <= ${MAX_NOTE_AMOUNT}`
     )
   }
 

@@ -41,7 +41,8 @@ describe("createBorrowQuote math", () => {
   // healthFactor   = (100 * 0.8) / 50 = 1.6
   // utilization    = 50 / 62.5 = 0.8
   // liquidationPx  = 50 / (100 * 0.8) = 0.625
-  // maxLoan        = 62.5 / 1 = 62.5
+  // maxLoan        = 100 * 1.0(ratio) * 0.625(maxLtv) * 0.95(R17 dynamic-
+  //                  cap safety margin, matches computeBorrowAmount) = 59.375
   it("derives borrowing power, health, utilization, and liquidation price", () => {
     const q = quote("100", "50")
     expect(q.collateral.valueUsd).toBeCloseTo(100, 6)
@@ -50,7 +51,7 @@ describe("createBorrowQuote math", () => {
     expect(q.healthFactor).toBeCloseTo(1.6, 6)
     expect(q.utilization).toBeCloseTo(0.8, 6)
     expect(q.liquidationPrice).toBeCloseTo(0.625, 6)
-    expect(q.maxLoanAmount).toBeCloseTo(62.5, 6)
+    expect(q.maxLoanAmount).toBeCloseTo(59.375, 6)
   })
 
   it("returns null health and liquidation price when the loan is zero", () => {

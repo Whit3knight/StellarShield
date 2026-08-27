@@ -66,7 +66,7 @@ console.log("Using deployer:", stellarAddr)
 const { computeCommitment, computeNullifier, assetTag, DENOMINATION } =
   await import("../../features/notes/note")
 const memo = await import("../../features/notes/memo")
-const { proveBorrow } = await import(
+const { computeBorrowAmount, proveBorrow } = await import(
   "../../features/shielded-pool/borrow-prover"
 )
 const stellarSdk: typeof import("@stellar/stellar-sdk") = await import(
@@ -340,10 +340,26 @@ const bondSaltAmount = rand()
 const bondSaltValue = rand()
 const bondSaltPrice = rand()
 
+// ---- Real typed loan amount (R17 Phase 3: no longer auto-derived by
+// proveBorrow) — mirror what the UI does: ask computeBorrowAmount for
+// the dynamic cap and request exactly that, matching what the
+// contract's own dynamic_borrow_cap will accept.
+const totalCollateralForAmount = collateralNotes.reduce(
+  (acc, n) => acc + n.amount,
+  0n
+)
+const borrowAmount = computeBorrowAmount({
+  totalCollateral: totalCollateralForAmount,
+  ratio: oraclePrice,
+  maxLtvBps: MAX_LTV_BPS,
+})
+console.log(`Requesting borrow amount: ${borrowAmount.toString()}`)
+
 // ---- Generate borrow proof ------------------------------------------
 console.log("Generating borrow proof…")
 const proof = await proveBorrow(
   {
+    amount: borrowAmount,
     borrowAsset: BORROW_ASSET,
     borrowSalt,
     collateralAsset: COLLATERAL_ASSET,

@@ -40,35 +40,35 @@ describe("computeBorrowAmount", () => {
       totalCollateral: fullCollateral("XLM"),
       ratio: ratio("XLM", "USDC"),
       maxLtvBps: MAX_LTV_BPS,
-      denomination: DENOMINATION.USDC,
     })
 
     // 4 XLM (40_000_000 raw) × 0.17111797923866 × 0.625 × 0.95 (R17
     // dynamic-cap safety margin, matches dynamic_borrow_cap's own
     // 9500/10000 factor) = 0.40640515… USDC → 4_064_052 raw.
     expect(amount).toBe(4_064_052n)
-    // Under the cap, so the LTV band — not the cap — set this value.
-    expect(amount).toBeLessThan((DENOMINATION.USDC * 9n) / 10n)
   })
 
-  it("caps a same-asset borrow at 90% of one denomination", () => {
+  // R17 Phase 3: the flat 90%-of-one-denomination ceiling is gone —
+  // it existed only because deposits used to be fixed-size, so a loan
+  // above one denomination could never be repaid. Deposits are real
+  // variable user input now (R17 Phase 1), so the user can simply
+  // deposit whatever the repay needs later; the LTV band (margined to
+  // match the contract exactly) is the only ceiling left.
+  it("is no longer capped at one denomination — can legitimately exceed it", () => {
     const amount = computeBorrowAmount({
       totalCollateral: fullCollateral("XLM"),
-      ratio: PRICE_RATIO_SCALE,
+      ratio: PRICE_RATIO_SCALE, // same-asset parity
       maxLtvBps: MAX_LTV_BPS,
-      denomination: DENOMINATION.XLM,
     })
 
-    // Raw LTV sizing is 4 XLM × 0.625 = 2.5 XLM, which repay.circom
-    // could never close against a single 1 XLM deposit note.
-    expect(amount).toBe((DENOMINATION.XLM * 9n) / 10n)
-    expect(amount).toBe(9_000_000n)
+    // 4 XLM (40_000_000 raw) × 1.0 × 0.625 × 0.95 = 23_750_000 raw —
+    // more than double DENOMINATION.XLM (10_000_000), which the old
+    // flat cap would have silently truncated down to.
+    expect(amount).toBe(23_750_000n)
+    expect(amount).toBeGreaterThan(DENOMINATION.XLM)
   })
 
-  it("never exceeds one borrow-asset denomination for any registered pair", () => {
-    // The guard that catches future drift: repay burns ONE deposit
-    // note, and borrow_shielded rejects anything above the
-    // denomination outright (Error #11).
+  it("stays proportional to real collateral value for every registered pair", () => {
     for (const market of marketCards) {
       const collateral = market.collateral as ShieldedAsset
       const borrow = market.symbol as ShieldedAsset
@@ -76,11 +76,9 @@ describe("computeBorrowAmount", () => {
         totalCollateral: fullCollateral(collateral),
         ratio: ratio(collateral, borrow),
         maxLtvBps: MAX_LTV_BPS,
-        denomination: DENOMINATION[borrow],
       })
 
       expect(amount).toBeGreaterThan(0n)
-      expect(amount <= DENOMINATION[borrow]).toBe(true)
     }
   })
 })

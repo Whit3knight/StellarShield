@@ -7,20 +7,10 @@ import {
 import type * as React from "react"
 
 import type { ConnectedAccount } from "@/app/_constants/account"
-import {
-  formatRawAmount,
-  getAssetPriceUsd,
-  getMarketPair,
-  PRICE_RATIO_DECIMALS,
-  PRICE_RATIO_SCALE,
-  type MarketCardData,
-} from "@/features/markets"
-import { COLLATERAL_NOTES_PER_BORROW, DENOMINATION } from "@/features/notes"
+import { getMarketPair, type MarketCardData } from "@/features/markets"
+import { COLLATERAL_NOTES_PER_BORROW } from "@/features/notes"
 import { formatAdapterError } from "@/features/protocol"
-import { computeBorrowAmount } from "@/features/shielded-pool"
-import { fromNumber } from "@/features/shared/money"
 
-import { MAX_LOAN_TO_VALUE } from "../../constants"
 import type {
   BorrowFlowMetrics,
   BorrowFlowState,
@@ -47,31 +37,15 @@ export function VerificationStep({
   const availableCollateral = account
     ? formatAssetAmount(metrics.collateralWalletBalance, market.collateral)
     : "Connect wallet"
-  // Spent collateral is fixed by the circuit, not by the typed input —
-  // showing the typed value next to the real mint would make the
-  // "collateral -> loan" row read as a rate it isn't.
-  const totalCollateral =
-    BigInt(COLLATERAL_NOTES_PER_BORROW) * DENOMINATION[market.collateral]
-  const collateralAmount = `${formatRawAmount(totalCollateral, market.collateral)} ${market.collateral}`
-  // What the borrow will ACTUALLY mint. The circuit always spends
-  // exactly COLLATERAL_NOTES_PER_BORROW fixed-denomination notes, so
-  // the typed loan amount is a display convenience — this reuses the
-  // prover's own sizing function so the review screen can't drift from
-  // what lands on chain.
-  const collateralPriceUsd = getAssetPriceUsd(market.collateral)
-  const borrowPriceUsd = getAssetPriceUsd(market.symbol)
-  const priceRatio =
-    borrowPriceUsd > 0
-      ? fromNumber(collateralPriceUsd / borrowPriceUsd, PRICE_RATIO_DECIMALS)
-          .value
-      : PRICE_RATIO_SCALE
-  const mintedLoan = computeBorrowAmount({
-    totalCollateral,
-    ratio: priceRatio,
-    maxLtvBps: Math.round(MAX_LOAN_TO_VALUE * 10_000),
-    denomination: DENOMINATION[market.symbol],
-  })
-  const loanAmount = `${formatRawAmount(mintedLoan, market.symbol)} ${market.symbol}`
+  // R17 Phase 3: collateral/loan amounts are real spend values now —
+  // `metrics.collateralAmount`/`loanAmount` are the same typed inputs
+  // that actually get deposited/borrowed (see `use-shielded-borrow-flow.ts`),
+  // not a fixed-denomination display convenience.
+  const collateralAmount = formatAssetAmount(
+    metrics.collateralAmount,
+    market.collateral
+  )
+  const loanAmount = formatAssetAmount(metrics.loanAmount, market.symbol)
   const proof = getProof(flow.verification)
   const proofExpiresAt = proof
     ? new Intl.DateTimeFormat("en-US", {
@@ -117,7 +91,7 @@ export function VerificationStep({
         amount={`${collateralAmount} -> ${loanAmount}`}
         from={`${market.collateral} collateral`}
         icon={LandmarkIcon}
-        info={`The shielded borrow always spends ${COLLATERAL_NOTES_PER_BORROW} fixed-size collateral notes, so the loan it mints is set by the LTV band and capped at one note denomination.`}
+        info={`The shielded borrow always spends ${COLLATERAL_NOTES_PER_BORROW} collateral notes; the loan it mints is capped by the contract's live price-derived LTV band, not a fixed amount.`}
         label="Market inputs"
         meta={[
           {

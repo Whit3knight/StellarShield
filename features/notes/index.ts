@@ -4,6 +4,7 @@ export {
   computeCommitment,
   computeNullifier,
   DENOMINATION,
+  MAX_NOTE_AMOUNT,
   isSpentNote,
   randomFieldElement,
   SUPPORTED_ASSETS,

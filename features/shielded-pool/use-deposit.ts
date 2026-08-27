@@ -20,7 +20,6 @@ import { prepareDeposit } from "./deposit"
 import { proveDepositQuad } from "./deposit-quad-prover"
 import { createToastTracker, describeError } from "./hook-utils"
 import {
-  DENOMINATION,
   encodeMemoBundle,
   encryptMemo,
   randomFieldElement,
@@ -31,17 +30,20 @@ import { computeCommitment } from "@/features/notes/note"
 type Status = "idle" | "proving" | "signing" | "success" | "failed"
 
 type UseDepositResult = {
-  deposit: (asset: ShieldedAsset) => Promise<{
+  // R17: `amount` is real user input (raw token units) — the prover
+  // range-checks it, no longer required to equal DENOMINATION.
+  deposit: (asset: ShieldedAsset, amount: bigint) => Promise<{
     index: number
     note: ShieldedNote
     txHash: string
   } | null>
   /**
    * Quad-deposit path: one Groth16 proof for four notes, one on-chain
-   * verify, one Freighter signature. Falls back to the legacy singleton
-   * `deposit` when count !== 4.
+   * verify, one Freighter signature. `amount` is shared across all 4
+   * notes (circuit constraint) — a user wanting differently-sized
+   * notes needs 4 singleton `deposit` calls instead.
    */
-  depositQuad: (asset: ShieldedAsset) => Promise<{
+  depositQuad: (asset: ShieldedAsset, amount: bigint) => Promise<{
     notes: ShieldedNote[]
     txHash: string
     indexes: number[]
@@ -71,7 +73,7 @@ export function useDeposit(
   }, [])
 
   const deposit = React.useCallback(
-    async (asset: ShieldedAsset) => {
+    async (asset: ShieldedAsset, amount: bigint) => {
       if (!account || !identity) {
         setStatus("failed")
         setMessage("Connect a wallet first.")
@@ -99,6 +101,7 @@ export function useDeposit(
       try {
         const prepared = await prepareDeposit({
           account,
+          amount,
           asset,
           identity,
         })
@@ -219,7 +222,7 @@ export function useDeposit(
   )
 
   const depositQuad = React.useCallback(
-    async (asset: ShieldedAsset) => {
+    async (asset: ShieldedAsset, amount: bigint) => {
       if (!account || !identity) {
         setStatus("failed")
         setMessage("Connect a wallet first.")
@@ -244,7 +247,6 @@ export function useDeposit(
       setMessage(null)
 
       try {
-        const denomination = DENOMINATION[asset]
         const sk = identity.skField
         const salts = [
           randomFieldElement(),
@@ -254,7 +256,7 @@ export function useDeposit(
         ] as [bigint, bigint, bigint, bigint]
 
         const proof = await proveDepositQuad({
-          amount: denomination,
+          amount,
           asset,
           salt: salts,
           sk,
@@ -282,7 +284,7 @@ export function useDeposit(
         }
         const witnesses = salts.map((salt, i) => {
           const leaf = computeCommitment({
-            amount: denomination,
+            amount,
             asset,
             salt,
             sk,
@@ -311,7 +313,7 @@ export function useDeposit(
           encodeMemoBundle(
             encryptMemo({
               plaintext: {
-                amount: denomination.toString(),
+                amount: amount.toString(),
                 asset,
                 index: 0,
                 salt: salt.toString(),
@@ -374,7 +376,7 @@ export function useDeposit(
 
         const notesOut: ShieldedNote[] = salts.map((salt, i) => {
           const stored: ShieldedNote = {
-            amount: denomination,
+            amount,
             asset,
             index: indexes[i] ?? witnesses[i].nextIndex,
             salt,

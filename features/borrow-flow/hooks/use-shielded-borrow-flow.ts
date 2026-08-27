@@ -4,12 +4,13 @@ import * as React from "react"
 
 import type { ConnectedAccount } from "@/app/_constants/account"
 import { toastManager } from "@/components/ui/toast"
-import { type MarketCardData, useMarketStats } from "@/features/markets"
+import { getAsset, type MarketCardData, useMarketStats } from "@/features/markets"
 import {
   COLLATERAL_NOTES_PER_BORROW,
   useNotes,
   type ShieldedAsset,
 } from "@/features/notes"
+import { fromString } from "@/features/shared/money"
 import type {
   BorrowIntent,
   ProtocolTransactionPayload,
@@ -144,20 +145,38 @@ export function useShieldedBorrowFlow({
       transaction: { status: "Draft" },
     }))
 
-    // The shielded-borrow circuit always consumes exactly
-    // `COLLATERAL_NOTES_PER_BORROW` notes — the user's collateral
-    // amount input is a display convenience, not a spend cap. Shield
-    // only what the circuit needs; larger inputs don't buy more
-    // borrow capacity today. Doing anything else here caused the
-    // "sign 30 times" loop when the legacy default input of `"3000"`
-    // XLM leaked through: `ceil(3000 / 100) = 30` targeted 30
-    // deposits.
+    // R17 Phase 3: the user's collateral amount input is a real spend
+    // value now — every deposit_shielded/_quad call carries it as the
+    // note amount, not a fixed denomination. The circuit still always
+    // consumes exactly `COLLATERAL_NOTES_PER_BORROW` notes, so the
+    // typed total is split evenly across whichever notes are actually
+    // being deposited fresh this call (already-owned notes keep
+    // whatever amount they were deposited at).
     const collateralWhole = Number(deferredCollateralAmount) || 0
+    const collateralAmountRaw = fromString(
+      deferredCollateralAmount,
+      getAsset(collateralAsset).decimals
+    ).value
     const ownedNotes = notes.filter(
       (n) => n.tree === "deposit" && n.asset === collateralAsset
     ).length
     const targetNotes = COLLATERAL_NOTES_PER_BORROW
     const missing = Math.max(0, targetNotes - ownedNotes)
+    const perNoteAmount =
+      missing > 0 ? collateralAmountRaw / BigInt(missing) : 0n
+    if (missing > 0 && perNoteAmount <= 0n) {
+      setFlow((currentFlow) => ({
+        ...currentFlow,
+        verification: { status: "Failed", proof: null },
+      }))
+      toastManager.add({
+        title: "Enter a collateral amount",
+        description: "Type a collateral amount greater than zero before verifying.",
+        type: "error",
+        timeout: 6_000,
+      })
+      return
+    }
 
     setFlow((currentFlow) => ({
       ...currentFlow,
@@ -185,7 +204,7 @@ export function useShieldedBorrowFlow({
     // under it. Fix the real cost (contract/circuit work, needs
     // profiling + redeploy) before re-enabling quad here for non-XLM.
     if (missing === 4 && collateralAsset === "XLM") {
-      const quadResult = await depositQuad(collateralAsset)
+      const quadResult = await depositQuad(collateralAsset, perNoteAmount)
       if (!quadResult) {
         console.log("[verify] quad failed")
         setFlow((currentFlow) => ({
@@ -196,7 +215,7 @@ export function useShieldedBorrowFlow({
       }
     } else {
       for (let i = 0; i < missing; i++) {
-        const result = await deposit(collateralAsset)
+        const result = await deposit(collateralAsset, perNoteAmount)
         if (!result) {
           setFlow((currentFlow) => ({
             ...currentFlow,
@@ -328,7 +347,15 @@ export function useShieldedBorrowFlow({
       transaction: { status: "Signing", intent, payload },
     }))
 
-    const result = await borrow({ borrowAsset, collateralAsset })
+    const loanAmountRaw = fromString(
+      deferredLoanAmount,
+      getAsset(borrowAsset).decimals
+    ).value
+    const result = await borrow({
+      amount: loanAmountRaw,
+      borrowAsset,
+      collateralAsset,
+    })
     if (!result) {
       setFlow((currentFlow) => ({
         ...currentFlow,

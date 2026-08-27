@@ -21,8 +21,9 @@ composition root is `features/shielded-pool/shielded-pool-provider.tsx` with no
 ## 1. Product Overview
 
 Stellar Shield is a Zcash-style shielded borrow pool on Stellar with a Next.js
-16 dashboard. Users deposit fixed-denomination notes into per-asset commitment
-trees (Merkle depth 20; deposit + loan trees), borrow against exactly 4
+16 dashboard. Users deposit notes of a real, self-chosen amount (R17: no
+longer fixed-denomination) into per-asset commitment trees (Merkle depth 20;
+deposit + loan trees), borrow a real self-chosen amount against exactly 4
 collateral notes behind a Groth16 proof of note ownership, then **either**
 claim the loan to their wallet **or** repay (with interest accrual) by
 burning a same-asset deposit note — the two are mutually exclusive, see §9.
@@ -37,11 +38,15 @@ note inventory from public chain events **within the RPC retention window**
 - **Registered markets:** USDC/XLM, XLM/USDC, EURC/USDC, USDC/EURC, EURC/XLM, XLM/EURC.
 - **Unit domain:** every amount is RAW token units (stroops, 7 decimals).
   `DENOMINATION` = `XLM: 10_000_000` (1 XLM), `USDC`/`EURC: 5_000_000` (0.5)
-  in both `features/notes/note.ts` and `contracts/borrow-pool/src/notes.rs`.
+  in both `features/notes/note.ts` and `contracts/borrow-pool/src/notes.rs`
+  — R17: the default suggested amount, no longer enforced; real amounts
+  are range-checked against `MAX_NOTE_AMOUNT` instead.
 - **Solvency bound:** the borrow circuit's LTV/HF band is **not** a guard —
   `oracle_price` is an unconstrained private witness. The binding limit is
-  the contract-side cap `borrow_amount <= denomination(asset)` enforced in
-  `borrow_shielded` and `withdraw_loan_shielded` (`lib.rs`). See FR-C4.
+  `borrow_shielded`'s `dynamic_borrow_cap` (live Reflector price × real
+  collateral amount × LTV × 95% margin, `lib.rs` cross-calling
+  `contracts/borrow-cap-helper/`), falling back to the flat
+  `denomination(asset)` ceiling only when no live feed exists. See FR-C4.
 
 ## 2. User Personas
 
@@ -64,17 +69,22 @@ note inventory from public chain events **within the RPC retention window**
 
 - Connect Freighter on testnet; derive a shielded identity (from a signature)
   so only I can discover my notes.
-- Deposit a fixed-denomination note; contract pulls tokens, appends the
-  commitment, emits an encrypted memo.
+- Deposit a real, self-chosen amount as a note; contract range-checks it,
+  pulls tokens, appends the commitment, emits an encrypted memo. (R17: no
+  longer a fixed denomination — see `docs/REMEDIATION.md` R17.)
 - With ≥4 unspent collateral notes of one asset, generate a Groth16 borrow
   proof in-browser (~15–30s) proving I own four unspent notes at the attested
-  root, without revealing amounts. (The proof also carries an LTV/HF band, but
-  it is decorative — see FR-C4; the contract's denomination cap is the bound.)
+  root and type my own loan amount, capped by the contract's live,
+  price-derived dynamic borrow cap. (The proof also carries an LTV/HF band,
+  but it is decorative — see FR-C4; the contract's `dynamic_borrow_cap` is
+  the real bound.) This reveals the total collateral amount and the loan
+  amount on-chain — an accepted trade-off, not the "without revealing
+  amounts" the pre-R17 design achieved; see `docs/REMEDIATION.md` R17/R19.
 - Claim the loan (`withdraw_loan_shielded`) to my wallet **or** repay by
   burning a same-asset deposit note covering principal × accrued interest
   index. Not both: claim and repay spend the same loan nullifier
   `Poseidon(sk, loan_index)`, so whichever runs first closes the position.
-- Withdraw any deposit note back to my wallet at the fixed denomination.
+- Withdraw any deposit note back to my wallet at its real deposited amount.
 - On a fresh browser, recover my note inventory by scanning public events
   (window-bounded — NFR-R1).
 
@@ -221,14 +231,23 @@ divisor plus a contract-read price (`ponytail:` comments in
 - **FR-C4 `[SECURITY-RELEVANT]`:** The borrow circuit's LTV and max-LTV
   constraints (`borrow.circom:163-183`) do **not** bound solvency:
   `oracle_price` is an unconstrained private witness, so a modified client
-  can satisfy the band at any price. The enforced bound is
-  `borrow_amount <= denomination(borrow_asset)`, checked in `borrow_shielded`
-  (the `max_borrow` guard) and again in `withdraw_loan_shielded` (the
-  `max_amount` guard), both in `contracts/borrow-pool/src/lib.rs`. Each is
-  preceded by a comment naming it as the real solvency guard. The cap is also
-  what keeps a loan repayable at all —
-  `repay.circom` burns exactly one deposit note. Total collateral is public
-  anyway (4 notes × fixed denomination), so the clear-text cap leaks nothing.
+  can satisfy the band at any price. The enforced bound (R17) is
+  `borrow_shielded`'s `dynamic_borrow_cap` — a live Reflector price ×
+  the real collateral amount (`total_collateral_amount`, a new circuit
+  output) × `max_ltv_bps` × a 95% safety margin, cross-calling
+  `contracts/borrow-cap-helper/` — falling back to the flat
+  `denomination(borrow_asset)` ceiling only when no live feed exists.
+  `withdraw_loan_shielded` no longer has its own ceiling check (removed
+  in R17: a loan can legitimately exceed one denomination now, so the
+  old check would wrongly reject valid claims); its payout is bound
+  into the Merkle-verified commitment instead, already validated
+  against the cap at mint time. This is a new, deliberate on-chain leak
+  of the real collateral amount and loan amount (previously "public
+  anyway" only because every note was the same fixed size) — see
+  `docs/REMEDIATION.md` R17 for the full trade-off discussion, and
+  R18/R19 for a real regression this change caused and fixed
+  (unrelated Poseidon performance bug, tipped over by R17's added
+  weight) plus a follow-up event-schema fix.
 
 ### 4.9 Liquidation tooling (CLI) `[IMPLEMENTED]`
 
@@ -251,7 +270,7 @@ divisor plus a contract-read price (`ponytail:` comments in
 | NFR-P1 | Performance | Borrow proof ≤ 30s in-browser | **Target — documented estimate ~15–30s; no benchmark harness. Add timed check or keep as target, not "measured"** |
 | NFR-P2 | Performance | `@stellar/freighter-api` async-chunks only; no radix-ui (`bun run check:bundle`) | Enforced post-build |
 | NFR-C1 | Correctness | All asset math bigint fixed-point (`features/shared/money`); no float drift | Implemented + tested |
-| NFR-PR1 | Privacy | Wallet↔note unlinkability via denominations, nullifiers, memo encryption | Identity now signature-derived (R1 fixed); UI masking implemented. Residual limit is the ~0 anonymity set (R4), not the key scheme |
+| NFR-PR1 | Privacy | Wallet↔note unlinkability via nullifiers, memo encryption | Identity now signature-derived (R1 fixed); UI masking implemented. Residual limit is the ~0 anonymity set (R4), not the key scheme. R17 traded away the "every note is the same fixed size" cover for real, varying amounts — deposit/loan amounts are now a new deliberate on-chain leak (see FR-C4, `docs/REMEDIATION.md` R17) |
 | NFR-PR2 | Privacy | Liquidation service never holds *spending* keys (ivk/nk split, v2 circuit) | Implemented at design level; no enforcing test. Service does hold *viewing* capability pool-wide (R3) |
 | NFR-S1 | Security | On-chain nullifier replay guard (per-tree namespaces: deposit vs loan, so cross-tree byte collisions cannot block a legitimate spend); Groth16 via Protocol 22 host fns; proof replay rejection; oracle freshness window | Implemented (no Rust unit tests — §7 gap #1) |
 | NFR-S2 | Security | Oracle price *commitment* cross-checked on-chain | **Gap — planned (R7)** |
@@ -361,7 +380,7 @@ backward-compat. Remaining gaps:
 | Proving | Real in-browser Groth16, artifacts hash-pinned (R8); dev trusted setup | Production ceremony / universal setup |
 | Repay | Burns collateral notes; interest accrual live | v2 repay circuit: collateral recovery |
 | Liquidation | v1 + v2 circuits, contract fns, hook, and CLI all built; **triggering inert (fails closed)** on a dimensional mismatch; single trusted operator | v3 circuit with explicit divisor + contract-read price, then activate service; decentralization dropped (FROST) — operator trust stays unless revisited |
-| Solvency | Contract-side cap `borrow_amount <= denomination`; circuit LTV band decorative (unconstrained `oracle_price`) | Price-bound circuit constraint once the oracle cross-check lands |
+| Solvency | Contract-side `dynamic_borrow_cap` — real collateral amount × live Reflector price × LTV × 95% margin (R17), flat `denomination` fallback only with no feed; circuit LTV band still decorative (unconstrained `oracle_price`) | Bind `oracle_price` itself into a circuit constraint, closing the last unconstrained-witness gap |
 | Oracle | Reflector freshness check only (live-price strkey bug fixed) | On-chain commitment cross-check |
 | Testing | TS unit (197 in 27 files) + fixture harness + **e2e testnet harness in CI (R6)** | Rust tests post soroban-sdk 23; liquidation proving fixture |
 | Docs | README + CLAUDE.md refreshed; canonical contract ID declared; BRD/PRD/REMEDIATION maintained | — |

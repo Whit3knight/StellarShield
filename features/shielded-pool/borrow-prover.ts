@@ -19,7 +19,6 @@ import {
   COLLATERAL_NOTES_PER_BORROW,
   computeCommitment,
   computeNullifier,
-  DENOMINATION,
   type ShieldedAsset,
   type ShieldedNote,
 } from "@/features/notes"
@@ -32,6 +31,10 @@ const DEFAULT_WASM_URL = "/circuits-circom/shielded/borrow/borrow.wasm"
 const DEFAULT_ZKEY_URL = "/circuits-circom/shielded/borrow/borrow.zkey"
 
 export type BorrowProofInputs = {
+  // R17 Phase 3: real user-typed loan amount, raw borrow-asset units —
+  // the caller must validate this against `computeBorrowAmount(...)`'s
+  // dynamic cap itself; `proveBorrow` no longer auto-derives it.
+  amount: bigint
   borrowAsset: ShieldedAsset
   borrowSalt: bigint
   collateralAsset: ShieldedAsset
@@ -69,44 +72,38 @@ export type BorrowProofResult = {
 }
 
 /**
- * Raw borrow-asset units a borrow will actually mint.
+ * Maximum raw borrow-asset units the contract's own `dynamic_borrow_cap`
+ * will accept for this collateral. Matches its formula exactly
+ * (`contracts/borrow-pool/src/lib.rs`: `total_collateral_amount * ratio
+ * / 1e14 * max_ltv_bps/10000 * 9500/10000`, including the 95% safety
+ * margin) so what the UI validates against matches what the contract
+ * will accept — computing it any looser here just means a rejected
+ * `borrow_shielded` call after a wasted proving cycle.
  *
- *   amount = totalCollateral × ratio × maxLtvBps / (10_000 × 1e14)
- *
- * then capped at 90% of one denomination. The cap is load-bearing, not
- * cosmetic: repay.circom burns exactly ONE deposit note and enforces
- * `deposit_amount × index_snapshot >= loan_amount × index_now`, so a
- * loan bigger than one denomination — or one with no headroom for
- * accrued interest — can never be repaid. The borrow circuit only
- * range-checks `borrow_amount` against an LTV band (never an equality),
- * so shrinking the amount keeps the proof valid.
+ * R17 Phase 3: no longer capped at a flat 90%-of-DENOMINATION ceiling.
+ * That cap existed only because repay.circom burns exactly one
+ * BORROW-asset deposit note, and deposits used to be fixed-size — so
+ * a loan above one denomination could never be repaid. Now that
+ * deposits are real, variable user input too (R17 Phase 1), the user
+ * can simply deposit however much the repay needs at that time; this
+ * function no longer tries to pre-guess that. `amount` is real typed
+ * user input (see `use-borrow.ts`) — this is a UI-facing "what's the
+ * max I can offer" helper, not something `proveBorrow` calls itself.
  */
-/// R17: matches `dynamic_borrow_cap`'s formula exactly
-/// (`contracts/borrow-pool/src/lib.rs`, `total_collateral_amount *
-/// ratio / 1e14 * max_ltv_bps/10000 * 9500/10000`) — including the
-/// 95% safety margin on top of the LTV band. Without this margin the
-/// client would compute a borrow amount the contract's own dynamic
-/// cap then rejects with `DenominationMismatch`, since the contract
-/// applies the margin and the client didn't.
-const DYNAMIC_CAP_SAFETY_MARGIN_BPS = 9500n
-
 export function computeBorrowAmount({
   totalCollateral,
   ratio,
   maxLtvBps,
-  denomination,
 }: {
   totalCollateral: bigint
   ratio: bigint
   maxLtvBps: number
-  denomination: bigint
 }): bigint {
-  const fromLtv =
+  const DYNAMIC_CAP_SAFETY_MARGIN_BPS = 9500n
+  return (
     (totalCollateral * ratio * BigInt(maxLtvBps) * DYNAMIC_CAP_SAFETY_MARGIN_BPS) /
     (10_000n * PRICE_RATIO_SCALE * 10_000n)
-  const cap = (denomination * 9n) / 10n
-
-  return fromLtv < cap ? fromLtv : cap
+  )
 }
 
 export async function proveBorrow(
@@ -119,18 +116,23 @@ export async function proveBorrow(
     )
   }
 
-  // Aggregate collateral value + derive borrow amount from LTV band.
+  if (inputs.amount <= 0n) {
+    throw new Error(`borrow prover: amount must be > 0, got ${inputs.amount}`)
+  }
+
+  // R17 Phase 3: real user-typed amount — the caller (`use-borrow.ts`)
+  // is responsible for validating it against `computeBorrowAmount`'s
+  // dynamic cap before calling this; this function does not
+  // re-derive or silently clamp it (the circuit's own LTV band is
+  // decorative, not a solvency guard — see CLAUDE.md — so there is no
+  // "safe" amount to compute here anyway; the contract's
+  // `dynamic_borrow_cap` is the real, final check at submission time).
   const totalCollateral = inputs.collateralNotes.reduce(
     (acc, note) => acc + note.amount,
     0n
   )
   const collateralValue = totalCollateral * inputs.oraclePrice
-  const borrowAmount = computeBorrowAmount({
-    totalCollateral,
-    ratio: inputs.oraclePrice,
-    maxLtvBps: inputs.maxLtvBps,
-    denomination: DENOMINATION[inputs.borrowAsset],
-  })
+  const borrowAmount = inputs.amount
 
   const nullifiers = inputs.collateralNotes.map((note) =>
     computeNullifier(inputs.sk, note.index)
@@ -251,9 +253,13 @@ export async function proveBorrow(
   }
 }
 
-// Denomination sanity check — asserts every collateral note comes from
-// the same asset and the aggregated amount matches the DENOMINATION
-// multiplier the frontend assumes.
+// Sanity check — asserts every collateral note comes from the same
+// asset, is a real spendable deposit note, and is from the deposit
+// tree. R17: amounts vary per note now, so the old hard equality
+// against DENOMINATION was doing double duty as an implicit
+// positivity check — replaced with an explicit `> 0n` so a
+// zero/negative note still fails loudly instead of silently passing
+// once the equality constraint was removed.
 export function validateCollateralNotes(
   notes: ShieldedNote[],
   asset: ShieldedAsset
@@ -269,10 +275,8 @@ export function validateCollateralNotes(
         `collateral asset mismatch: expected ${asset}, saw ${note.asset}`
       )
     }
-    if (note.amount !== DENOMINATION[asset]) {
-      throw new Error(
-        `collateral amount mismatch: expected ${DENOMINATION[asset]}, saw ${note.amount}`
-      )
+    if (note.amount <= 0n) {
+      throw new Error(`collateral note has non-positive amount: ${note.amount}`)
     }
     if (note.tree !== "deposit") {
       throw new Error("collateral must be deposit notes")

@@ -18,16 +18,30 @@ export const SUPPORTED_ASSETS = ["XLM", "USDC", "EURC"] as const
 export type ShieldedAsset = (typeof SUPPORTED_ASSETS)[number]
 
 /**
- * Fixed note size per asset, in RAW token units (stroops). All three
- * SACs are 7-decimal, so these are 1 XLM, 0.5 USDC, 0.5 EURC. Mirrors
- * `DENOMINATION_*` in `contracts/borrow-pool/src/notes.rs` — the
- * contract rejects any deposit whose transferred amount differs.
+ * Historical fixed note size per asset, in RAW token units (stroops).
+ * All three SACs are 7-decimal, so these are 1 XLM, 0.5 USDC,
+ * 0.5 EURC. Mirrors `DENOMINATION_*` in
+ * `contracts/borrow-pool/src/notes.rs`. R17: no longer an equality
+ * constraint the contract enforces — deposit/withdraw/borrow amounts
+ * are real user input now, range-checked against `MAX_NOTE_AMOUNT`
+ * instead. Kept as the default suggested amount in deposit UI, the
+ * fallback for pre-R17 events/memos that never carried a real amount,
+ * and quad-deposit's floor (its 4 notes still share one amount — a
+ * circuit constraint, not a bug).
  */
 export const DENOMINATION: Record<ShieldedAsset, bigint> = {
   EURC: 5_000_000n,
   USDC: 5_000_000n,
   XLM: 10_000_000n,
 }
+
+/**
+ * Mirrors `MAX_NOTE_AMOUNT` in `contracts/borrow-pool/src/lib.rs`
+ * (`fr_to_amount_checked`'s sanity ceiling). Provers range-check
+ * against this client-side so a bad input fails fast in the browser
+ * instead of after burning a proof cycle only to be rejected on-chain.
+ */
+export const MAX_NOTE_AMOUNT = 1_000_000_000_000_000_000n
 
 /**
  * Fixed by the shielded-borrow circuit (compiled with 4 collateral
