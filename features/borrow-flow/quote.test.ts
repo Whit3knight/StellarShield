@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
+import type { ConnectedAccount } from "@/app/_constants/account"
 import { marketCards } from "@/features/markets"
 import { writeCachedAssetPrice } from "@/features/markets/price-cache"
 
@@ -15,12 +16,29 @@ function requireMarket() {
 }
 const market = requireMarket()
 
-function quote(collateralAmount: string, loanAmount: string) {
+function quote(
+  collateralAmount: string,
+  loanAmount: string,
+  account: ConnectedAccount | null = null
+) {
   return createBorrowQuote({
-    account: null,
+    account,
     flow: { collateralAmount, loanAmount },
     market,
   })
+}
+
+// Funded so the wallet-balance gate doesn't shadow the LTV boundary
+// this account exists to isolate.
+const fundedAccount: ConnectedAccount = {
+  wallet: {
+    address: "GTEST",
+    balance: "1000",
+    balances: { USDC: "1000" },
+    providerId: "freighter",
+    providerName: "Freighter",
+    shortAddress: "GTES…TEST",
+  },
 }
 
 beforeEach(() => {
@@ -64,6 +82,40 @@ describe("createBorrowQuote math", () => {
   it("returns null liquidation price when collateral is zero", () => {
     const q = quote("0", "50")
     expect(q.liquidationPrice).toBeNull()
+  })
+
+  // Zero collateral with a non-zero loan is a distinct path from the
+  // zero-loan case above: healthFactor's own isZero check only looks
+  // at the loan side, so it returns 0 (maximally unhealthy) here, not
+  // null — worth pinning down since it's easy to conflate the two
+  // "zero" edges.
+  it("health factor is 0 (not null) when collateral is zero but loan is not", () => {
+    const q = quote("0", "50")
+    expect(q.healthFactor).toBe(0)
+    expect(q.maxLoanAmount).toBe(0)
+  })
+
+  // borrowingPower = 100 * 0.625 = 62.5 exactly. getLoanValidationError
+  // only rejects strictly-greater, so the boundary itself is valid.
+  it("max-LTV boundary: loan valued exactly at borrowing power is valid, one cent over is not", () => {
+    const atLimit = quote("100", "62.5", fundedAccount)
+    expect(atLimit.validationError).toBeNull()
+
+    const overLimit = quote("100", "62.51", fundedAccount)
+    expect(overLimit.validationError).toBe(
+      "Loan amount exceeds current borrowing power."
+    )
+  })
+
+  // Assets here use 7 raw decimals (see features/markets/data.ts). An
+  // 8th fractional digit is finer than the smallest on-chain unit and
+  // must truncate away, not round up into a phantom unit.
+  it("truncates amounts finer than the asset's raw denomination instead of rounding up", () => {
+    const belowGranularity = quote("0.00000001", "")
+    expect(belowGranularity.collateral.amount).toBe(0)
+
+    const atGranularity = quote("0.0000001", "")
+    expect(atGranularity.collateral.amount).toBeCloseTo(0.0000001, 10)
   })
 
   it("scales health factor inversely with loan size", () => {

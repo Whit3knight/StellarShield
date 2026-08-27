@@ -925,7 +925,7 @@ costs nothing behaviorally for honest callers.
 ### Small items (slot into sequence)
 
 - **Zero Rust contract tests** — blocked on soroban-sdk 23. One README line stating the block + stopgap (TS fixtures + R6 e2e). Re-check next sdk release.
-- **`quote.ts` untested** — add `quote.test.ts` (LTV/HF/liquidation-price edges: zero collateral, max-LTV boundary, denomination-granularity rounding). Batch with R8 PR.
+- **`quote.ts` untested [DONE]** — `quote.test.ts` covers LTV/HF/liquidation-price edges: zero loan, zero collateral (including the health-factor-vs-liquidation-price distinction — the former reads 0, not null, when only collateral is zero), the max-LTV boundary (exactly at borrowing power passes, one cent over fails), and denomination-granularity truncation (an 8th fractional digit below the 7-decimal raw unit drops instead of rounding up).
 - **`shielded-deposit-quad` status** — circuit + verifier (`lib.rs:497`) + prover + artifacts all exist but nothing wires it. Decision, not build: add a README roadmap row ("experimental, unwired"). Resolves OQ-4.
 
 ---
