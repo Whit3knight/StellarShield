@@ -793,8 +793,8 @@ would matter far more for v2, where a caller could otherwise point
 `loan_commitment` at someone else's fatter `LiquidationBond`. v2's
 circuit exposes `loan_commitment` as a public signal and
 `repay_shielded_v2` asserts it equals the tx arg before trusting the
-bond lookup. v1's own checks are untouched — same gap disclosed there,
-not fixed (out of this item's scope).
+bond lookup. v1's own checks were untouched here — same gap disclosed,
+not fixed (out of this item's scope) — **backported in R24**, next.
 
 **Fix:**
 - `repay_shielded_v2(from, asset, collateral_asset, loan_commitment,
@@ -873,6 +873,54 @@ not fixed (out of this item's scope).
   `7b2f28e3a577aa1fc6803774f71eb5b4d2a8da33853d02b915496362efa2b496`,
   `set_repay_v2_verifier` wired. Storage confirmed intact post-upgrade
   (`list_markets` unchanged).
+
+### R24 — v1 repay's loan_commitment binding gap, backported from R23 [SHIPPED]
+
+R23 found and fixed a real gap in `repay_shielded_v2`: the `loan_commitment`
+tx argument was never cryptographically bound to the note the proof
+actually repays. R23 explicitly disclosed-but-didn't-fix the same gap
+in v1 `repay_shielded` (out of that item's scope). This item backports
+the fix: `contracts/circuits/shielded-repay/src/repay.circom` gains an
+8th public signal, `loan_commitment`, asserted equal to the circuit's
+own internal `loanCommit.out`; `repay_shielded` in `lib.rs` now checks
+`loan_commit_fr.to_bytes() == loan_commitment` before trusting the
+Track D sidecar lookup — identical shape to R23's fix.
+
+v1 is now exclusively the fallback for pre-Track-L (no `LiquidationBond`
+on file) loans, so the practical exposure was narrow — a caller could
+point the tx arg at someone else's `BorrowIndexAtOpen` sidecar and get
+a favorable (or unfavorable) Track D ratio, not steal funds directly —
+but it's the same class of gap R23 called out as "would matter far
+more" once a proof carries value-bearing public signals, and closing it
+costs nothing behaviorally for honest callers.
+
+**Fix:**
+- Circuit recompiled (7→8 public signals, `pragma circom 2.1.9`,
+  `-p bls12381`), fresh dev-ceremony trusted setup reusing the existing
+  `pot15_final.ptau` (same status as every other circuit — dev keys,
+  not a production ceremony). `repay_verifier.rs` updated (`ic_len`
+  8→9, one more `VK_IC` constant) — stays embedded in `borrow-pool`
+  (unlike R23's new verifier, one more IC point is a 96-byte constant
+  and one more loop iteration, not worth a separate helper contract;
+  measured WASM growth: 66929→66995 bytes, 66B).
+- `repay-prover.ts`: wires the already-computed (but previously
+  discarded via `void loanCommitment`) commitment into the witness
+  inputs and the result. **Also picked up the `singleThread`
+  proverOption fix while touching this file** — `repay-prover.ts` was
+  the one remaining prover (besides `withdraw-prover.ts`, untouched,
+  out of scope) missing the R22 Bun Web-Worker crash workaround every
+  other prover already has; needed to run this item's own on-chain
+  test under Bun at all.
+- **Verification**: circuit compiles clean (8 public signals); `cargo
+  check -p borrow-pool` clean; **real on-chain round trip** on a temp
+  contract — deposit → borrow → deposit repay-source note → generate
+  one repay proof, then (a) submit `repay_shielded` with a
+  deliberately-mismatched tx-arg `loan_commitment` (last byte flipped)
+  and confirm it's rejected with `Error::InvalidProof`, then (b) submit
+  the same proof with the correct tx arg and confirm it succeeds,
+  closing the loan. Measured `repay_shielded` at 72,249,448 instructions
+  (no cross-contract call, well under budget). `lint`/`typecheck`/
+  `test` (278 passing)/`cargo check`/`build`/`check:bundle` all green.
 
 ### Small items (slot into sequence)
 

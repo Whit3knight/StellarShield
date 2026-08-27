@@ -297,7 +297,7 @@ The Soroban contract `BorrowPool` (`contracts/borrow-pool/src/lib.rs`, `#![no_st
 | **Borrow** | `borrow_shielded:779` | 4 collateral | 1 loan leaf | write bond + loan-nullifier + index-at-open | none (loan minted as a note) | `(index, root, leaf, memo, n0..n3)` |
 | **Withdraw (deposit)** | `withdraw_shielded:696` | 1 deposit | — | — | `transfer_out` denomination | `(nullifier, to)` |
 | **Withdraw (loan)** | `withdraw_loan_shielded:968` | 1 loan | — | — | `transfer_out` variable amount | `(nullifier, to, amount)` |
-| **Repay v1** | `repay_shielded:1260` | 1 loan + 1 deposit | — | reads index-at-open | none | `(loan_nul, dep_nul, from)` |
+| **Repay v1** | `repay_shielded:1260` | 1 loan + 1 deposit | — | reads index-at-open + checks loan_commitment binding (R24) | none | `(loan_nul, dep_nul, from)` |
 | **Repay v2** | `repay_shielded_v2:1403` | 1 loan + 1 deposit | 1 recovered collateral leaf | reads index-at-open + bond | none (recovered amount minted as a note) | `(loan_nul, dep_nul, from)` + deposit event |
 | **Liquidate v1** | `liquidate_shielded:1168` | 1 loan | 1 bounty deposit leaf | reads bond | none (bounty minted as note) | `(loan_commit, nullifier, liquidator)` + deposit event |
 | **Liquidate v2** | `liquidate_shielded_v2:1307` | 1 loan (via sidecar) | 1 bounty deposit leaf | reads bond + loan-nullifier | none | as v1 |

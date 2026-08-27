@@ -1252,11 +1252,15 @@ impl BorrowPool {
     //   [4] deposit_nullifier
     //   [5] borrow_index_snapshot    (Track D)
     //   [6] borrow_index_now         (Track D)
+    //   [7] loan_commitment          binds the tx arg to this note (R24)
     ///
     // `loan_commitment` comes in as a tx arg so the contract can
-    // look up the BorrowIndexAtOpen sidecar; pre-D loans without
-    // the sidecar are grandfathered as zero-interest by treating
-    // `snapshot = index_now` (the ratio collapses to 1.0).
+    // look up the BorrowIndexAtOpen sidecar, and — as of R24 — is
+    // cross-checked against the circuit's own internal computation
+    // of the note being repaid, closing the same binding gap R23
+    // found and fixed for repay_shielded_v2. Pre-D loans without a
+    // BorrowIndexAtOpen sidecar are grandfathered as zero-interest by
+    // treating `snapshot = index_now` (the ratio collapses to 1.0).
     pub fn repay_shielded(
         env: Env,
         from: Address,
@@ -1266,7 +1270,7 @@ impl BorrowPool {
     ) -> Result<(), Error> {
         from.require_auth();
 
-        if proof.public_signals.len() != 7 {
+        if proof.public_signals.len() != 8 {
             return Err(Error::InvalidProof);
         }
         let asset_tag_fr = proof.public_signals.get(0).unwrap();
@@ -1276,6 +1280,15 @@ impl BorrowPool {
         let dep_nul_fr = proof.public_signals.get(4).unwrap();
         let index_snapshot_fr = proof.public_signals.get(5).unwrap();
         let index_now_fr = proof.public_signals.get(6).unwrap();
+        let loan_commit_fr = proof.public_signals.get(7).unwrap();
+
+        // R24: binds the tx-arg loan_commitment to the note this proof
+        // actually repays — same fix R23 gave repay_shielded_v2, backported
+        // here (see repay_shielded_v2's own doc comment for the gap this
+        // closes).
+        if loan_commit_fr.to_bytes() != loan_commitment {
+            return Err(Error::InvalidProof);
+        }
 
         let expected_tag =
             notes::asset_tag(&env, &asset).ok_or(Error::AssetUnknown)?;

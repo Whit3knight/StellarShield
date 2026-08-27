@@ -20,6 +20,7 @@ pragma circom 2.1.9;
 //   [4] deposit_nullifier
 //   [5] borrow_index_snapshot   (Track D — index_at_open, 1e18 fixed)
 //   [6] borrow_index_now        (Track D — index accrued to tx time, 1e18 fixed)
+//   [7] loan_commitment         binds the tx arg to this specific note (R24)
 //
 // Track D solvency invariant (integer-safe rearrangement):
 //   deposit_amount * borrow_index_snapshot
@@ -79,6 +80,7 @@ template Repay(depth) {
     signal input deposit_nullifier;
     signal input borrow_index_snapshot;
     signal input borrow_index_now;
+    signal input loan_commitment;
 
     // Private.
     signal input sk;
@@ -101,6 +103,7 @@ template Repay(depth) {
     loanCommit.inputs[1] <== asset_tag;
     loanCommit.inputs[2] <== sk;
     loanCommit.inputs[3] <== loan_salt;
+    loanCommit.out === loan_commitment;
 
     component loanTree = MerkleInclusion(depth);
     loanTree.leaf <== loanCommit.out;
@@ -169,5 +172,6 @@ component main {public [
     loan_nullifier,
     deposit_nullifier,
     borrow_index_snapshot,
-    borrow_index_now
+    borrow_index_now,
+    loan_commitment
 ]} = Repay(20);

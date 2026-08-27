@@ -8,6 +8,7 @@
 //   [4] deposit_nullifier
 //   [5] borrow_index_snapshot  (Track D)
 //   [6] borrow_index_now       (Track D)
+//   [7] loan_commitment        binds the tx arg to this note (R24)
 
 import {
   assetTag,
@@ -38,6 +39,7 @@ export type RepayProofResult = {
   a: Uint8Array
   b: Uint8Array
   c: Uint8Array
+  loanCommitment: bigint
   loanNullifier: bigint
   depositNullifier: bigint
   publicSignals: Uint8Array[]
@@ -93,6 +95,7 @@ export async function proveRepay(
     deposit_nullifier: depositNullifier.toString(),
     borrow_index_snapshot: inputs.borrowIndexSnapshot.toString(),
     borrow_index_now: inputs.borrowIndexNow.toString(),
+    loan_commitment: loanCommitment.toString(),
     sk: inputs.loanNote.sk.toString(),
     loan_amount: inputs.loanNote.amount.toString(),
     loan_salt: inputs.loanNote.salt.toString(),
@@ -112,16 +115,27 @@ export async function proveRepay(
         fullProve: (
           input: Record<string, string | string[]>,
           wasmFile: Uint8Array | string,
-          zkeyFile: Uint8Array | string
+          zkeyFile: Uint8Array | string,
+          logger?: unknown,
+          wtnsCalcOptions?: unknown,
+          proverOptions?: { singleThread?: boolean }
         ) => Promise<{ proof: unknown; publicSignals: string[] }>
       }
     }
   ).groth16
 
+  // In Bun the multithreaded Groth16 prover crashes on Web Worker
+  // message dispatch — same issue every other prover in this codebase
+  // already works around (see docs/REMEDIATION.md R22).
+  const singleThread =
+    typeof (globalThis as { Bun?: unknown }).Bun !== "undefined"
   const { proof, publicSignals } = await groth16.fullProve(
     witnessInputs,
     wasm,
-    zkey
+    zkey,
+    undefined,
+    undefined,
+    { singleThread }
   )
 
   const structured = structureProof(
@@ -131,12 +145,12 @@ export async function proveRepay(
     bigintTo32Bytes(BigInt(decimal))
   )
 
-  void loanCommitment
   void depositCommitment
   return {
     a: structured.a,
     b: structured.b,
     c: structured.c,
+    loanCommitment,
     loanNullifier,
     depositNullifier,
     publicSignals: signals,

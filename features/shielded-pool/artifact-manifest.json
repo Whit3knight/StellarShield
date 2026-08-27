@@ -11,8 +11,8 @@
   "shielded/liquidate/liquidate.zkey": "dbd115876ae34aeb47a639a64ee631ad353b754ea86012ac280ec3fc6aa75ac0",
   "shielded/repay-v2/repay.wasm": "0a12556d19961acacd48b03e506ca8181a31906c20ceaf48eed5d831efe01e6f",
   "shielded/repay-v2/repay.zkey": "621624d0283a24eabe12eab7a1dccc09dd940d3215af473c1d2d7515522f2b15",
-  "shielded/repay/repay.wasm": "ec93f514b0bf9bcbc38f172e49a99ef1936cfcebe5ba7e734d6e7f1375f0136c",
-  "shielded/repay/repay.zkey": "9dfd0189c0ff91f4c60c6203a872a6e98990637b03e01b26817cf4cce392a5c8",
+  "shielded/repay/repay.wasm": "4c2946a19197c1cc1fd31a496d9752e7ad35fba1e73052c41852b813b204b01f",
+  "shielded/repay/repay.zkey": "ee9ccc59c8e7c9596ed433a29b1f819264a5f938fd92503bccdd308de3f8437c",
   "shielded/withdraw/withdraw.wasm": "fdf9cdc47b8f0b69fa62621ba18ef635001c48aad1142f98dacde8854e7341e7",
   "shielded/withdraw/withdraw.zkey": "f919fae11d5e1e7efd0ad91d44f3eeb19fadf924c0488a15af4bf3ed9398818e"
 }
