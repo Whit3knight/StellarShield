@@ -29,6 +29,12 @@ pub enum InstanceKey {
     // `set_borrow_helper`; `borrow_shielded` falls back to its flat
     // cap when unset, same fail-closed shape as an absent price feed.
     BorrowHelperContract,
+    // R23: address of the `repay-v2-verifier-helper` contract — split
+    // out for the same WASM-parse-cost reason as `BorrowHelperContract`
+    // (R17). `None` until wired via `set_repay_v2_verifier`;
+    // `repay_shielded_v2` fails closed (`Error::NotInitialized`) when
+    // unset, since there's no verification fallback.
+    RepayV2VerifierContract,
 }
 
 // Persistent storage keys. Compound keys embed the discriminant so
@@ -161,6 +167,20 @@ pub fn set_borrow_helper(env: &Env, helper: &Address) {
 
 pub fn borrow_helper(env: &Env) -> Option<Address> {
     env.storage().instance().get(&InstanceKey::BorrowHelperContract)
+}
+
+// --- Repay-v2 verifier helper contract (R23 split) ----------------------
+
+pub fn set_repay_v2_verifier(env: &Env, helper: &Address) {
+    env.storage()
+        .instance()
+        .set(&InstanceKey::RepayV2VerifierContract, helper);
+}
+
+pub fn repay_v2_verifier(env: &Env) -> Option<Address> {
+    env.storage()
+        .instance()
+        .get(&InstanceKey::RepayV2VerifierContract)
 }
 
 // --- Liquidation service pubkey (Track L) ------------------------------

@@ -19,6 +19,7 @@ mod poseidon;
 mod poseidon_constants;
 mod price_cap_client;
 mod rate;
+mod repay_v2_verifier_client;
 mod repay_verifier;
 mod state;
 mod tokens;
@@ -224,6 +225,13 @@ impl BorrowPool {
         let admin = Self::require_admin(&env)?;
         admin.require_auth();
         state::set_borrow_helper(&env, &helper);
+        Ok(())
+    }
+
+    pub fn set_repay_v2_verifier(env: Env, helper: Address) -> Result<(), Error> {
+        let admin = Self::require_admin(&env)?;
+        admin.require_auth();
+        state::set_repay_v2_verifier(&env, &helper);
         Ok(())
     }
 
@@ -1360,6 +1368,204 @@ impl BorrowPool {
             (loan_nul_bytes, dep_nul_bytes, from.clone()),
         );
         Ok(())
+    }
+
+    /// Shielded repay v2 — collateral recovery. Does everything v1's
+    // `repay_shielded` does (loan note + same-asset deposit-source
+    // note burn, Track D interest check) plus mints a new deposit-tree
+    // commitment recovering the ORIGINAL collateral (v1 leaves it
+    // forfeited forever). Requires a Track L `LiquidationBond` for
+    // `loan_commitment` — absent only for pre-Track-L loans, which
+    // stay on the v1 path (grandfathered, same boundary Track D
+    // already uses for its own sidecar). See docs/REMEDIATION.md R23.
+    ///
+    // Public signals:
+    //   [0]  asset_tag                loan/borrow asset
+    //   [1]  loan_root
+    //   [2]  deposit_root             loan asset's deposit tree (repay-source note)
+    //   [3]  loan_nullifier
+    //   [4]  deposit_nullifier
+    //   [5]  borrow_index_snapshot    (Track D)
+    //   [6]  borrow_index_now         (Track D)
+    //   [7]  loan_commitment          binds the tx arg to this specific note
+    //   [8]  collateral_asset_tag
+    //   [9]  collateral_value_commit  from LiquidationBond
+    //   [10] borrow_price_commit      from LiquidationBond
+    //   [11] recovered_commitment     new deposit-tree leaf for the collateral asset
+    ///
+    // `recovered_commitment`'s amount is never published — there's no
+    // token transfer here (same shape as `borrow_shielded`), so unlike
+    // deposit (already public via the SAC transfer event) nothing
+    // forces it public. `total_deposit_value` for `collateral_asset`
+    // is not bumped as a result — same already-accepted limitation
+    // category R20 gave `total_deposit_value`/`total_borrow_value` on
+    // the borrow side, not a new gap.
+    pub fn repay_shielded_v2(
+        env: Env,
+        from: Address,
+        asset: Symbol,
+        collateral_asset: Symbol,
+        loan_commitment: BytesN<32>,
+        proof: BorrowProof,
+        memo: soroban_sdk::Bytes,
+    ) -> Result<u64, Error> {
+        from.require_auth();
+
+        if proof.public_signals.len() != 12 {
+            return Err(Error::InvalidProof);
+        }
+        let asset_tag_fr = proof.public_signals.get(0).unwrap();
+        let loan_root_fr = proof.public_signals.get(1).unwrap();
+        let deposit_root_fr = proof.public_signals.get(2).unwrap();
+        let loan_nul_fr = proof.public_signals.get(3).unwrap();
+        let dep_nul_fr = proof.public_signals.get(4).unwrap();
+        let index_snapshot_fr = proof.public_signals.get(5).unwrap();
+        let index_now_fr = proof.public_signals.get(6).unwrap();
+        let loan_commit_fr = proof.public_signals.get(7).unwrap();
+        let collateral_tag_fr = proof.public_signals.get(8).unwrap();
+        let collateral_value_commit_fr = proof.public_signals.get(9).unwrap();
+        let borrow_price_commit_fr = proof.public_signals.get(10).unwrap();
+        let recovered_commit_fr = proof.public_signals.get(11).unwrap();
+
+        // Binds the tx-arg loan_commitment to the note this proof
+        // actually repays — without this, a caller could point it at
+        // someone else's bond and mint a bigger recovered note than
+        // they're entitled to (see this function's own doc comment).
+        if loan_commit_fr.to_bytes() != loan_commitment {
+            return Err(Error::InvalidProof);
+        }
+
+        let expected_tag =
+            notes::asset_tag(&env, &asset).ok_or(Error::AssetUnknown)?;
+        if fr_to_u32(&asset_tag_fr) != expected_tag {
+            return Err(Error::DenominationMismatch);
+        }
+
+        let stored_loan_root =
+            state::loan_root(&env, &asset).ok_or(Error::InvalidProof)?;
+        if stored_loan_root != loan_root_fr.to_bytes() {
+            return Err(Error::InvalidProof);
+        }
+        let stored_dep_root =
+            state::deposit_root(&env, &asset).ok_or(Error::InvalidProof)?;
+        if stored_dep_root != deposit_root_fr.to_bytes() {
+            return Err(Error::InvalidProof);
+        }
+
+        let loan_nul_bytes = loan_nul_fr.to_bytes();
+        let dep_nul_bytes = dep_nul_fr.to_bytes();
+        if state::loan_nullifier_used(&env, &asset, &loan_nul_bytes)
+            || state::deposit_nullifier_used(&env, &asset, &dep_nul_bytes)
+        {
+            return Err(Error::ProofReplayed);
+        }
+
+        // Track D — identical to v1's own check.
+        let index_now_snapshot = rate::accrue_borrow_index(&env, &asset);
+        let index_now = index_now_snapshot.value;
+        let index_snapshot = state::borrow_index_at_open(&env, &loan_commitment)
+            .unwrap_or(index_now);
+        if fr_to_u128(&index_snapshot_fr) != index_snapshot {
+            return Err(Error::InvalidProof);
+        }
+        if fr_to_u128(&index_now_fr) < index_now {
+            return Err(Error::InvalidProof);
+        }
+
+        // Track L bond lookup + cross-check. Absent bond → pre-L loan,
+        // grandfathered onto the v1 path only.
+        let bond = state::liquidation_bond(&env, &loan_commitment)
+            .ok_or(Error::InvalidProof)?;
+        let expected_collateral_tag = notes::asset_tag(&env, &collateral_asset)
+            .ok_or(Error::AssetUnknown)?;
+        if fr_to_u32(&collateral_tag_fr) != expected_collateral_tag {
+            return Err(Error::DenominationMismatch);
+        }
+        if bond.collateral_asset_tag != expected_collateral_tag {
+            return Err(Error::DenominationMismatch);
+        }
+        if bond.collateral_value_commit != collateral_value_commit_fr.to_bytes()
+            || bond.borrow_price_commit != borrow_price_commit_fr.to_bytes()
+        {
+            return Err(Error::InvalidProof);
+        }
+
+        // R23: verify_groth16 lives in a separate `repay-v2-verifier-
+        // helper` contract, not embedded here — see this file's mod
+        // comment / docs/REMEDIATION.md R23 for why (a real
+        // instruction-budget regression on the unrelated
+        // deposit_shielded_quad call, caused purely by this verifier's
+        // embedded VK bytes growing borrow-pool's own WASM).
+        let verifier_addr =
+            state::repay_v2_verifier(&env).ok_or(Error::NotInitialized)?;
+        let verified = repay_v2_verifier_client::RepayV2VerifierClient::new(
+            &env,
+            &verifier_addr,
+        )
+        .try_verify(
+            &proof.a,
+            &proof.b,
+            &proof.c,
+            &proof.public_signals,
+        )
+        .ok()
+        .and_then(|r| r.ok())
+        .unwrap_or(false);
+        if !verified {
+            return Err(Error::InvalidProof);
+        }
+
+        state::mark_loan_nullifier_used(&env, &asset, &loan_nul_bytes);
+        state::mark_deposit_nullifier_used(&env, &asset, &dep_nul_bytes);
+
+        state::set_total_borrow(
+            &env,
+            &asset,
+            state::total_borrow(&env, &asset).saturating_sub(1),
+        );
+        state::set_total_deposit(
+            &env,
+            &asset,
+            state::total_deposit(&env, &asset).saturating_sub(1),
+        );
+
+        // Mint the recovered collateral note — mirrors deposit_shielded's
+        // append pattern exactly.
+        let next_index = state::deposit_next_index(&env, &collateral_asset);
+        let capacity = 1u64 << (merkle::DEPTH as u64);
+        if next_index >= capacity {
+            return Err(Error::TreeCapacityExceeded);
+        }
+        let mut frontier_arr =
+            load_frontier(&env, state::deposit_frontier(&env, &collateral_asset));
+        let recovered_leaf = recovered_commit_fr.clone();
+        let new_root =
+            merkle::append(&env, &recovered_leaf, &mut frontier_arr, next_index);
+        state::set_deposit_frontier(
+            &env,
+            &collateral_asset,
+            &frontier_to_vec(&env, &frontier_arr),
+        );
+        state::set_deposit_root(&env, &collateral_asset, &new_root.to_bytes());
+        state::set_deposit_next_index(&env, &collateral_asset, next_index + 1);
+        state::set_total_deposit(
+            &env,
+            &collateral_asset,
+            state::total_deposit(&env, &collateral_asset).saturating_add(1),
+        );
+
+        env.events().publish(
+            (REPAY_EVENT, asset.clone()),
+            (loan_nul_bytes, dep_nul_bytes, from.clone()),
+        );
+        // Pre-R17 4-element shape (no amount) — the recovered amount
+        // stays private; the borrower's own memo is what lets a future
+        // scan recover this note. scanner.ts already parses this shape.
+        env.events().publish(
+            (DEPOSIT_EVENT, collateral_asset.clone()),
+            (next_index, new_root.to_bytes(), recovered_leaf.to_bytes(), memo),
+        );
+        Ok(next_index)
     }
 
     /// Shielded liquidation (v1). Permissionless — any caller who

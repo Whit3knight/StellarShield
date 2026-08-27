@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["borrow-pool", "borrow-cap-helper"]
+members = ["borrow-pool", "borrow-cap-helper", "repay-v2-verifier-helper"]
 
 [workspace.package]
 version = "0.1.0"

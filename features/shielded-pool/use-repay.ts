@@ -6,9 +6,13 @@ import type { WalletProviderId } from "@/app/_constants/account"
 import { toastManager } from "@/components/ui/toast"
 import {
   computeCommitment,
+  encodeMemoBundle,
+  encryptMemo,
+  randomFieldElement,
   type ShieldedNote,
   upsertNote,
 } from "@/features/notes"
+import type { ScanIdentity } from "@/features/notes/scanner"
 import { signTransactionWithWallet } from "@/features/wallet/connectors"
 import {
   getConfiguredContractId,
@@ -19,6 +23,7 @@ import {
 
 import { createToastTracker, describeError } from "./hook-utils"
 import { proveRepay } from "./repay-prover"
+import { proveRepayV2 } from "./repay-v2-prover"
 import { fetchDepositWitnesses, fetchLoanWitnesses } from "./withdraw-tree"
 
 type Status =
@@ -42,14 +47,18 @@ type UseRepayResult = {
 
 /**
  * Burn one loan note + one same-asset deposit note whose amount
- * covers the loan. Both nullifiers land on-chain; the collateral that
- * was consumed during borrow stays burned (no recovery in v1). The
- * repayer accepts giving up a deposit note worth >= loan amount in
- * exchange for closing the debt.
+ * covers the loan. Both nullifiers land on-chain. When the loan note
+ * carries a Track L bond opening (every loan since Track L shipped),
+ * this also mints back the original collateral as a new deposit note
+ * (repay v2 — see docs/REMEDIATION.md R23); pre-Track-L loans fall
+ * back to v1, which leaves the collateral burned. The repayer accepts
+ * giving up a deposit note worth >= loan amount in exchange for
+ * closing the debt.
  */
 export function useRepay(
   account: string | null,
-  providerId: WalletProviderId | null
+  providerId: WalletProviderId | null,
+  identity: ScanIdentity | null
 ): UseRepayResult {
   const [status, setStatus] = React.useState<Status>("idle")
   const [message, setMessage] = React.useState<string | null>(null)
@@ -181,51 +190,129 @@ export function useRepay(
             ? borrowIndexNow
             : rawSnapshot
 
+        // Repay v2 (collateral recovery) whenever the loan note carries
+        // a Track L bond opening — every loan since Track L shipped.
+        // Pre-Track-L loans fall back to v1 (collateral stays burned).
+        const useV2 = Boolean(identity) && Boolean(loanNote.bond?.collateralAsset)
+
         toast.set(
           toastManager.add({
             title: "Generating repay proof",
-            description: "2× commitment + 2× Merkle + accrued-debt check…",
+            description: useV2
+              ? "2× commitment + 2× Merkle + accrued-debt + collateral recovery…"
+              : "2× commitment + 2× Merkle + accrued-debt check…",
             type: "loading",
           })
         )
         setStatus("proving")
-        const proof = await proveRepay({
-          loanNote,
-          loanRoot: loanWitness.root,
-          loanPathBits: loanWitness.pathBits,
-          loanPathElements: loanWitness.pathElements,
-          depositNote,
-          depositRoot: depWitness.root,
-          depositPathBits: depWitness.pathBits,
-          depositPathElements: depWitness.pathElements,
-          borrowIndexSnapshot,
-          borrowIndexNow,
-        })
+
+        let proofBuffers: {
+          a: Buffer
+          b: Buffer
+          c: Buffer
+          oracle_epoch: bigint
+          public_signals: bigint[]
+        }
+        let recoveredNote: ShieldedNote | null = null
+        let recoveredMemo: Uint8Array | null = null
+
+        if (useV2 && identity) {
+          const newCollateralSalt = randomFieldElement()
+          const proof = await proveRepayV2({
+            loanNote,
+            loanRoot: loanWitness.root,
+            loanPathBits: loanWitness.pathBits,
+            loanPathElements: loanWitness.pathElements,
+            depositNote,
+            depositRoot: depWitness.root,
+            depositPathBits: depWitness.pathBits,
+            depositPathElements: depWitness.pathElements,
+            borrowIndexSnapshot,
+            borrowIndexNow,
+            newCollateralSalt,
+          })
+          proofBuffers = {
+            a: Buffer.from(proof.a),
+            b: Buffer.from(proof.b),
+            c: Buffer.from(proof.c),
+            oracle_epoch: BigInt(0),
+            public_signals: proof.publicSignals.map((bytes) =>
+              bigintFromBytes(bytes)
+            ),
+          }
+          const collateralAsset = loanNote.bond?.collateralAsset
+          if (!collateralAsset) {
+            throw new Error("repay-v2: missing collateral asset")
+          }
+          recoveredNote = {
+            amount: proof.collateralAmount,
+            asset: collateralAsset,
+            index: 0, // filled after tx returns the deposit-tree leaf index
+            salt: newCollateralSalt,
+            sk: loanNote.sk,
+            tree: "deposit",
+          }
+          recoveredMemo = encodeMemoBundle(
+            encryptMemo({
+              plaintext: {
+                amount: proof.collateralAmount.toString(),
+                asset: collateralAsset,
+                index: 0,
+                salt: newCollateralSalt.toString(),
+                tree: "deposit",
+              },
+              recipientPk: identity.publicKey,
+            })
+          )
+        } else {
+          const proof = await proveRepay({
+            loanNote,
+            loanRoot: loanWitness.root,
+            loanPathBits: loanWitness.pathBits,
+            loanPathElements: loanWitness.pathElements,
+            depositNote,
+            depositRoot: depWitness.root,
+            depositPathBits: depWitness.pathBits,
+            depositPathElements: depWitness.pathElements,
+            borrowIndexSnapshot,
+            borrowIndexNow,
+          })
+          proofBuffers = {
+            a: Buffer.from(proof.a),
+            b: Buffer.from(proof.b),
+            c: Buffer.from(proof.c),
+            oracle_epoch: BigInt(0),
+            public_signals: proof.publicSignals.map((bytes) =>
+              bigintFromBytes(bytes)
+            ),
+          }
+        }
+
         toast.set(
           toastManager.add({
             title: "Sign in wallet",
-            description: "Approve repay_shielded in Freighter.",
+            description: `Approve repay_shielded${useV2 ? "_v2" : ""} in Freighter.`,
             type: "loading",
           })
         )
         setStatus("signing")
 
-        const proofBuffers = {
-          a: Buffer.from(proof.a),
-          b: Buffer.from(proof.b),
-          c: Buffer.from(proof.c),
-          oracle_epoch: BigInt(0),
-          public_signals: proof.publicSignals.map((bytes) =>
-            bigintFromBytes(bytes)
-          ),
-        }
-
-        const assembled = await client.repay_shielded({
-          from: account,
-          asset: loanNote.asset,
-          loan_commitment: loanCommitmentBuffer,
-          proof: proofBuffers,
-        })
+        const assembled =
+          useV2 && recoveredMemo
+            ? await client.repay_shielded_v2({
+                from: account,
+                asset: loanNote.asset,
+                collateral_asset: recoveredNote?.asset ?? loanNote.asset,
+                loan_commitment: loanCommitmentBuffer,
+                proof: proofBuffers,
+                memo: Buffer.from(recoveredMemo),
+              })
+            : await client.repay_shielded({
+                from: account,
+                asset: loanNote.asset,
+                loan_commitment: loanCommitmentBuffer,
+                proof: proofBuffers,
+              })
 
         const sent = await assembled.signAndSend({
           signTransaction: (async (
@@ -257,6 +344,13 @@ export function useRepay(
         // rendering as open and a retry can't hit ProofReplayed.
         upsertNote({ ...loanNote, spent: true })
         upsertNote({ ...depositNote, spent: true })
+        if (recoveredNote) {
+          const leafIndex = sent.result as unknown as bigint | undefined
+          upsertNote({
+            ...recoveredNote,
+            index: leafIndex !== undefined ? Number(leafIndex) : 0,
+          })
+        }
         setStatus("success")
         setMessage(hash)
         toastManager.add({
@@ -287,7 +381,7 @@ export function useRepay(
         return null
       }
     },
-    [account, providerId]
+    [account, identity, providerId]
   )
 
   return { activeLoanIndex, message, reset, status, repay }

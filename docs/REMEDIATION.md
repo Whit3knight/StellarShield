@@ -757,6 +757,123 @@ healthy position, the exact fail-open regression `09471e9` avoided:
   `lint`/`typecheck`/`test` (278 passing)/`build`/`check:bundle` all
   green.
 
+### R23 — Repay v2: collateral recovery on repay [SHIPPED]
+
+v1 `repay_shielded` burns the loan note + a same-asset deposit-source
+note to close a position but permanently forfeits the 4 original
+collateral notes consumed at borrow time — documented as deferred
+since Track L shipped (PRD/REMEDIATION/README/WHITEPAPER), never
+designed further. New `contracts/circuits/shielded-repay-v2/src/repay.circom`
+(additive — v1 stays as the fallback for pre-Track-L loans, same
+`shielded-liquidate`/`-v2` split shape) does everything v1 does plus:
+
+1. Opens the loan's existing Track L bond (`collateral_value_commit`/
+   `bond_salt_value`, `borrow_price_commit`/`bond_salt_price`/
+   `collateral_oracle_price`) as private witnesses — the same fields
+   already written at borrow time and already carried in the loan
+   note's own memo. No `borrow.circom` change needed.
+2. `total_collateral_value <== raw_collateral_amount *
+   collateral_oracle_price` (multiplication, not division — R22's
+   field-division lesson applied proactively), pinned against the
+   on-chain `collateral_value_commit` so a repayer can't claim more
+   than was actually deposited.
+3. New public signal `recovered_commitment = Poseidon(raw_collateral_amount,
+   collateral_asset_tag, sk, new_collateral_salt)` — appended to
+   `collateral_asset`'s deposit tree by the contract, same shape every
+   other note uses. The amount is never published on-chain (no token
+   transfer at repay-v2 time, same privacy posture as `borrow_shielded`).
+
+**A real, separate soundness gap found and closed as a side effect**:
+v1's `repay_shielded` never binds its `loan_commitment` tx argument to
+the note actually being repaid — `repay.circom` computes the loan
+commitment internally for Merkle inclusion but never exposes it as a
+public signal, so the contract has nothing to compare the tx arg
+against. Mild for v1 (a Track D interest-ratio mismatch at worst); it
+would matter far more for v2, where a caller could otherwise point
+`loan_commitment` at someone else's fatter `LiquidationBond`. v2's
+circuit exposes `loan_commitment` as a public signal and
+`repay_shielded_v2` asserts it equals the tx arg before trusting the
+bond lookup. v1's own checks are untouched — same gap disclosed there,
+not fixed (out of this item's scope).
+
+**Fix:**
+- `repay_shielded_v2(from, asset, collateral_asset, loan_commitment,
+  proof, memo)` in `lib.rs`: same asset/root/nullifier-used/Track D
+  checks as v1, plus the `loan_commitment` binding check above, plus a
+  `state::liquidation_bond` lookup cross-checking `collateral_asset_tag`/
+  `collateral_value_commit`/`borrow_price_commit` against the stored
+  bond before trusting the proof.
+- **Instruction-budget regression, same class as R18**: embedding the
+  new verifier's VK bytes + pairing-check code directly in `lib.rs`
+  grew `borrow-pool`'s WASM (64558→67463 bytes) enough to push the
+  *unrelated* `deposit_shielded_quad` over the 400M testnet ceiling —
+  Soroban charges WASM parse cost per contract-code-hash in a tx's
+  footprint, on the whole module, regardless of which function is
+  called. **Fixed** by splitting the verifier into a new stateless
+  `repay-v2-verifier-helper` contract, cross-called only when
+  `repay_shielded_v2` runs — same split R17 already used for
+  `borrow-cap-helper`. Brought `borrow-pool` back to 66929 bytes. This
+  verifier uses `g1_msm` from the start (R21's lesson), not the older
+  per-signal `g1_mul`+`g1_add` loop `repay_verifier.rs`/
+  `liquidate_verifier.rs` still use.
+- New `features/shielded-pool/repay-v2-prover.ts`: `raw_collateral_amount`
+  doesn't need a separate "which 4 notes funded this loan" lookup — it's
+  exactly `loanNote.bond.collateralValue / loanNote.bond.borrowPrice`
+  (exact `BigInt` division, since the original multiplication at borrow
+  time was exact integer math). Every field needed already lives on the
+  loan note's own `bond` field, already decrypted by the scanner.
+- `use-repay.ts`: `useRepay` auto-selects v2 whenever the loan note
+  carries a Track L bond opening (every loan since Track L); falls back
+  to v1's burn-forever behavior for grandfathered pre-Track-L loans. No
+  new user-facing toggle.
+- **A real, separately-discovered, previously-shipped bug blocked
+  testing entirely**: `decodeBorrowEvent` in `withdraw-tree.ts` only
+  accepted `BORROW_EVENT` bodies of exactly 4 or 8 elements. R17/R19/R20
+  have each appended new trailing fields since (9, 10, then 12
+  elements) — index/leaf positions stay stable at the front since
+  fields are always appended, never inserted — so every post-R17 borrow
+  event was silently rejected as a tree gap. This broke loan-note
+  witness reconstruction for claim AND v1 repay in the live app, not
+  just this feature's own testing; `decodeDepositEvent` in the same
+  file already got this fix at R17, this sibling function never did.
+  Fixed to accept `length >= 4`, matching the deposit decoder's own
+  pattern.
+- **A real prover bug caught before shipping**: the first version of
+  `repay-v2-prover.ts` passed the bond's raw `collateralValue`/
+  `borrowPrice` directly as the `collateral_value_commit`/
+  `borrow_price_commit` public-signal witness inputs — those must be
+  the Poseidon *hashes* of those values (what the contract actually
+  stores), not the raw values. Caught by cross-referencing the
+  on-chain `LiquidationBond` read-back against the proof's public
+  signals before ever submitting a transaction.
+- **A timing bug in the on-chain test harness, not production code**:
+  the throwaway test script read `borrow_index_now` via a view call and
+  passed it straight into the prover; `use-repay.ts` already pads this
+  by +0.01% (accrual advances between proof generation and tx
+  execution, the same fix v1 repay's own code comment documents) — the
+  unpadded test script tripped the exact guard that padding exists to
+  avoid, surfacing as `Error::InvalidProof` with every other check
+  (bond commits, `loan_commitment` binding, the verifier itself called
+  directly) independently confirmed correct. No production code change
+  needed once identified.
+- **Verification**: circuit compiles clean (12 public signals, 12172
+  non-linear constraints); synthetic witness tests (correct amount
+  succeeds, inflated amount fails at the bond-value assertion); full
+  local Groth16 setup/prove/verify; `cargo check -p borrow-pool` clean;
+  **real on-chain round trip** on a temp contract — deposit → borrow →
+  `repay_shielded_v2` — recovered note lands in the collateral asset's
+  deposit tree with the correct amount (40000000), commitment matches
+  the proof, loan closes; measured `repay_shielded_v2` at 351,347,224
+  instructions (comfortably under the 400M ceiling, same cross-contract
+  verifier shape as `borrow_shielded`). `lint`/`typecheck`/`test` (278
+  passing)/`cargo check`/`build`/`check:bundle` all green. Deployed to
+  the live contract: new `repay-v2-verifier-helper` at
+  `CDMHS2DFNQQKOBEMLLDLLAB5AJWEWIH6FNGMO2E3AZ6BPWSZCBBAKNLR`,
+  `borrow-pool` upgraded to wasm hash
+  `7b2f28e3a577aa1fc6803774f71eb5b4d2a8da33853d02b915496362efa2b496`,
+  `set_repay_v2_verifier` wired. Storage confirmed intact post-upgrade
+  (`list_markets` unchanged).
+
 ### Small items (slot into sequence)
 
 - **Zero Rust contract tests** — blocked on soroban-sdk 23. One README line stating the block + stopgap (TS fixtures + R6 e2e). Re-check next sdk release.
@@ -794,7 +911,6 @@ healthy position, the exact fail-open regression `09471e9` avoided:
 | Scanner DoS hardening | R10 | Real adversarial traffic |
 | Rust contract unit tests | R6/gap 1 | soroban-sdk 23 release — check quarterly |
 | snarkjs supply-chain audit (deep) | R8-deep | Mainnet go (pinning ships in M2) |
-| v2 repay circuit (collateral recovery) | PRD P1 | After M3 — feature work, through the harness |
 
 ---
 

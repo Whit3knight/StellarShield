@@ -1,0 +1,14 @@
+[package]
+name = "repay-v2-verifier-helper"
+description = "Groth16 verifier for the repay-v2 (collateral recovery) circuit, split out of borrow-pool to keep borrow-pool's WASM under the per-tx instruction budget (R23) — same reasoning as borrow-cap-helper (R17)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+doctest = false
+
+[dependencies]
+soroban-sdk = { workspace = true }

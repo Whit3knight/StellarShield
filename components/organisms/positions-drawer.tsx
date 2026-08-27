@@ -65,7 +65,7 @@ export function PositionsDrawer({
     activeLoanIndex: repayingIndex,
     status: repayStatus,
     repay,
-  } = useRepay(account, providerId)
+  } = useRepay(account, providerId, identity)
   const {
     activeLoanIndex: liquidatingIndex,
     status: liquidateStatus,

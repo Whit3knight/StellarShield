@@ -354,7 +354,16 @@ function decodeBorrowEvent(
   } catch {
     return null
   }
-  if (!Array.isArray(native) || (native.length !== 4 && native.length !== 8)) {
+  // R17/R19/R20/R23 all appended new fields to BORROW_EVENT's body
+  // (9, 10, 12 elements) — index/leaf stay at their original positions
+  // (0/2) since fields are appended, not inserted. This used to only
+  // accept exactly 4 or 8 elements, silently rejecting every current
+  // borrow event as a tree gap — the same class of bug
+  // decodeDepositEvent's own R17 fix already closed for deposits (see
+  // its comment above). Loan-note witness reconstruction (claim,
+  // repay, repay-v2) has been unable to find any post-R17 loan leaf
+  // until this fix — see docs/REMEDIATION.md R23.
+  if (!Array.isArray(native) || native.length < 4) {
     return null
   }
 

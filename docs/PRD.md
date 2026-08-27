@@ -121,7 +121,7 @@ succeeds on-chain against a live Reflector price.
 - Export/import encrypted notes backup. `[REMOVED — 2026-07]` — testnet
   accepts post-retention note loss; persisted local store + event scan is
   the recovery model.
-- Repay returns collateral notes to the deposit tree. `[PLANNED — v2 repay circuit; v1 burns collateral]`
+- Repay returns collateral notes to the deposit tree. `[IMPLEMENTED — R23, repay_shielded_v2; v1 stays the fallback for pre-Track-L loans]`
 - Multi-note deposit in one proof. `[STATUS UNCLEAR — `shielded-deposit-quad`
   circuit + `deposit-quad-prover.ts` exist but are in no roadmap track; REMEDIATION OQ-4]`
 
@@ -384,7 +384,7 @@ backward-compat. Remaining gaps:
 | Identity | **Signature-derived, cached (R1 done)**; address scheme kept as legacy fallback | — |
 | Recovery | Persisted local note store + ~7-day event scan (backup export removed 2026-07) | Indexer/archive, gated on mainnet |
 | Proving | Real in-browser Groth16, artifacts hash-pinned (R8); dev trusted setup | Production ceremony / universal setup |
-| Repay | Burns collateral notes; interest accrual live | v2 repay circuit: collateral recovery |
+| Repay | v2 default: collateral recovery + interest accrual live (R23); v1 fallback for pre-Track-L loans still burns collateral | — |
 | Liquidation | v1 + v2 circuits, contract fns, hook, and CLI all built; **triggering works (R22)** — cross-multiplied underwater check, live-price cross-check, correct threshold_bps convention; single trusted operator | Activate a production service operator; decentralization dropped (FROST) — operator trust stays unless revisited |
 | Solvency | In-circuit LTV/HF band is the real guard (R20) — `oracle_price` is a public signal verified against a live Reflector read, 200bps tolerance, fails closed with no fallback cap; collateral/loan amounts private again via Jubjub Pedersen commitments | — |
 | Oracle | Reflector freshness check only (live-price strkey bug fixed) | On-chain commitment cross-check |
@@ -405,7 +405,8 @@ Freighter connect
   → contract verifies proof, burns/appends nullifiers/leaves, emits event + encrypted memo
   → next scan pass reflects the change
 
-loan note → EITHER claim (withdraw_loan_shielded) OR repay (repay_shielded)
+loan note → EITHER claim (withdraw_loan_shielded) OR repay (repay_shielded /
+            repay_shielded_v2 — v2 also mints a recovered collateral note)
             both spend Poseidon(sk, loan_index) into the same
             loan_nullifier_used set → mutually exclusive, never sequential
 ```
@@ -437,11 +438,9 @@ Business questions live in BRD §12; engineering remediation questions in REMEDI
 of [REMEDIATION.md](./REMEDIATION.md) are complete. The unit-domain break
 (`09471e9`) moved solvency from the circuit into the contract and left
 liquidation triggering inert; R20/R21 moved borrow solvency back into the
-circuit and fixed its own dimensional bug, and R22 fixed liquidation's
-matching dimensional bug, its `threshold_bps` convention, and added the
-missing live-price cross-check — both shipped live. **Recommended next:**
-(1) manual browser smoke-test of the R1 signature popup UX; (2) minor
-dead-code cleanups (OQ #1 above, plus the now-fully-dead
-`dynamic_borrow_cap`/`borrow-cap-helper` entrypoint); (3) v2 repay
-(collateral recovery); (4) M4 mainnet-gate prerequisites remain gated on a
+circuit and fixed its own dimensional bug, R22 fixed liquidation's matching
+dimensional bug, its `threshold_bps` convention, and added the missing
+live-price cross-check, and R23 shipped repay v2 (collateral recovery) —
+all shipped live. **Recommended next:** (1) manual browser smoke-test of the
+R1 signature popup UX; (2) M4 mainnet-gate prerequisites remain gated on a
 mainnet decision.
