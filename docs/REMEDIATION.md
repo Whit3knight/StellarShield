@@ -907,10 +907,16 @@ is no claim-then-repay lifecycle. Collateral stays burned either way — v2 repa
 ### S6 — Cleanups since the plan
 
 - Stale mock-adapter *comments* in `features/protocol/types.ts` (R16 step 3):
-  **done**. The unused `ProtocolAdapter` type (`types.ts:112`) and the
-  `circomlib` dependency (`package.json:32`) remain.
-- Retired `borrow-eligibility-circom` dir (R16 step 3, OQ-1): **still present**.
-- Test suite: 27 files / 197 tests (`bun run test`), up from the 23/170 quoted
+  **done**. The unused `ProtocolAdapter` type (plus the 7 types that
+  existed only to support its signature) and the retired
+  `borrow-eligibility-circom` dir (R16 step 3, OQ-1): **done**. `circomlib`
+  (`package.json`) was flagged alongside these as dead — it isn't: every
+  circuit's `include "circomlib/circuits/..."` resolves against it at
+  `circom` compile time (`-l node_modules`); it stays. Also removed while
+  in the area: the `dynamic_borrow_cap` local wrapper (`lib.rs`) and its
+  `borrow-cap-helper` entrypoint, dead since R20 moved that check into
+  the borrow circuit.
+- Test suite: 36 files / 278 tests (`bun run test`), up from the 23/170 quoted
   in PRD §7 at plan time.
 - Note recovery: the scanner now pages the **full RPC retention window**
   (`rpc-events.ts`, `oldestLedger + 10` → `latestLedger`) and merges into a

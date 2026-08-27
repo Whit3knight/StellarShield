@@ -12,9 +12,9 @@
 Every requirement was fact-checked against source. The two gaps v1.0 flagged
 are addressed: identity is now signature-derived (FR-N1, R1 shipped); and the
 composition root is `features/shielded-pool/shielded-pool-provider.tsx` with no
-`AdapterProvider`/mock adapter (FR-P3). The stale mock comments in
-`features/protocol/types.ts` have since been deleted; the unused
-`ProtocolAdapter` type (`types.ts:112`) remains.
+`AdapterProvider`/mock adapter (FR-P3). The stale mock comments and the
+unused `ProtocolAdapter` type in `features/protocol/types.ts` have since
+been deleted.
 
 ---
 
@@ -209,8 +209,8 @@ succeeds on-chain against a live Reflector price.
 - **FR-P3 `[GAP — corrected]`:** Composition root is
   `features/shielded-pool/shielded-pool-provider.tsx`, mounted in
   `app/layout.tsx`. There is **no** `AdapterProvider` and **no mock adapter**;
-  the mock path and its comments are gone. Only the unused `ProtocolAdapter`
-  type (`types.ts:112`) survives as a cleanup candidate.
+  the mock path, its comments, and the unused `ProtocolAdapter` type are
+  all gone.
 - **FR-P4:** Liquidation-service helpers (`liquidation-service.ts`) shared
   with the CLI. (Module-level cache never invalidates — known simplification.)
 
@@ -419,10 +419,11 @@ their async progress. Errors flow through `AdapterResult`/`AdapterError`
 
 Business questions live in BRD §12; engineering remediation questions in REMEDIATION.md. PRD-level additions:
 
-1. Delete dead code: legacy `borrow-eligibility-circom` dir, the unused
-   `ProtocolAdapter` type (`features/protocol/types.ts:112`), and the
-   `circomlib` dependency (`package.json:32`)? (Deferred — flagged, not
-   blockers. The mock-adapter comments were already deleted.)
+1. ✅ Done — legacy `borrow-eligibility-circom` dir and the unused
+   `ProtocolAdapter` type (plus its exclusively-supporting types) removed.
+   `circomlib` (`package.json`) was a stale flag, not dead code — every
+   circuit's `include "circomlib/circuits/..."` resolves against it at
+   compile time (`circom -l node_modules`); it stays.
 2. ✅ Done — `e2e-borrow.ts` wired to a scheduled CI job (`test:e2e`).
 3. Superseded — backup feature deleted 2026-07; persisted note store +
    ~7-day event scan is the accepted recovery model.

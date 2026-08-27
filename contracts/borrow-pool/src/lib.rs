@@ -1728,49 +1728,6 @@ fn fr_to_u32(value: &Fr) -> u32 {
         | (raw[31] as u32)
 }
 
-/// R17 (split): price-aware borrow cap from REAL, honest collateral
-/// (the circuit-proven `total_collateral_amount`, no price factor
-/// baked in by the prover). The actual Reflector read + LTV math now
-/// live in the separate `borrow-cap-helper` contract (kept out of this
-/// contract's own WASM so calls that never need it — deposit/withdraw/
-/// repay/liquidate — don't pay to parse that code; see
-/// docs/REMEDIATION.md R17). Returns `None` (caller falls back to the
-/// flat denomination cap) if no helper is wired, or the helper reports
-/// no live Reflector feed for either leg — same fail-closed posture as
-/// before the split, not a behavior change.
-/// R20: the cap check this fed moved entirely into the circuit (see
-/// borrow_shielded's R20 comment) — `live_oracle_price` below is what
-/// borrow_shielded actually calls now. Left in place rather than
-/// deleted, along with `borrow-cap-helper`'s own now-unused-by-this-path
-/// `dynamic_borrow_cap` entrypoint: removing a whole contract is a
-/// separate, lower-priority cleanup, not core to R20.
-#[allow(dead_code)]
-fn dynamic_borrow_cap(
-    env: &Env,
-    collateral_asset: &Symbol,
-    borrow_asset: &Symbol,
-    total_collateral_amount: i128,
-    max_ltv_bps: u32,
-) -> Option<i128> {
-    let helper = state::borrow_helper(env)?;
-    let reflector_contract = state::reflector(env)?;
-    let collateral_decimals = notes::decimals(env, collateral_asset)?;
-    let borrow_decimals = notes::decimals(env, borrow_asset)?;
-
-    price_cap_client::BorrowCapHelperClient::new(env, &helper)
-        .try_dynamic_borrow_cap(
-            &reflector_contract,
-            collateral_asset,
-            borrow_asset,
-            &collateral_decimals,
-            &borrow_decimals,
-            &total_collateral_amount,
-            &max_ltv_bps,
-        )
-        .ok()?
-        .ok()?
-}
-
 /// R20: live 1e14-scaled price ratio, used to cross-check
 /// `borrow_shielded`'s now-public `oracle_price` signal against a real
 /// Reflector read. `None` if no helper is wired or Reflector has no
