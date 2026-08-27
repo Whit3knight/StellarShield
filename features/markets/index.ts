@@ -33,6 +33,7 @@ export {
   type MarketStat,
 } from "./market-stats"
 export { useAssetPriceRefresher, useAssetPrices } from "./use-asset-prices"
+export { AssetPriceRefresher } from "./asset-price-refresher"
 export { useMarketStats } from "./use-market-stats"
 export { useRegisteredMarkets } from "./use-registered-markets"
 export type {

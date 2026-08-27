@@ -5,6 +5,7 @@ import { appPreferenceKeys } from "./_constants/preferences"
 
 import { ThemeProvider } from "@/components/theme-provider"
 import { ToastProvider } from "@/components/ui/toast"
+import { AssetPriceRefresher } from "@/features/markets"
 import { ShieldedPoolProvider } from "@/features/shielded-pool"
 import { cn } from "@/lib/utils"
 
@@ -50,6 +51,7 @@ export default function RootLayout({
           <ToastProvider position="bottom-right">
             <SelectedMarketProvider>
               <ShieldedPoolProvider>
+                <AssetPriceRefresher />
                 <NavMenusProvider>{children}</NavMenusProvider>
               </ShieldedPoolProvider>
             </SelectedMarketProvider>

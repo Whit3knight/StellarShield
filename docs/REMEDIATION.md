@@ -1026,6 +1026,46 @@ not attempted here.
   see R25's own "Deliberately not built" note above. Real item, real
   redesign, not a quick fix.
 
+### R26 — Displayed asset prices never refreshed; the hook that does it was never mounted [SHIPPED]
+
+Found while discussing whether oracle prices "auto-refresh": they do,
+but only for the two paths that already fetch live — `borrow_shielded`'s
+on-chain cross-check (`reflector.rs`, fresh every call, no cache) and
+the real borrow flow's own proof-building (`borrow.ts` calls
+`fetchPriceRatio` directly). A third path doesn't: everything the
+*dashboard displays* before a transaction is submitted — borrowing
+power, health factor, liquidation price, USD values in `quote.ts` —
+reads from `features/markets/price-cache.ts`, a plain in-memory cache
+with **no writer**. `useAssetPriceRefresher` (`use-asset-prices.ts`,
+polls Reflector every 20s, pauses when the tab is hidden, refreshes on
+tab refocus) is the only thing that ever calls `writeCachedAssetPrice`
+— and it was never mounted anywhere in the app. Confirmed by grepping
+every `.ts`/`.tsx` file in the repo (excluding tests) for a call site:
+none exists, including in `app/layout.tsx`, which the hook's own doc
+comment already claimed as its mount point. The cache's only values
+were ever its hardcoded static defaults (`features/markets/data.ts`:
+XLM $0.12, USDC $1, EURC $1.08) — every quote preview shown to a user
+has been silently frozen at these numbers since whenever this hook was
+written, regardless of the real market.
+
+**Not a solvency bug** — the two paths that matter for actually moving
+funds (the contract's own cross-check, the real borrow proof) never
+touched this cache; they fetch live independently, unaffected. This is
+a display-only staleness bug: what a user sees in the drawer before
+confirming could differ arbitrarily from the live price used for both
+the proof and the on-chain check.
+
+**Fix**: new `features/markets/asset-price-refresher.tsx`, a minimal
+`"use client"` component (`AssetPriceRefresher`, renders `null`) that
+calls the existing hook — needed because `app/layout.tsx` is a Server
+Component and `useEffect`-based hooks can't run there directly. Mounted
+inside the existing `ShieldedPoolProvider` nesting in `app/layout.tsx`.
+
+**Verification**: `lint`/`typecheck`/`test` (281 passing)/`build` all
+green. Real browser check (`bun run dev`, Playwright): dashboard's XLM
+price read live as $0.1873, not the frozen $0.12 default, confirming
+the refresher actually runs and the cache actually updates.
+
 ### Small items (slot into sequence)
 
 - **Zero Rust contract tests** — blocked on soroban-sdk 23. One README line stating the block + stopgap (TS fixtures + R6 e2e). Re-check next sdk release.
