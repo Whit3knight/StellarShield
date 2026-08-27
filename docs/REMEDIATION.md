@@ -926,7 +926,7 @@ costs nothing behaviorally for honest callers.
 
 - **Zero Rust contract tests** — blocked on soroban-sdk 23. One README line stating the block + stopgap (TS fixtures + R6 e2e). Re-check next sdk release.
 - **`quote.ts` untested [DONE]** — `quote.test.ts` covers LTV/HF/liquidation-price edges: zero loan, zero collateral (including the health-factor-vs-liquidation-price distinction — the former reads 0, not null, when only collateral is zero), the max-LTV boundary (exactly at borrowing power passes, one cent over fails), and denomination-granularity truncation (an 8th fractional digit below the 7-decimal raw unit drops instead of rounding up).
-- **`shielded-deposit-quad` status** — circuit + verifier (`lib.rs:497`) + prover + artifacts all exist but nothing wires it. Decision, not build: add a README roadmap row ("experimental, unwired"). Resolves OQ-4.
+- **`shielded-deposit-quad` status [DONE]** — circuit + verifier + prover + artifacts exist, exercised only by `e2e-borrow.ts`, not wired into `use-deposit.ts`. README roadmap row exists ("experimental — ... not a supported flow"); `docs/PRD.md`'s stale `[STATUS UNCLEAR]` tag (claimed "in no roadmap track", no longer true) flipped to match. OQ-4 resolved.
 
 ---
 

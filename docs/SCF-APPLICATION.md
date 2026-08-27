@@ -5,6 +5,12 @@ this repo, the live testnet contract, or Horizon on 2026-08-18. Fields needing
 your input are marked **`[FILL]`**. Nothing here is invented — see
 "Verification log" at the bottom for how each number was obtained.
 
+> **Re-verified 2026-08-27.** Sections 2, 4, and 6 were updated after three of
+> the items originally listed under "funded work" shipped during continued
+> development, ahead of any grant funding — see the note at the top of §6.
+> Other fields (5, 7–11) reflect the original 2026-08-18 check and still need
+> the `[FILL]`/action items noted there.
+
 ---
 
 ## 1. Project Title
@@ -37,14 +43,15 @@ notes, claim the loan into a wallet, repay with accrued interest, and withdraw �
 runs end to end on Stellar testnet with real on-chain proof verification.
 
 Stellar Shield is a technical validation, not a launched product: it has no
-external users, no TVL, and is not on mainnet. Two parts of the economic layer
-are deliberately incomplete and documented as such in our own repository — loan
-sizing is bounded by a blunt contract-side cap rather than by the proof, because
-the borrow circuit's price input is an unconstrained witness; and liquidation is
-fully built but its underwater comparison is dimensionally mismatched, so
-triggering fails closed rather than open. Closing both, alongside an independent
-audit and a trusted-setup ceremony before any mainnet deployment, is exactly
-what this application is asking to fund.
+external users, no TVL, and is not on mainnet. Loan sizing is now bound to a
+live, contract-verified oracle price rather than a blunt denomination cap, and
+liquidation triggers on-chain against a real underwater proof rather than
+failing closed — both were disclosed gaps in an earlier draft of this
+application and have since been fixed and deployed to the same testnet
+contract (see §6). What remains before any mainnet deployment is an
+independent audit and a multi-party trusted-setup ceremony, then a run under
+decentralized administration — exactly what this application is asking to
+fund.
 
 ---
 
@@ -69,21 +76,28 @@ end-user dashboard.
   the current contract `CCNLBMUTHMO5SXRBJ5DIKZDSS3J3OEW4PB5UFWATEXWLEDBGOBIEAEIZ`.
   Most recent end-to-end verification: a repay transaction closing a loan and
   burning both the loan and deposit nullifiers, ledger 3,927,624, tx
-  `574f33d09f71fc234a1f1bc46d995d4012c893fef979ff0c1486362b3bcac609`.
-- **7 production Circom/Groth16 circuits** over BLS12-381 (deposit, quad
-  deposit, borrow, withdraw, repay, liquidate v1, liquidate v2), with
-  verification keys embedded in the contract binary — one verifier per circuit.
+  `574f33d09f71fc234a1f1bc46d995d4012c893fef979ff0c1486362b3bcac609`. Since
+  then the same live contract has been upgraded in place four more times
+  (oracle-bound solvency, its own dimensional-bug fix, working liquidation
+  triggering, and collateral-recovering repay — see §6), each preceded by a
+  real on-chain prove → submit → verify round trip on a disposable test
+  contract before the live upgrade.
+- **8 production Circom/Groth16 circuits** over BLS12-381 (deposit, quad
+  deposit, borrow, withdraw, repay, repay v2, liquidate v1, liquidate v2),
+  with verification keys embedded in the contract binary (repay v2's in a
+  separate stateless helper contract, to keep its verifier out of the main
+  pool contract's WASM parse-cost footprint) — one verifier per circuit.
 - **Contract fully configured on testnet**: 3 reserves (XLM, USDC, EURC) via the
   Stellar Asset Contract, 6 registered markets (USDC/XLM, XLM/USDC, EURC/USDC,
   USDC/EURC, EURC/XLM, XLM/EURC), live rate and risk parameters, and Reflector
   CEX/DEX plus FX oracle feeds wired in.
 - **Public dashboard deployed** at https://www.stellarshield.xyz, connected to
   Freighter on testnet.
-- **Codebase**: ~30,300 lines of TypeScript across the app, feature layers, and
-  operator CLI, ~5,700 lines of Rust in the Soroban contract, and ~900 lines of
-  Circom — roughly 36,900 lines total across 288 commits in a public repository
-  (github.com/Whit3knight/StellarShield).
-- **197 automated tests across 27 files.** CI gates lint, typecheck, tests, a
+- **Codebase**: ~30,400 lines of TypeScript across the app, feature layers, and
+  operator CLI, ~6,500 lines of Rust in the Soroban contract, and ~1,300 lines
+  of Circom — roughly 38,200 lines total across 330 commits in a public
+  repository (github.com/Whit3knight/StellarShield).
+- **281 automated tests across 36 files.** CI gates lint, typecheck, tests, a
   proving-artifact manifest check, and a production build on every push, with a
   separate testnet end-to-end workflow that drives a real deposit → borrow →
   repay against the deployed contract.
@@ -134,31 +148,38 @@ metadata on-chain that is decrypted only in the recipient's browser. The
 frontend is Next.js 16 with Freighter for signing; the user's shielded identity
 is derived from a wallet signature, so no server ever holds a spending key.
 
-The funded work is the path from a working technical validation to a system that
-can safely hold real value, in this order:
+**Already delivered, ahead of any grant funding.** An earlier draft of this
+application listed three engineering gaps as the first three items of funded
+work. All three shipped during continued development and are live on the same
+testnet contract cited in §4 — evidence of execution velocity, not a reason to
+shrink the ask:
 
-1. **Make solvency provable, not merely capped.** Today the borrow circuit
-   carries an LTV/health-factor band, but its `oracle_price` input is an
-   unconstrained private witness, so the band proves nothing about price; the
-   binding limit is a contract-side cap of one denomination per loan. We will
-   bind the circuit to a contract-read Reflector price and cross-check the
-   oracle commitment on-chain, which turns loan sizing from a blunt cap into a
-   real, capital-efficient LTV.
-2. **Make liquidation actually trigger.** Every piece of the liquidation path
-   ships — bond commitments, two circuits, contract entry points, a health
-   badge, and a permissionless watchdog CLI — but the underwater inequality mixes
-   two unit scales, so it fails closed and nothing can be liquidated. A v3
-   circuit with an explicit divisor plus the contract-read price from step 1
-   closes this. Until it lands, pool solvency rests on the denomination cap
-   alone, which is survivable on testnet and not survivable with real value.
-3. **Collateral recovery on repay.** v1 leaves the original collateral notes
-   burned; a v2 repay circuit will mint recovered collateral commitments back
-   into the deposit tree.
-4. **Independent audit and a multi-party trusted-setup ceremony.** The current
-   proving keys come from a development ceremony and must be regenerated. Steps
-   1–3 all change the circuits, so the ceremony is deliberately sequenced after
-   them.
-5. **Mainnet under decentralized administration**, followed by a limited
+- **Solvency is now provable, not merely capped.** `oracle_price` is a public
+  circuit signal the contract cross-checks against a live Reflector read
+  (200bps tolerance, fails closed if the feed is stale or absent); the
+  circuit's own LTV/health-factor band is the real solvency guard again, not
+  a blunt one-denomination cap. Collateral and loan amounts stay private via
+  Jubjub Pedersen commitments folded into a running on-chain aggregate.
+- **Liquidation actually triggers.** The underwater comparison's unit-scale
+  mismatch is fixed (cross-multiplication, no division), `threshold_bps` now
+  matches the dashboard's own convention, and both liquidation paths
+  cross-check their price against a live Reflector read the same way borrow
+  does. Verified end to end on a real underwater position, not just a
+  synthetic proof.
+- **Collateral recovery on repay.** A new circuit mints the original
+  collateral back into the deposit tree at repay time instead of leaving it
+  burned, reusing the bond opened at borrow time — and closed a related gap
+  where a proof's `loan_commitment` argument wasn't bound to the note it
+  actually repaid.
+
+**The funded work that remains** is the path from a working, already-solvent
+technical validation to a system that can safely hold real value:
+
+1. **Independent audit and a multi-party trusted-setup ceremony.** The current
+   proving keys come from a development ceremony and must be regenerated. All
+   three circuit changes above are now settled, so the ceremony can be
+   scheduled without another round of `.zkey` churn.
+2. **Mainnet under decentralized administration**, followed by a limited
    real-value pilot. We will not deploy to mainnet while the anonymity set is
    effectively zero; growing pool volume is what makes the privacy real rather
    than merely cryptographic.
@@ -204,11 +225,11 @@ you actually monitor; SCF correspondence and milestone reviews go there.
 
 ## 10. Team Description
 
-Stellar Shield is built by two people. Arham [surname] leads business development and also runs operations: ecosystem outreach, partnerships, and go-to-market, plus keeping the app deployed, the monitoring service running, and the data pipeline that lets users recover their private balances long after a payment was made. Brian leads development and built effectively the whole product: the smart contract, the zero-knowledge circuits behind every private transaction, the proof generation that runs in the user's own browser, and the dashboard — around 36,900 lines across 288 commits, with public product, architecture, and risk documentation kept alongside the code.
+Stellar Shield is built by two people. Arham [surname] leads business development and also runs operations: ecosystem outreach, partnerships, and go-to-market, plus keeping the app deployed, the monitoring service running, and the data pipeline that lets users recover their private balances long after a payment was made. Brian leads development and built effectively the whole product: the smart contract, the zero-knowledge circuits behind every private transaction, the proof generation that runs in the user's own browser, and the dashboard — around 38,200 lines across 330 commits, with public product, architecture, and risk documentation kept alongside the code.
 
 *(670 chars.)*
 
-> **Check before you submit.** Git shows one author on all 288 commits except a
+> **Check before you submit.** Git shows one author on all 330 commits except a
 > single README change by `Whit3knight <arhamalaghny@gmail.com>`, and all 12
 > commits touching `deploy/` and `.github/` are Brian's — so the operations half
 > of Arham's line is checkable and currently unsupported. Cheapest fix is to make
@@ -262,9 +283,10 @@ nobody did.
 | Repay tx succeeded | Horizon: `successful: true`, `created_at 2026-08-02T08:02:51Z`, ledger 3927624 |
 | Site live, `/api/events` 404 | `curl` to `https://www.stellarshield.xyz/` (200) and `/api/events?limit=2` (404) |
 | Repo public, no license, last push | `gh repo view Whit3knight/StellarShield` — `PUBLIC`, `licenseInfo: null`, `pushedAt 2026-07-31` |
-| 288 commits, one author | `git log --oneline \| wc -l`, `git shortlog -sne --all` |
-| Line counts | `wc -l` over `app/`, `components/`, `features/`, `contracts/` |
-| 197 tests / 27 files | `bun run test` suite inventory in CLAUDE.md; 27 test files found on disk |
+| 330 commits, one author | `git log --oneline \| wc -l`, `git shortlog -sne --all` (re-checked 2026-08-27) |
+| Line counts (re-checked 2026-08-27) | `wc -l` over `app/`, `components/`, `features/`, `contracts/*.rs`, `contracts/circuits/**/*.circom` |
+| 281 tests / 36 files | `bun run test` output, 2026-08-27; `find . -name "*.test.ts*"` |
+| 8 circuits | `ls contracts/circuits/` — deposit, deposit-quad, borrow, withdraw, repay, repay-v2, liquidate, liquidate-v2, 2026-08-27 |
 | RPC retention aged out the test events | paginated `getEvents`: oldest retained ledger 4,087,560 vs repay at 3,927,624 |
 | SCF track definitions | SCF Handbook, Build Award and Open Track pages, fetched 2026-08-18 |
 | Brian's credentials (Hiresai, Base Freelance, TCP1P, Gemastik 18, Amikom) | `Brian Adi_Portofolio_Academy.pdf`, Apple Developer Academy portfolio submission |
