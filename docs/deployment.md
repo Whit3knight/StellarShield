@@ -168,11 +168,13 @@ wasm alone doesn't predict pass/fail, actual measurement does.
 
 ## Price-cap helper contract (R18)
 
-`borrow_shielded`'s dynamic borrow cap lives in a separate, stateless
-contract — `contracts/borrow-cap-helper/` — cross-called only from
-that one entrypoint, so deposit/withdraw/repay/liquidate never pay for
-code they don't use. Current live instance:
-`CB42XZGW4G6WJE5NVXFZKP5TFIE564JBHJ7COH6KHDNK6UIRP6KOBKHK`.
+`borrow_shielded`'s live-price cross-check (R20: `price_ratio`; the old
+`dynamic_borrow_cap` entrypoint is now dead code, kept for backward
+compat) lives in a separate, stateless contract —
+`contracts/borrow-cap-helper/` — cross-called only from that one
+entrypoint, so deposit/withdraw/repay/liquidate never pay for code they
+don't use. Current live instance:
+`CAAYY623FT5JUVBQNW3BPTHZWJ2Q2KJUPLIJTDZJZDYYHZRC25GW5JYP` (R20).
 
 Redeploying the helper (its own logic changed, not `borrow-pool`'s):
 

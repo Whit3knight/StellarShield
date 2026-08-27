@@ -57,4 +57,27 @@ impl BorrowCapHelper {
             .checked_div(10_000)?;
         with_ltv.checked_mul(9_500)?.checked_div(10_000)
     }
+
+    /// R20: raw 1e14-scaled price ratio, no LTV/cap math applied. Lets
+    /// `borrow-pool` cross-check its circuit's now-public `oracle_price`
+    /// signal against a live Reflector read, instead of trusting the
+    /// prover's own number (which is what made the LTV band decorative
+    /// pre-R20 — see docs/REMEDIATION.md R20).
+    pub fn price_ratio(
+        env: Env,
+        reflector_contract: Address,
+        collateral_ticker: Symbol,
+        borrow_ticker: Symbol,
+        collateral_token_decimals: i32,
+        borrow_token_decimals: i32,
+    ) -> Option<i128> {
+        reflector::price_ratio(
+            &env,
+            &reflector_contract,
+            &collateral_ticker,
+            &borrow_ticker,
+            collateral_token_decimals,
+            borrow_token_decimals,
+        )
+    }
 }

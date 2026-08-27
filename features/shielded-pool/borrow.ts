@@ -15,6 +15,7 @@ import {
   encryptMemo,
   encryptMemoMulti,
   randomFieldElement,
+  randomJubjubBlind,
   type ShieldedAsset,
   type ShieldedNote,
 } from "@/features/notes"
@@ -184,6 +185,8 @@ export async function prepareBorrow(
   const bondSaltAmount = randomFieldElement()
   const bondSaltValue = randomFieldElement()
   const bondSaltPrice = randomFieldElement()
+  const collateralBlind = randomJubjubBlind()
+  const loanBlind = randomJubjubBlind()
 
   const proof = await proveBorrow(
     {
@@ -202,6 +205,8 @@ export async function prepareBorrow(
       bondSaltAmount,
       bondSaltValue,
       bondSaltPrice,
+      collateralBlind,
+      loanBlind,
     },
     { wasmUrl: params.wasmUrl, zkeyUrl: params.zkeyUrl }
   )

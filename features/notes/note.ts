@@ -165,3 +165,22 @@ export function randomFieldElement(): bigint {
   // but this bias is negligible for salts.
   return value % FR_ORDER
 }
+
+/**
+ * Random field element strictly under 2^251 — the blinding-factor bound
+ * `JubjubScalarMulFix` in `jubjub_pedersen.circom` requires (Jubjub's
+ * own scalar field is ~252 bits; 251 keeps every blind strictly under
+ * its order with no wraparound ambiguity). Masks off the top 5 bits of
+ * 32 random bytes instead of using `randomFieldElement`'s mod-`FR_ORDER`
+ * reduction, which does not bound the result under 2^251.
+ */
+export function randomJubjubBlind(): bigint {
+  const bytes = new Uint8Array(32)
+  crypto.getRandomValues(bytes)
+  bytes[0] &= 0b00000111 // clear top 5 bits: 256 - 251 = 5
+  let value = 0n
+  for (const byte of bytes) {
+    value = (value << 8n) | BigInt(byte)
+  }
+  return value
+}

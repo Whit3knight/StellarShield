@@ -339,6 +339,17 @@ const borrowSalt = rand()
 const bondSaltAmount = rand()
 const bondSaltValue = rand()
 const bondSaltPrice = rand()
+// R20: Jubjub blinds must stay under 2^251, unlike the other salts
+// above (bounded only by FR_ORDER, ~2^255) — see jubjub_pedersen.circom.
+function randBlind(): bigint {
+  const bytes = crypto.getRandomValues(new Uint8Array(32))
+  bytes[0] &= 0b00000111
+  let v = 0n
+  for (const b of bytes) v = (v << 8n) | BigInt(b)
+  return v
+}
+const collateralBlind = randBlind()
+const loanBlind = randBlind()
 
 // ---- Real typed loan amount (R17 Phase 3: no longer auto-derived by
 // proveBorrow) — mirror what the UI does: ask computeBorrowAmount for
@@ -381,6 +392,8 @@ const proof = await proveBorrow(
     bondSaltAmount,
     bondSaltValue,
     bondSaltPrice,
+    collateralBlind,
+    loanBlind,
   },
   {
     wasmUrl: `file://${new URL("../../public/circuits-circom/shielded/borrow/borrow.wasm", import.meta.url).pathname}`,

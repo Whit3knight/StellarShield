@@ -1,0 +1,68 @@
+# Jubjub-over-BLS12-381 reference fixtures (R20).
+# Generated from zkcrypto/jubjub v0.9.0 — the reference implementation
+# also used by Zcash Sapling — NOT hand-derived. See the throwaway
+# generator program's source (kept out of the repo; regenerate via a
+# fresh `cargo new` + jubjub/bls12_381/ff/group/sha2/num-bigint deps
+# pinned to jubjub=0.9, bls12_381=0.7, ff=0.12, group=0.12 if these
+# values ever need re-checking).
+#
+# Curve: twisted Edwards -u^2 + v^2 = 1 + d*u^2*v^2 over Fq = BLS12-381
+# scalar field. PEDERSEN_G/PEDERSEN_H are independent, hash-derived
+# base points (domain-separated "StellarShieldJubjubG_v1"/
+# "...H_v1", SHA-256, retry-until-valid-point, cofactor-cleared,
+# subgroup-membership-checked) — NOT reused from Baby Jubjub or any
+# existing Zcash/circomlib constant, and NOT a mod-reduction of one
+# (curve points don't survive mod-reduction across different curves;
+# confirmed this session by reading zkcrypto/jubjub's and circomlib's
+# source directly).
+#
+# Format: hex values are big-endian, 32 bytes, matching this repo's
+# poseidon_fixtures.txt convention. All three ported implementations
+# (circom gadget, contract's jubjub.rs, any future JS port) must agree
+# with these values before being trusted.
+
+EDWARDS_D = 0x2a9318e74bfa2b48f5fd9207e6bd7fd4292d7f6d37579d2601065fd6d6343eb1
+
+# Prime-order subgroup generator (cofactor-8-cleared), matches Zcash
+# Sapling's documented Jubjub generator (v-coordinate is the
+# recognizable "nothing up my sleeve" value 11 in the crate's raw
+# limb form).
+GENERATOR_U = 0x3ea5c4673a121ca35ed37ee3b172f5ee04315c657fbe375f512dfea318d56fe5
+GENERATOR_V = 0x57137b83ea6edb4f78f7d30d3f616cb3b9aa6e8e40808413c10cea38d50c55cb
+
+# Pedersen commitment base points (this project's own, hash-derived).
+PEDERSEN_G_U = 0x0134b7a4da7cf897757910fa740af2807d42073d49d59d65e13694adf765f4ff
+PEDERSEN_G_V = 0x6cb41d3718f6e2e7ec6239da617a22a710784536decdb678781456ba4f7850e4
+PEDERSEN_H_U = 0x2ca23e182597f3494443a9e6448ed8cdb688e03ff6d5e60c1228be586ed0b2cf
+PEDERSEN_H_V = 0x051900c2e8d2fb6f1e5413f074078bacca7413747fbbf5ee49a72a8fa6f27d96
+
+# Identity element (0, 1) — default value for state.rs's
+# RunningCollateralCommit/RunningLoanCommit before any borrow occurs.
+IDENTITY_U = 0x0000000000000000000000000000000000000000000000000000000000000000
+IDENTITY_V = 0x0000000000000000000000000000000000000000000000000000000000000001
+
+# ---- Known-answer test vectors ----
+
+# TV1: G + G must equal 2*G (point addition agrees with scalar mul by 2).
+TV1_G_plus_G_U = 0x3ef1db617dee2c04c3fb49b6cafdadc4b25037778ae7736460ccae35690d1cdd
+TV1_G_plus_G_V = 0x319acab8fa40a6338ef0795981a7c3cbc3e9de977e3b0f68aad0c6e0e6f09a71
+
+# TV2: Pedersen commitment to value=12345, blind=6789.
+# commit = 12345*PEDERSEN_G + 6789*PEDERSEN_H
+TV2_value = 12345
+TV2_blind = 6789
+TV2_commit_U = 0x5438eaae55f382993184c98ce2c6706b9e0d8b90e720ac8f9030b818a364cf24
+TV2_commit_V = 0x739587f4d61c182b2a32c2effcea9e71a52fcbea15ec48aa8b7131e63e2beae8
+
+# TV3: homomorphic addition — commit(a) + commit(b) == commit(a+b, blind_a+blind_b).
+# a: value=100, blind=11 ; b: value=250, blind=22
+TV3_value_a = 100
+TV3_blind_a = 11
+TV3_value_b = 250
+TV3_blind_b = 22
+TV3_commit_a_U = 0x0a1b9925c1dc5341b4b7945de0225c79f21f28ab8ab3fe983afaebc964d183c7
+TV3_commit_a_V = 0x1bdad05b994571afbe57acf7d9b231720dbb1d8c0545456aa7d1237f2d6b6547
+TV3_commit_b_U = 0x530f0b5f7e7093211c98f3070db938a24275d2c4dbae88bc72f3670860274628
+TV3_commit_b_V = 0x13c9ca7f9950f96ad9bf74cbe4cd609c59a6157a4bceab70361555cfb94f3fb5
+TV3_commit_sum_U = 0x2882e207c130da1eb9f62c1678cf6bbdf27a4b06e49954afbe1c7935b424aec4
+TV3_commit_sum_V = 0x50346c041a1979edf85627273a378fd427a4f19ecd1ee00bd56d7223b270bd5e

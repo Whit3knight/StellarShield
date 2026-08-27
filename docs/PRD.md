@@ -41,12 +41,16 @@ note inventory from public chain events **within the RPC retention window**
   in both `features/notes/note.ts` and `contracts/borrow-pool/src/notes.rs`
   — R17: the default suggested amount, no longer enforced; real amounts
   are range-checked against `MAX_NOTE_AMOUNT` instead.
-- **Solvency bound:** the borrow circuit's LTV/HF band is **not** a guard —
-  `oracle_price` is an unconstrained private witness. The binding limit is
-  `borrow_shielded`'s `dynamic_borrow_cap` (live Reflector price × real
-  collateral amount × LTV × 95% margin, `lib.rs` cross-calling
-  `contracts/borrow-cap-helper/`), falling back to the flat
-  `denomination(asset)` ceiling only when no live feed exists. See FR-C4.
+- **Solvency bound (R20):** the borrow circuit's LTV/HF band is the real
+  guard again — `oracle_price` is now a public signal `borrow_shielded`
+  verifies against a live Reflector read (`BorrowCapHelper::price_ratio`,
+  200 bps tolerance) before trusting the circuit's own in-circuit check,
+  failing closed with no feed or an out-of-band price. `total_collateral_
+  amount`/`borrow_amount` are pure private witnesses now — never public —
+  replaced by two Jubjub Pedersen commitment outputs the contract folds
+  into a running per-asset aggregate via EC addition. The old `dynamic_
+  borrow_cap`/flat-denomination fallback is dead code, intentionally left
+  in place. See FR-C4, `docs/REMEDIATION.md` R20.
 
 ## 2. User Personas
 
@@ -74,12 +78,12 @@ note inventory from public chain events **within the RPC retention window**
   longer a fixed denomination — see `docs/REMEDIATION.md` R17.)
 - With ≥4 unspent collateral notes of one asset, generate a Groth16 borrow
   proof in-browser (~15–30s) proving I own four unspent notes at the attested
-  root and type my own loan amount, capped by the contract's live,
-  price-derived dynamic borrow cap. (The proof also carries an LTV/HF band,
-  but it is decorative — see FR-C4; the contract's `dynamic_borrow_cap` is
-  the real bound.) This reveals the total collateral amount and the loan
-  amount on-chain — an accepted trade-off, not the "without revealing
-  amounts" the pre-R17 design achieved; see `docs/REMEDIATION.md` R17/R19.
+  root and type my own loan amount, bound by the circuit's own in-circuit
+  LTV/HF check against a contract-verified live oracle price (R20 — see
+  FR-C4). The total collateral amount and the loan amount are **not**
+  revealed on-chain: both are pure private witnesses, replaced by two
+  Jubjub Pedersen commitments the contract can only add, never open. See
+  `docs/REMEDIATION.md` R17/R19/R20.
 - Claim the loan (`withdraw_loan_shielded`) to my wallet **or** repay by
   burning a same-asset deposit note covering principal × accrued interest
   index. Not both: claim and repay spend the same loan nullifier
@@ -228,26 +232,27 @@ divisor plus a contract-read price (`ponytail:` comments in
   Merkle roots, and open bonds. Breaking changes to the unit domain or
   nullifier namespacing have forced fresh deploys (`ba81702`, `09471e9`),
   which strand prior pool state — users must re-deposit.
-- **FR-C4 `[SECURITY-RELEVANT]`:** The borrow circuit's LTV and max-LTV
-  constraints (`borrow.circom:163-183`) do **not** bound solvency:
-  `oracle_price` is an unconstrained private witness, so a modified client
-  can satisfy the band at any price. The enforced bound (R17) is
-  `borrow_shielded`'s `dynamic_borrow_cap` — a live Reflector price ×
-  the real collateral amount (`total_collateral_amount`, a new circuit
-  output) × `max_ltv_bps` × a 95% safety margin, cross-calling
-  `contracts/borrow-cap-helper/` — falling back to the flat
-  `denomination(borrow_asset)` ceiling only when no live feed exists.
-  `withdraw_loan_shielded` no longer has its own ceiling check (removed
+- **FR-C4 `[SECURITY-RELEVANT, R20]`:** The borrow circuit's LTV and
+  max-LTV constraints (`borrow.circom`) **do** bound solvency again:
+  `oracle_price` is now a public signal, and `borrow_shielded` verifies
+  it against a live Reflector read (`BorrowCapHelper::price_ratio`, 200
+  bps tolerance) before trusting the circuit's own check — failing
+  closed (no fallback cap) if Reflector has no feed or the price is out
+  of band. `total_collateral_amount`/`borrow_amount` are pure private
+  witnesses (never public, never contract-readable in the clear);
+  `withdraw_loan_shielded` still has no separate ceiling check (removed
   in R17: a loan can legitimately exceed one denomination now, so the
-  old check would wrongly reject valid claims); its payout is bound
+  old check would wrongly reject valid claims) — its payout is bound
   into the Merkle-verified commitment instead, already validated
-  against the cap at mint time. This is a new, deliberate on-chain leak
-  of the real collateral amount and loan amount (previously "public
-  anyway" only because every note was the same fixed size) — see
-  `docs/REMEDIATION.md` R17 for the full trade-off discussion, and
-  R18/R19 for a real regression this change caused and fixed
-  (unrelated Poseidon performance bug, tipped over by R17's added
-  weight) plus a follow-up event-schema fix.
+  against the cap at mint time. Two Jubjub Pedersen commitments to the
+  same private amounts are published instead, folded by the contract
+  into a running per-asset aggregate (`jubjub.rs`, EC addition only —
+  the contract can never open them). This closes the on-chain leak R17
+  introduced (real collateral/loan amounts were public from R17 through
+  R19) — see `docs/REMEDIATION.md` R17 for the original trade-off,
+  R18/R19 for a regression and follow-up this change caused and fixed,
+  and R20 for the fix itself plus its own pending-testnet-upgrade
+  caveat.
 
 ### 4.9 Liquidation tooling (CLI) `[IMPLEMENTED]`
 
@@ -380,7 +385,7 @@ backward-compat. Remaining gaps:
 | Proving | Real in-browser Groth16, artifacts hash-pinned (R8); dev trusted setup | Production ceremony / universal setup |
 | Repay | Burns collateral notes; interest accrual live | v2 repay circuit: collateral recovery |
 | Liquidation | v1 + v2 circuits, contract fns, hook, and CLI all built; **triggering inert (fails closed)** on a dimensional mismatch; single trusted operator | v3 circuit with explicit divisor + contract-read price, then activate service; decentralization dropped (FROST) — operator trust stays unless revisited |
-| Solvency | Contract-side `dynamic_borrow_cap` — real collateral amount × live Reflector price × LTV × 95% margin (R17), flat `denomination` fallback only with no feed; circuit LTV band still decorative (unconstrained `oracle_price`) | Bind `oracle_price` itself into a circuit constraint, closing the last unconstrained-witness gap |
+| Solvency | In-circuit LTV/HF band is the real guard (R20) — `oracle_price` is a public signal verified against a live Reflector read, 200bps tolerance, fails closed with no fallback cap; collateral/loan amounts private again via Jubjub Pedersen commitments | — |
 | Oracle | Reflector freshness check only (live-price strkey bug fixed) | On-chain commitment cross-check |
 | Testing | TS unit (197 in 27 files) + fixture harness + **e2e testnet harness in CI (R6)** | Rust tests post soroban-sdk 23; liquidation proving fixture |
 | Docs | README + CLAUDE.md refreshed; canonical contract ID declared; BRD/PRD/REMEDIATION maintained | — |
@@ -428,11 +433,15 @@ Business questions live in BRD §12; engineering remediation questions in REMEDI
 
 **Status:** M1 (docs honest), M2 (trustworthy build), and M3 (privacy works)
 of [REMEDIATION.md](./REMEDIATION.md) are complete. The unit-domain break
-(`09471e9`) then moved solvency from the circuit into the contract and left
-liquidation triggering inert. **Recommended next:** (1) a liquidation proving
-fixture (gap 2b) — the missing regression that let liquidation flip from
-fail-open to fail-closed unnoticed; (2) the v3 liquidate circuit with an
-explicit divisor + contract-read price, which the fixture would then gate;
-(3) manual browser smoke-test of the R1 signature popup UX; (4) minor dead-code
-cleanups (OQ #1 above); (5) v2 repay (collateral recovery); (6) M4 mainnet-gate
-prerequisites remain gated on a mainnet decision.
+(`09471e9`) moved solvency from the circuit into the contract and left
+liquidation triggering inert; R20 has since moved it back into the circuit
+(shipped — see REMEDIATION.md R20). Liquidation
+triggering is a separate, still-unresolved gap. **Recommended next:** (1) the
+R20 live-contract upgrade once verified end-to-end on a temp deploy; (2) a
+liquidation proving fixture (gap 2b) — the missing regression that let
+liquidation flip from fail-open to fail-closed unnoticed; (3) the v3
+liquidate circuit with an explicit divisor + contract-read price, which the
+fixture would then gate; (4) manual browser smoke-test of the R1 signature
+popup UX; (5) minor dead-code cleanups (OQ #1 above); (6) v2 repay
+(collateral recovery); (7) M4 mainnet-gate prerequisites remain gated on a
+mainnet decision.

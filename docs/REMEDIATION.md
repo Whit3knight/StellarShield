@@ -492,6 +492,116 @@ contract via `upgrade` (wasm hash
 no circuit or VK change, no TS bindings change (only an internal event
 payload, not a function signature).
 
+### R20 — Borrow amounts hidden on-chain; oracle_price becomes the real solvency guard [SHIPPED]
+
+Directly resolves **S3** below (recorded as CRITICAL): the borrow circuit's
+LTV/HF band was decorative because `oracle_price` was an unconstrained
+private witness — a modified client could satisfy the band with any price,
+so `borrow_shielded`'s real solvency bound was the contract-side flat/
+dynamic cap, not the circuit.
+
+User asked whether borrow/loan amounts could be hidden on-chain at all.
+Investigation (not assumed — verified against a live decoded tx) found
+deposit/withdraw amounts **can't** be meaningfully hidden: both call a real
+SEP-41 SAC `token::transfer`, which unconditionally emits a public event
+with the cleartext amount in the same transaction — hiding the ZK proof's
+own amount signal buys zero privacy there. `borrow_shielded` is different:
+it mints a shielded loan-tree note with no token transfer at all (the SAC
+transfer happens later, at claim time), so its `total_collateral_amount`/
+`borrow_amount` public signals were the only amount-revealing thing not
+already shadowed by a transparent transfer log.
+
+A Pedersen/homomorphic commitment alone cannot replace a cap check against
+a *hidden* value — that needs a full range-proof system (Bulletproofs-class),
+out of scope here. The real fix has to happen inside the Groth16 circuit
+with ordinary private-witness arithmetic, which is what makes `oracle_price`
+needing to be public (and contract-verified) unavoidable regardless of
+whether a commitment scheme is added on top. The user chose to build both
+together: the in-circuit fix (required) plus Jubjub-over-BLS12-381 Pedersen
+commitments (additive, not a replacement — verified against `zkcrypto/jubjub`
+v0.9.0, the same curve Zcash Sapling uses for its own value commitments, and
+a *different* curve from circomlib's BN254-embedded "Baby Jubjub").
+
+**Fix:**
+- `borrow.circom`: `total_collateral_amount`/`borrow_amount` are now pure
+  private witnesses (never public); `oracle_price` moved from private
+  witness to public input — the existing `GreaterEqThan`/`LessEqThan` LTV
+  band is unchanged in structure but is now a real check instead of
+  decorative. Two new `PedersenCommit` outputs (`collateral_pedersen_{u,v}`,
+  `loan_pedersen_{u,v}`) via a new `jubjub_pedersen.circom` (plain
+  double-and-add scalar multiplication, not circomlib's windowed
+  optimization — simpler to audit, and twisted-Edwards completeness means
+  no exceptional-point workarounds are needed). New signal count: 19
+  public signals (was 16), `ic_len = 20`.
+- `contracts/borrow-pool/src/jubjub.rs` (new): hand-rolled Jubjub point
+  addition using `Env::crypto().bls12_381()`'s `fr_add`/`fr_sub`/`fr_mul`/
+  `fr_inv` — no non-native field arithmetic needed, since Jubjub's base
+  field is *literally* BLS12-381's scalar field. Folds each borrow's
+  Pedersen commitments into new per-asset `RunningCollateralCommit`/
+  `RunningLoanCommit` counters (`state.rs`) via EC addition; the contract
+  never decodes an individual amount from them. No concrete consumer of
+  the aggregate exists yet — built anyway per explicit user request, as a
+  door left open for a future audit tool.
+- `borrow_shielded` cross-checks the proof's public `oracle_price` against
+  a live Reflector read (new `BorrowCapHelper::price_ratio` entrypoint,
+  raw ratio with no LTV/cap math applied) within `ORACLE_PRICE_TOLERANCE_
+  BPS` (200 bps) and fails closed (`Error::StaleOracle`) on no feed or an
+  out-of-band price. The old `dynamic_borrow_cap` call and its flat-
+  denomination fallback are removed entirely — there is nothing left to
+  fall back to once `borrow_amount` is a private witness the circuit alone
+  checks against a price. `total_deposit_value`/`total_borrow_value` stop
+  adjusting on borrow (same accepted-limitation category `repay_shielded`
+  already carries — no honest clear-text amount left to adjust by).
+  `dynamic_borrow_cap` (lib.rs local wrapper) and `borrow-cap-helper`'s own
+  `dynamic_borrow_cap` entrypoint are left in place, unused, rather than
+  deleted — a separate, lower-priority cleanup.
+- `BORROW_EVENT` drops `total_collateral_amount`/`declared_borrow_amount`
+  (no longer exist) and publishes the four Pedersen coordinates instead.
+  `market-history.ts`/`scanner.ts` updated for the new 12-element body
+  shape; amount/collateralAmount decode to `null` for R20 events
+  permanently (not a gap — there is no public amount to decode), falling
+  back to the existing `DENOMINATION` approximation already wired for
+  pre-R17/repay events.
+- Verification, in order: (1) cross-checked the Jubjub curve constants,
+  base points, and both the circom gadget and the Rust port bit-for-bit
+  against `zkcrypto/jubjub` v0.9.0 reference test vectors
+  (`contracts/borrow-pool/tests/jubjub_fixtures.txt`) — all three agreed
+  exactly; (2) deployed a throwaway probe contract exercising `jubjub.rs`'s
+  `jubjub_add` on testnet, matched the fixture exactly, then deleted the
+  probe; (3) compiled the real `borrow.circom` (38,436 non-linear
+  constraints, comfortably under `pot17`'s 2^17 capacity — no bigger
+  trusted setup needed), ran a full local Groth16 setup/contribute/export
+  cycle, and generated + verified a complete proof for a realistic 4-note
+  borrow scenario built entirely in-process (no chain needed) — `snarkjs
+  groth16 verify` returned OK against the new verification key.
+- **Temp-contract round trip caught a real regression before it reached
+  the live contract**: a real `deposit_shielded_quad` + `borrow_shielded`
+  call against a fresh temp deploy exceeded the network's per-tx
+  instruction ceiling (402.2M vs a 400M cap) — the 3 extra public
+  signals (16 → 19) each added a full G1 scalar mult to
+  `borrow_verifier.rs`'s per-signal `g1_mul`+`g1_add` loop, and the old
+  16-signal circuit was already close to the ceiling (same class as
+  R18). **Fix:** replaced the loop with a single batched `g1_msm`
+  (multi-scalar-multiplication) host call — same math, one host call
+  instead of 19. Retested on the temp contract post-fix: full round trip
+  passed, and `running_collateral_commit`/`running_loan_commit` read
+  back as non-identity points, confirming the on-chain EC folding
+  actually ran. Also confirmed live: `market-history.ts`'s
+  `decodeEventAmounts` correctly falls back to `null`/`null` against the
+  real 12-element `BORROW_EVENT` body from this run.
+- Deployed to the live contract (`CCNLBMUTHMO5SXRBJ5DIKZDSS3J3OEW4PB5UFWATEXWLEDBGOBIEAEIZ`)
+  via `upgrade` (wasm hash
+  `72ab2307ff591d32b80f98cfc4e9f63f976beea8ecff9318ed2d7d4e0fd9db08`),
+  paired with a freshly redeployed `borrow-cap-helper` instance
+  (`CAAYY623FT5JUVBQNW3BPTHZWJ2Q2KJUPLIJTDZJZDYYHZRC25GW5JYP`, exposing
+  the new `price_ratio` entrypoint) wired via `set_borrow_helper`. Prior
+  wasm hashes recorded for rollback: pool
+  `1b2366fd097a3ef5e804dfe27d66ed7f0b2156b8e4a2d6b5dc34473781a93f5a`,
+  helper `fe609f9e80b6cb5b880d82c68b0a74a0e58a0c0bc0404b50e3704ee995b930ff`.
+  Storage confirmed intact post-upgrade (`risk_params` unchanged).
+  `lint`/`typecheck`/`test` (271 passing)/`build`/`check:bundle` all
+  green before deploy.
+
 ### Small items (slot into sequence)
 
 - **Zero Rust contract tests** — blocked on soroban-sdk 23. One README line stating the block + stopgap (TS fixtures + R6 e2e). Re-check next sdk release.
@@ -580,7 +690,7 @@ the next touch: `contracts/borrow-pool/src/lib.rs:467`,
 `contracts/circuits/shielded-deposit/src/deposit.circom:13`, and the generated
 `features/protocol/bindings/borrow-pool.ts:475`.
 
-### S3 — Solvency moved from circuit to contract (`09471e9`) [CRITICAL]
+### S3 — Solvency moved from circuit to contract (`09471e9`) [RESOLVED by R20, SHIPPED]
 
 The register treats the borrow circuit's LTV/HF check as a working control and
 scopes R7 to the *oracle commitment*. That understates it: because
@@ -598,6 +708,11 @@ denomination), so the clear-text cap costs no privacy.
 Consequence for R7: making the circuit's LTV real requires binding the price,
 which is the same `.zkey` regeneration as the oracle cross-check. The two
 should be treated as one work item at the ceremony gate.
+
+**Update (R20):** implemented. `oracle_price` is now a public signal
+`borrow_shielded` cross-checks against a live Reflector read; the circuit's
+LTV/HF band is the real solvency guard again. See R20 above for the full
+design and its own pending-upgrade caveat.
 
 ### S4 — Liquidation triggering is inert; was previously fail-OPEN (`09471e9`) [CRITICAL]
 

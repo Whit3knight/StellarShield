@@ -907,6 +907,9 @@ function decodeIndexedEvent(
   //   appended):                   positions unchanged, amount appended.
   //   R19 (total_collateral_amount borrow=10 — same reasoning, appended
   //   also appended to borrow):    after declared_borrow_amount.
+  //   R20 (borrow=12 — R19's 2     amount signals replaced with 4
+  //   amount fields dropped,       Jubjub Pedersen commitment
+  //   Pedersen points appended):   coordinates, not amounts).
   //   legacy:                      (index, memo)
   let rawIndex: unknown
   let rawMemo: unknown
@@ -915,7 +918,8 @@ function decodeIndexedEvent(
     native.length === 5 ||
     native.length === 8 ||
     native.length === 9 ||
-    native.length === 10
+    native.length === 10 ||
+    native.length === 12
   ) {
     rawIndex = native[0]
     rawMemo = native[3]
@@ -954,11 +958,15 @@ function decodeBorrowSpentNullifiers(
     return []
   }
   // R17 appended declared_borrow_amount (9 elements), R19 appended
-  // total_collateral_amount after that (10) — the nullifier tail
-  // itself is still at indices 4..8 in every shape.
+  // total_collateral_amount after that (10), R20 replaced both with 4
+  // Jubjub Pedersen coordinates (12) — the nullifier tail itself is
+  // still at indices 4..8 in every shape.
   if (
     !Array.isArray(native) ||
-    (native.length !== 8 && native.length !== 9 && native.length !== 10)
+    (native.length !== 8 &&
+      native.length !== 9 &&
+      native.length !== 10 &&
+      native.length !== 12)
   )
     return []
   const out: bigint[] = []

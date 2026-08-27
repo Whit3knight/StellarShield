@@ -7,6 +7,7 @@ export {
   MAX_NOTE_AMOUNT,
   isSpentNote,
   randomFieldElement,
+  randomJubjubBlind,
   SUPPORTED_ASSETS,
   type NoteTree,
   type ShieldedAsset,

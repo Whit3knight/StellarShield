@@ -1,23 +1,28 @@
 //! Groth16 verifier for the shielded-borrow circuit.
 //!
 //! Public signals (matches BorrowPool::borrow_shielded). Circuit OUTPUTS
-//! sort before {public [...]}-listed INPUTS in snarkjs's ordering, so
-//! R17's new `total_collateral_value` output is index 0, not the last
-//! entry — verified empirically against the compiled circuit's .sym
-//! table, not assumed:
-//!   [0]      total_collateral_value       (R17: circuit output, 1e14-scaled)
-//!   [1]      borrow_amount
-//!   [2]      borrow_asset_tag
-//!   [3]      collateral_asset_tag
-//!   [4]      hf_min_bps
-//!   [5]      max_ltv_bps
-//!   [6]      deposit_root
-//!   [7]      borrow_commitment
-//!   [8..12]  nullifiers[0..4]
-//!   [12]     borrow_amount_commit         (Track L bond)
-//!   [13]     collateral_value_commit      (Track L bond)
-//!   [14]     borrow_price_commit          (Track L bond)
-//!   [15]     loan_nullifier               (Track A pre-published)
+//! sort before {public [...]}-listed INPUTS in snarkjs's ordering. R20
+//! replaced the two amount signals (`total_collateral_amount`,
+//! `borrow_amount` — now pure private witnesses) with four Jubjub
+//! Pedersen commitment outputs, and promoted `oracle_price` from
+//! private witness to public input — verified empirically against the
+//! compiled circuit's .sym table, not assumed:
+//!   [0]      collateral_pedersen_u        (R20: Pedersen commit to total_collateral_amount)
+//!   [1]      collateral_pedersen_v
+//!   [2]      loan_pedersen_u              (R20: Pedersen commit to borrow_amount)
+//!   [3]      loan_pedersen_v
+//!   [4]      oracle_price                 (R20: now public, contract-verified against live Reflector)
+//!   [5]      borrow_asset_tag
+//!   [6]      collateral_asset_tag
+//!   [7]      hf_min_bps
+//!   [8]      max_ltv_bps
+//!   [9]      deposit_root
+//!   [10]     borrow_commitment
+//!   [11..15] nullifiers[0..4]
+//!   [15]     borrow_amount_commit         (Track L bond)
+//!   [16]     collateral_value_commit      (Track L bond)
+//!   [17]     borrow_price_commit          (Track L bond)
+//!   [18]     loan_nullifier               (Track A pre-published)
 
 use soroban_sdk::{
     crypto::bls12_381::{Fr, G1Affine, G2Affine},
@@ -46,6 +51,9 @@ const VK_IC_13: &[u8; 96] = include_bytes!("vk/borrow/vk_ic_13.bin");
 const VK_IC_14: &[u8; 96] = include_bytes!("vk/borrow/vk_ic_14.bin");
 const VK_IC_15: &[u8; 96] = include_bytes!("vk/borrow/vk_ic_15.bin");
 const VK_IC_16: &[u8; 96] = include_bytes!("vk/borrow/vk_ic_16.bin");
+const VK_IC_17: &[u8; 96] = include_bytes!("vk/borrow/vk_ic_17.bin");
+const VK_IC_18: &[u8; 96] = include_bytes!("vk/borrow/vk_ic_18.bin");
+const VK_IC_19: &[u8; 96] = include_bytes!("vk/borrow/vk_ic_19.bin");
 
 pub fn verify_groth16(
     env: &Env,
@@ -54,7 +62,7 @@ pub fn verify_groth16(
     proof_c: G1Affine,
     pub_signals: Vec<Fr>,
 ) -> bool {
-    let ic_len = 17u32;
+    let ic_len = 20u32;
     if pub_signals.len() + 1 != ic_len {
         return false;
     }
@@ -67,12 +75,19 @@ pub fn verify_groth16(
 
     let bls = env.crypto().bls12_381();
 
-    let mut vk_x = ic.get(0).unwrap();
-    for (index, signal) in pub_signals.iter().enumerate() {
-        let ic_point = ic.get((index as u32) + 1).unwrap();
-        let prod = bls.g1_mul(&ic_point, &signal);
-        vk_x = bls.g1_add(&vk_x, &prod);
-    }
+    // R20: batched multi-scalar-multiplication instead of one `g1_mul`
+    // + `g1_add` pair per public signal. Each extra public signal this
+    // circuit gained (16 -> 19) added a separate full G1 scalar mult to
+    // the old per-signal loop, which pushed a real borrow_shielded call
+    // over the network's per-tx instruction ceiling (measured on a temp
+    // testnet deploy: ~402.2M against a 400M cap) — `g1_msm` computes
+    // the same `Σ ic[i+1] * signal[i]` in one batched host call instead
+    // of `pub_signals.len()` separate ones, which is what recovers the
+    // budget. Verified byte-identical `vk_x` output against the old
+    // per-signal loop before removing it.
+    let ic_tail: Vec<G1Affine> = ic.slice(1..ic.len());
+    let msm = bls.g1_msm(ic_tail, pub_signals);
+    let vk_x = bls.g1_add(&ic.get(0).unwrap(), &msm);
 
     let neg_a = -proof_a;
     let vp1 = vec![env, neg_a, alpha, vk_x, proof_c];
@@ -101,5 +116,8 @@ fn ic_points(env: &Env) -> Vec<G1Affine> {
         G1Affine::from_array(env, VK_IC_14),
         G1Affine::from_array(env, VK_IC_15),
         G1Affine::from_array(env, VK_IC_16),
+        G1Affine::from_array(env, VK_IC_17),
+        G1Affine::from_array(env, VK_IC_18),
+        G1Affine::from_array(env, VK_IC_19),
     ]
 }

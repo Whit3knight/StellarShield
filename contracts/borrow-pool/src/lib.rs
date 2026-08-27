@@ -9,6 +9,7 @@ use soroban_sdk::{
 mod borrow_verifier;
 mod deposit_verifier;
 mod deposit_quad_verifier;
+mod jubjub;
 mod liquidate_v2_verifier;
 mod liquidate_verifier;
 mod merkle;
@@ -43,6 +44,18 @@ pub const MAX_ORACLE_AGE_SECS: u64 = 300;
 /// ledger. Accepts proofs whose `oracle_epoch` is up to this many
 /// seconds *ahead* of `now` before rejecting as future-dated.
 pub const ORACLE_FUTURE_SKEW_SECS: u64 = 30;
+
+/// R20: max allowed drift between `borrow_shielded`'s public
+/// `oracle_price` signal and a live Reflector read, in basis points of
+/// the live price. Covers the realistic gap between client-side proof
+/// generation and tx confirmation (Reflector updates on its own
+/// interval, not synced to submission time) — without some tolerance,
+/// legitimate proofs would fail whenever the feed ticks between prove
+/// and submit. 200 bps is a deliberately tight band: this check is what
+/// makes the circuit's in-circuit LTV band a real solvency guard
+/// instead of decorative (see docs/REMEDIATION.md R20), so it should
+/// stay close to actual market drift, not a wide margin.
+pub const ORACLE_PRICE_TOLERANCE_BPS: u32 = 200;
 
 #[contracttype]
 #[derive(Clone)]
@@ -365,6 +378,19 @@ impl BorrowPool {
 
     pub fn total_borrow_value(env: Env, asset: Symbol) -> u128 {
         state::total_borrow_value(&env, &asset)
+    }
+
+    /// R20: running per-asset Jubjub Pedersen aggregate, folded via EC
+    /// addition on every `borrow_shielded` call. Returns the curve
+    /// identity `(0, 1)` before any R20-era borrow has occurred —
+    /// callers can check that to tell "no borrows yet" from "some
+    /// borrows happened" without decoding any individual amount.
+    pub fn running_collateral_commit(env: Env, asset: Symbol) -> jubjub::JubjubPoint {
+        state::running_collateral_commit(&env, &asset)
+    }
+
+    pub fn running_loan_commit(env: Env, asset: Symbol) -> jubjub::JubjubPoint {
+        state::running_loan_commit(&env, &asset)
     }
 
     pub fn borrow_index(env: Env, asset: Symbol) -> state::IndexSnapshot {
@@ -836,18 +862,23 @@ impl BorrowPool {
     ///
     // Public signals order (must match the borrow circuit). Circuit
     // OUTPUTS sort before {public [...]}-listed INPUTS in snarkjs's
-    // ordering, so R17's new `total_collateral_amount` output is index
-    // 0, not the last entry — every other index shifted +1 versus the
-    // pre-R17 contract:
-    //   [0]      total_collateral_amount (R17: RAW unpriced sum of the 4 collateral notes)
-    //   [1]      borrow_amount
-    //   [2]      borrow_asset_tag
-    //   [3]      collateral_asset_tag
-    //   [4]      hf_min_bps
-    //   [5]      max_ltv_bps
-    //   [6]      deposit_root
-    //   [7]      borrow_commitment
-    //   [8..12]  nullifiers[0..4]
+    // ordering. R20: `total_collateral_amount`/`borrow_amount` are no
+    // longer public at all (see borrow.circom's R20 header comment for
+    // why); `oracle_price` moved from private witness to public input
+    // instead, and two new Jubjub Pedersen commitment outputs replace
+    // the old amount signals:
+    //   [0]      collateral_pedersen_u (R20 OUTPUT — Pedersen commit to total_collateral_amount)
+    //   [1]      collateral_pedersen_v
+    //   [2]      loan_pedersen_u       (R20 OUTPUT — Pedersen commit to borrow_amount)
+    //   [3]      loan_pedersen_v
+    //   [4]      oracle_price          (R20: now public + contract-verified against live Reflector)
+    //   [5]      borrow_asset_tag
+    //   [6]      collateral_asset_tag
+    //   [7]      hf_min_bps
+    //   [8]      max_ltv_bps
+    //   [9]      deposit_root
+    //   [10]     borrow_commitment
+    //   [11..15] nullifiers[0..4]
     pub fn borrow_shielded(
         env: Env,
         from: Address,
@@ -858,21 +889,24 @@ impl BorrowPool {
     ) -> Result<u64, Error> {
         from.require_auth();
 
-        if proof.public_signals.len() != 16 {
+        if proof.public_signals.len() != 19 {
             return Err(Error::InvalidProof);
         }
-        let total_collateral_amount_fr = proof.public_signals.get(0).unwrap();
-        let borrow_amount_fr = proof.public_signals.get(1).unwrap();
-        let borrow_tag_fr = proof.public_signals.get(2).unwrap();
-        let collateral_tag_fr = proof.public_signals.get(3).unwrap();
-        let hf_min_fr = proof.public_signals.get(4).unwrap();
-        let max_ltv_fr = proof.public_signals.get(5).unwrap();
-        let deposit_root_fr = proof.public_signals.get(6).unwrap();
-        let borrow_commit_fr = proof.public_signals.get(7).unwrap();
-        let borrow_amount_commit_fr = proof.public_signals.get(12).unwrap();
-        let collateral_value_commit_fr = proof.public_signals.get(13).unwrap();
-        let borrow_price_commit_fr = proof.public_signals.get(14).unwrap();
-        let loan_nullifier_fr = proof.public_signals.get(15).unwrap();
+        let collateral_pedersen_u_fr = proof.public_signals.get(0).unwrap();
+        let collateral_pedersen_v_fr = proof.public_signals.get(1).unwrap();
+        let loan_pedersen_u_fr = proof.public_signals.get(2).unwrap();
+        let loan_pedersen_v_fr = proof.public_signals.get(3).unwrap();
+        let oracle_price_fr = proof.public_signals.get(4).unwrap();
+        let borrow_tag_fr = proof.public_signals.get(5).unwrap();
+        let collateral_tag_fr = proof.public_signals.get(6).unwrap();
+        let hf_min_fr = proof.public_signals.get(7).unwrap();
+        let max_ltv_fr = proof.public_signals.get(8).unwrap();
+        let deposit_root_fr = proof.public_signals.get(9).unwrap();
+        let borrow_commit_fr = proof.public_signals.get(10).unwrap();
+        let borrow_amount_commit_fr = proof.public_signals.get(15).unwrap();
+        let collateral_value_commit_fr = proof.public_signals.get(16).unwrap();
+        let borrow_price_commit_fr = proof.public_signals.get(17).unwrap();
+        let loan_nullifier_fr = proof.public_signals.get(18).unwrap();
 
         // Asset + risk parameter cross-check. Contract's stored risk
         // params dictate what the proof MUST have used; the circuit
@@ -897,51 +931,34 @@ impl BorrowPool {
             return Err(Error::InvalidProof);
         }
 
-        // R17: THE solvency guard, now price-aware instead of a flat
-        // per-asset ceiling. `total_collateral_amount` is provably
-        // honest (see borrow.circom's declaration comment) — it's the
-        // sum of 4 Merkle-verified real note amounts, no price factor.
-        // The contract multiplies it by a price it reads itself from
-        // Reflector (never trusting anything the prover claims about
-        // price) to get a real collateral value in borrow-asset units,
-        // then applies max_ltv_bps and a 95% safety margin.
-        //
-        // The dynamic cap is used AS-IS when Reflector has a live feed
-        // — deliberately NOT min'd against the old flat per-asset
-        // denomination. That flat number was never a real solvency
-        // limit; it only existed because deposits (and therefore what a
-        // single future repay note could cover) were fixed-size. R17
-        // makes deposits variable too (see deposit_shielded), so a
-        // well-collateralized borrower can now legitimately exceed the
-        // old fixed unit — capping them at it would silently defeat the
-        // entire point of this change. The flat denomination cap only
-        // still matters as the FALLBACK when Reflector has no live feed
-        // for either leg: fail-closed to the old, historically-safe
-        // small amount rather than fail-open to an unbounded loan with
-        // no price backing at all.
-        let total_collateral_amount = fr_to_amount_checked(&total_collateral_amount_fr)?;
-        if total_collateral_amount <= 0 {
+        // R20: THE solvency guard now lives entirely inside the circuit
+        // (borrow.circom's GreaterEqThan/LessEqThan LTV band), using
+        // `oracle_price` as a real public input the circuit itself
+        // constrains `total_collateral_value` against — not an
+        // unconstrained private witness a prover could pick freely
+        // (the pre-R20 gap: total_collateral_amount was honest but
+        // decorative once multiplied by an unchecked price). The
+        // contract's only remaining job on the price side is verifying
+        // that public `oracle_price` matches a live Reflector read, so
+        // the circuit's own band means what it claims to mean. Fails
+        // closed (Error::StaleOracle) if Reflector has no live feed for
+        // either leg, or the proof's price falls outside
+        // ORACLE_PRICE_TOLERANCE_BPS of a live read. There's no flat-
+        // denomination fallback left (unlike pre-R20's `dynamic_borrow_
+        // cap`) — `borrow_amount` is a private witness only the circuit
+        // checks against a price now, so there's nothing left for the
+        // contract to bound a fallback cap against.
+        let oracle_price = fr_to_amount_checked(&oracle_price_fr)?;
+        if oracle_price <= 0 {
             return Err(Error::AmountOutOfRange);
         }
-        let declared_borrow_amount = fr_to_amount_checked(&borrow_amount_fr)?;
-        if declared_borrow_amount <= 0 {
-            return Err(Error::AmountOutOfRange);
-        }
-
-        let flat_cap = notes::denomination(&env, &borrow_asset)
-            .ok_or(Error::AssetUnknown)?;
-        let max_borrow = match dynamic_borrow_cap(
-            &env,
-            &collateral_asset,
-            &borrow_asset,
-            total_collateral_amount,
-            risk.max_ltv_bps,
-        ) {
-            Some(dynamic_cap) if dynamic_cap > 0 => dynamic_cap,
-            _ => flat_cap,
-        };
-        if declared_borrow_amount > max_borrow {
-            return Err(Error::DenominationMismatch);
+        let live_price = live_oracle_price(&env, &collateral_asset, &borrow_asset)
+            .ok_or(Error::StaleOracle)?;
+        let price_diff = (oracle_price - live_price).abs();
+        if price_diff.saturating_mul(10_000)
+            > live_price.saturating_mul(ORACLE_PRICE_TOLERANCE_BPS as i128)
+        {
+            return Err(Error::StaleOracle);
         }
 
         // Deposit root sanity: must match the current on-chain state.
@@ -951,14 +968,14 @@ impl BorrowPool {
             return Err(Error::InvalidProof);
         }
 
-        // Nullifier freshness: all four must be unused. R17: indices
-        // shifted +1 (now 8..12) versus pre-R17 — see the signal-order
-        // table in this function's doc comment.
+        // Nullifier freshness: all four must be unused. R20: indices
+        // shifted to 11..15 — see the signal-order table in this
+        // function's doc comment.
         let mut nullifier_bytes: [soroban_sdk::BytesN<32>; 4] = [
-            proof.public_signals.get(8).unwrap().to_bytes(),
-            proof.public_signals.get(9).unwrap().to_bytes(),
-            proof.public_signals.get(10).unwrap().to_bytes(),
             proof.public_signals.get(11).unwrap().to_bytes(),
+            proof.public_signals.get(12).unwrap().to_bytes(),
+            proof.public_signals.get(13).unwrap().to_bytes(),
+            proof.public_signals.get(14).unwrap().to_bytes(),
         ];
         for null in nullifier_bytes.iter() {
             if state::deposit_nullifier_used(&env, &collateral_asset, null) {
@@ -1007,32 +1024,55 @@ impl BorrowPool {
         state::set_loan_root(&env, &borrow_asset, &new_root.to_bytes());
         state::set_loan_next_index(&env, &borrow_asset, next_index + 1);
 
-        // Aggregate accounting. Note counts (total_deposit/total_borrow)
-        // still drive Merkle tree-indexing elsewhere and stay note-count
-        // semantics; the R17 value counters track real amounts.
+        // Note-count counters: unaffected by R20, one fewer/one more
+        // note either way regardless of amount (mirrors repay_shielded's
+        // identical reasoning for its own note-count updates).
         state::set_total_deposit(
             &env,
             &collateral_asset,
             state::total_deposit(&env, &collateral_asset).saturating_sub(4),
-        );
-        state::set_total_deposit_value(
-            &env,
-            &collateral_asset,
-            state::total_deposit_value(&env, &collateral_asset)
-                .saturating_sub(total_collateral_amount as u128),
         );
         state::set_total_borrow(
             &env,
             &borrow_asset,
             state::total_borrow(&env, &borrow_asset).saturating_add(1),
         );
-        state::set_total_borrow_value(
-            &env,
-            &borrow_asset,
-            state::total_borrow_value(&env, &borrow_asset)
-                .saturating_add(declared_borrow_amount as u128),
-        );
+        // R20 value counters (total_deposit_value/total_borrow_value)
+        // are DELIBERATELY NOT adjusted here anymore: total_collateral_
+        // amount and borrow_amount are now pure private witnesses (see
+        // borrow.circom's R20 header comment) — the contract has no
+        // honest clear-text amount left to decrement/increment by.
+        // Same accepted-limitation category repay_shielded already
+        // disclosed for its own value-counter gap: these counters drift
+        // stale relative to real backing as R20 borrows accumulate.
+        // Logged, not silently ignored — see docs/REMEDIATION.md R20.
         rate::accrue_borrow_index(&env, &borrow_asset);
+
+        // R20: fold this borrow's Pedersen commitments into the running
+        // per-asset homomorphic aggregate via Jubjub EC addition. The
+        // contract never decodes an individual amount from these points
+        // — only ever adds them (see jubjub.rs's header comment).
+        let collateral_point = jubjub::JubjubPoint {
+            u: collateral_pedersen_u_fr.clone(),
+            v: collateral_pedersen_v_fr.clone(),
+        };
+        let running_collateral = jubjub::jubjub_add(
+            &env,
+            &state::running_collateral_commit(&env, &collateral_asset),
+            &collateral_point,
+        );
+        state::set_running_collateral_commit(&env, &collateral_asset, &running_collateral);
+
+        let loan_point = jubjub::JubjubPoint {
+            u: loan_pedersen_u_fr.clone(),
+            v: loan_pedersen_v_fr.clone(),
+        };
+        let running_loan = jubjub::jubjub_add(
+            &env,
+            &state::running_loan_commit(&env, &borrow_asset),
+            &loan_point,
+        );
+        state::set_running_loan_commit(&env, &borrow_asset, &running_loan);
 
         // Track L: pin the bond keyed by the loan commitment. Absent
         // bond → non-liquidatable (grandfathered). Present bond → a
@@ -1076,22 +1116,20 @@ impl BorrowPool {
                 nullifier_bytes[1].clone(),
                 nullifier_bytes[2].clone(),
                 nullifier_bytes[3].clone(),
-                // R17: real minted loan amount, for public history
-                // replay (features/markets/market-history.ts).
-                declared_borrow_amount,
-                // R19: real collateral value consumed by this borrow —
-                // needed so market-history.ts's backward event-replay
-                // can undo the exact amount `total_deposit_value` was
-                // decremented by on-chain (see the
-                // set_total_deposit_value call above), instead of
-                // guessing a flat per-note denomination that stops
-                // being true once deposits carry real, variable
-                // amounts (R17 Phase 3). Same leak class as
-                // declared_borrow_amount above — collateral value was
-                // already derivable from the circuit's public
-                // total_collateral_amount signal; this just makes it
-                // convenient to replay off-chain too.
-                total_collateral_amount,
+                // R20: total_collateral_amount/declared_borrow_amount no
+                // longer exist as clear-text signals — that was the
+                // whole point of this change. Publish the Pedersen
+                // commitment points instead: costs little, and keeps
+                // the door open for a future off-chain tool to verify
+                // the running aggregate without ever learning any
+                // individual amount. market-history.ts's amount/
+                // collateralAmount decode falls back to its existing
+                // DENOMINATION approximation for this event shape (same
+                // path already wired for pre-R17/repay events).
+                collateral_pedersen_u_fr.to_bytes(),
+                collateral_pedersen_v_fr.to_bytes(),
+                loan_pedersen_u_fr.to_bytes(),
+                loan_pedersen_v_fr.to_bytes(),
             ),
         );
         Ok(next_index)
@@ -1654,8 +1692,8 @@ const MAX_NOTE_AMOUNT: i128 = 1_000_000_000_000_000_000;
 /// function's own note in docs/REMEDIATION.md).
 ///
 /// R17: a prover controls the full ~255-bit field element for values
-/// like the new `total_collateral_amount` signal (since `oracle_price`
-/// stays an unconstrained private witness even here). Without this
+/// like `oracle_price` (R20: now public, but still prover-supplied
+/// before the live-Reflector cross-check runs). Without this
 /// check, a chosen field element that wraps past 2^128 lets its
 /// truncated low-128-bit projection read as any attacker-picked
 /// cap-passing amount while the real proven collateral is far
@@ -1699,6 +1737,13 @@ fn fr_to_u32(value: &Fr) -> u32 {
 /// flat denomination cap) if no helper is wired, or the helper reports
 /// no live Reflector feed for either leg — same fail-closed posture as
 /// before the split, not a behavior change.
+/// R20: the cap check this fed moved entirely into the circuit (see
+/// borrow_shielded's R20 comment) — `live_oracle_price` below is what
+/// borrow_shielded actually calls now. Left in place rather than
+/// deleted, along with `borrow-cap-helper`'s own now-unused-by-this-path
+/// `dynamic_borrow_cap` entrypoint: removing a whole contract is a
+/// separate, lower-priority cleanup, not core to R20.
+#[allow(dead_code)]
 fn dynamic_borrow_cap(
     env: &Env,
     collateral_asset: &Symbol,
@@ -1720,6 +1765,31 @@ fn dynamic_borrow_cap(
             &borrow_decimals,
             &total_collateral_amount,
             &max_ltv_bps,
+        )
+        .ok()?
+        .ok()?
+}
+
+/// R20: live 1e14-scaled price ratio, used to cross-check
+/// `borrow_shielded`'s now-public `oracle_price` signal against a real
+/// Reflector read. `None` if no helper is wired or Reflector has no
+/// live feed for either leg — `borrow_shielded` fails closed on `None`
+/// (`Error::StaleOracle`) since there is no fallback cap left once
+/// `borrow_amount` is a private witness the circuit alone checks
+/// against a price.
+fn live_oracle_price(env: &Env, collateral_asset: &Symbol, borrow_asset: &Symbol) -> Option<i128> {
+    let helper = state::borrow_helper(env)?;
+    let reflector_contract = state::reflector(env)?;
+    let collateral_decimals = notes::decimals(env, collateral_asset)?;
+    let borrow_decimals = notes::decimals(env, borrow_asset)?;
+
+    price_cap_client::BorrowCapHelperClient::new(env, &helper)
+        .try_price_ratio(
+            &reflector_contract,
+            collateral_asset,
+            borrow_asset,
+            &collateral_decimals,
+            &borrow_decimals,
         )
         .ok()?
         .ok()?

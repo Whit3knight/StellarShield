@@ -10,6 +10,7 @@
 
 use soroban_sdk::{contracttype, Address, BytesN, Env, Symbol, Vec};
 
+use crate::jubjub::JubjubPoint;
 use crate::MarketMeta;
 
 // Instance storage keys (all small, single-slot).
@@ -71,6 +72,14 @@ pub enum PersistentKey {
     // in every one of the 6 trees. Only the storage key keeps them
     // apart. (Distinct from `LoanNullifier`, the Track A sidecar.)
     LoanNullifierUsed(Symbol, BytesN<32>),
+    // R20: running per-asset Jubjub Pedersen aggregate, folded via EC
+    // addition on every `borrow_shielded` call. Default = curve
+    // identity (0, 1) — see `jubjub::JubjubPoint::identity`. No
+    // consumer reads these today; they exist so a future audit/health
+    // tool can verify aggregate solvency without any individual borrow
+    // amount ever having been public. See docs/REMEDIATION.md R20.
+    RunningCollateralCommit(Symbol),
+    RunningLoanCommit(Symbol),
 }
 
 /// Public commitment tuple pinned at borrow-time so a liquidator can
@@ -423,6 +432,35 @@ pub fn set_total_borrow_value(env: &Env, asset: &Symbol, value: u128) {
     env.storage()
         .persistent()
         .set(&PersistentKey::TotalBorrowValue(asset.clone()), &value);
+}
+
+// --- R20 running Jubjub Pedersen aggregates ------------------------------
+
+pub fn running_collateral_commit(env: &Env, asset: &Symbol) -> JubjubPoint {
+    env.storage()
+        .persistent()
+        .get(&PersistentKey::RunningCollateralCommit(asset.clone()))
+        .unwrap_or_else(|| JubjubPoint::identity(env))
+}
+
+pub fn set_running_collateral_commit(env: &Env, asset: &Symbol, point: &JubjubPoint) {
+    env.storage().persistent().set(
+        &PersistentKey::RunningCollateralCommit(asset.clone()),
+        point,
+    );
+}
+
+pub fn running_loan_commit(env: &Env, asset: &Symbol) -> JubjubPoint {
+    env.storage()
+        .persistent()
+        .get(&PersistentKey::RunningLoanCommit(asset.clone()))
+        .unwrap_or_else(|| JubjubPoint::identity(env))
+}
+
+pub fn set_running_loan_commit(env: &Env, asset: &Symbol, point: &JubjubPoint) {
+    env.storage()
+        .persistent()
+        .set(&PersistentKey::RunningLoanCommit(asset.clone()), point);
 }
 
 // --- Interest accrual indices ------------------------------------------

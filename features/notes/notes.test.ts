@@ -7,6 +7,7 @@ import {
   DENOMINATION,
   isSpentNote,
   randomFieldElement,
+  randomJubjubBlind,
   SUPPORTED_ASSETS,
 } from "./note"
 import { FR_ORDER, poseidon } from "./poseidon"
@@ -78,6 +79,15 @@ describe("shielded note primitives", () => {
       const value = randomFieldElement()
       expect(value).toBeGreaterThanOrEqual(0n)
       expect(value).toBeLessThan(FR_ORDER)
+    }
+  })
+
+  it("randomJubjubBlind returns values strictly under 2^251", () => {
+    const bound = 1n << 251n
+    for (let index = 0; index < 20; index++) {
+      const value = randomJubjubBlind()
+      expect(value).toBeGreaterThanOrEqual(0n)
+      expect(value).toBeLessThan(bound)
     }
   })
 

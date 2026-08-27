@@ -1,18 +1,31 @@
 // Generates a shielded-borrow Groth16 proof over N=4 collateral notes.
 //
-// Circuit at contracts/circuits/shielded-borrow/. Public signals:
-//   [0]     borrow_amount
-//   [1]     borrow_asset_tag
-//   [2]     collateral_asset_tag
-//   [3]     hf_min_bps
-//   [4]     max_ltv_bps
-//   [5]     deposit_root
-//   [6]     borrow_commitment
-//   [7..11] nullifiers[0..4]
-//   [11]    borrow_amount_commit         (Track L bond)
-//   [12]    collateral_value_commit      (Track L bond)
-//   [13]    borrow_price_commit          (Track L bond)
-//   [14]    loan_nullifier               (Track A pre-published)
+// Circuit at contracts/circuits/shielded-borrow/. Public signals (R20 —
+// see borrow.circom's own header comment for the full rationale):
+//   [0]      collateral_pedersen_u   Jubjub x — Pedersen commit to total_collateral_amount
+//   [1]      collateral_pedersen_v   Jubjub y
+//   [2]      loan_pedersen_u         Jubjub x — Pedersen commit to borrow_amount
+//   [3]      loan_pedersen_v         Jubjub y
+//   [4]      oracle_price            (R20: now public, contract-verified against live Reflector)
+//   [5]      borrow_asset_tag
+//   [6]      collateral_asset_tag
+//   [7]      hf_min_bps
+//   [8]      max_ltv_bps
+//   [9]      deposit_root
+//   [10]     borrow_commitment
+//   [11..15] nullifiers[0..4]
+//   [15]     borrow_amount_commit         (Track L bond)
+//   [16]     collateral_value_commit      (Track L bond)
+//   [17]     borrow_price_commit          (Track L bond)
+//   [18]     loan_nullifier               (Track A pre-published)
+//
+// `borrow_amount` and `total_collateral_amount` are private witnesses
+// only, as of R20 — never public signals. `collateralBlind`/`loanBlind`
+// are fresh random field elements bounded under 2^251 (Jubjub's own
+// scalar-field bound — see `jubjub_pedersen.circom` and
+// `randomJubjubBlind`), one per proof; no client-side curve arithmetic
+// is needed, snarkjs's witness calculator computes the commitment
+// points internally from the circuit's own `<--` assignments.
 
 import {
   assetTag,
@@ -55,6 +68,10 @@ export type BorrowProofInputs = {
   bondSaltAmount: bigint
   bondSaltValue: bigint
   bondSaltPrice: bigint
+  /** R20: blinding factor for the collateral-amount Pedersen commitment. Must be < 2^251 — use `randomJubjubBlind()`. */
+  collateralBlind: bigint
+  /** R20: blinding factor for the loan-amount Pedersen commitment. Must be < 2^251 — use `randomJubjubBlind()`. */
+  loanBlind: bigint
 }
 
 export type BorrowProofResult = {
@@ -69,6 +86,11 @@ export type BorrowProofResult = {
   collateralValueCommit: bigint
   borrowPriceCommit: bigint
   loanNullifier: bigint
+  /** R20: Jubjub coordinates of the two Pedersen commitments, decoded from `publicSignals[0..4]`. */
+  collateralPedersenU: bigint
+  collateralPedersenV: bigint
+  loanPedersenU: bigint
+  loanPedersenV: bigint
 }
 
 /**
@@ -200,6 +222,8 @@ export async function proveBorrow(
     bond_salt_amount: inputs.bondSaltAmount.toString(),
     bond_salt_value: inputs.bondSaltValue.toString(),
     bond_salt_price: inputs.bondSaltPrice.toString(),
+    collateral_blind: inputs.collateralBlind.toString(),
+    loan_blind: inputs.loanBlind.toString(),
   }
 
   const groth16 = (
@@ -250,6 +274,10 @@ export async function proveBorrow(
     collateralValueCommit,
     borrowPriceCommit,
     loanNullifier,
+    collateralPedersenU: BigInt(publicSignals[0]),
+    collateralPedersenV: BigInt(publicSignals[1]),
+    loanPedersenU: BigInt(publicSignals[2]),
+    loanPedersenV: BigInt(publicSignals[3]),
   }
 }
 

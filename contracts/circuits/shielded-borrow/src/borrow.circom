@@ -8,51 +8,65 @@ pragma circom 2.1.9;
 // max-LTV band. Issue 4 nullifiers + one new borrow commitment for
 // the loan tree.
 //
+// R20: `total_collateral_amount` and `borrow_amount` are no longer
+// public — they were the only amount-revealing signals not already
+// shadowed by a transparent SEP-41 token-transfer event (deposit/
+// withdraw always move real, publicly-visible tokens; borrow_shielded
+// itself never transfers anything). `oracle_price` is promoted from
+// an unconstrained private witness to a real public signal, verified
+// by the contract against a live Reflector read — this is what turns
+// the LTV/max-LTV checks below from decorative into the real solvency
+// guard (previously the contract's own `dynamic_borrow_cap`, computed
+// externally from the now-removed public `total_collateral_amount`).
+// Two Jubjub Pedersen commitments to the same private amounts are
+// exposed instead, so the contract can fold them into a running
+// per-asset homomorphic aggregate without ever learning individual
+// amounts. See docs/REMEDIATION.md R20 for the full design rationale.
+//
 // Public signals order (matches BorrowPool::borrow_shielded). Circuit
 // OUTPUTS sort before {public [...]}-listed INPUTS in snarkjs's public
 // signal ordering (verified against deposit.circom's own commitment
-// output, which lands at index 0 ahead of its declared public inputs) —
-// so the new `total_collateral_amount` output below is index 0, not the
-// last entry, and every other index shifts by +1 versus the pre-R17
-// circuit:
-//   [0]     total_collateral_amount (R17: circuit OUTPUT, RAW unpriced sum of the 4 collateral_amounts — see below)
-//   [1]     borrow_amount            (loan in RAW token units / stroops)
-//   [2]     borrow_asset_tag         (0/1/2 = XLM/USDC/EURC)
-//   [3]     collateral_asset_tag     (must match each collateral note)
-//   [4]     hf_min_bps               (health-factor floor, bps)
-//   [5]     max_ltv_bps              (max LTV, bps)
-//   [6]     deposit_root             (root at witness generation time)
-//   [7]     borrow_commitment        (new leaf appended to loan tree)
-//   [8-11]  nullifiers[0..4]         (one per spent collateral note)
-//   [12]    borrow_amount_commit     Poseidon(borrow_amount, bond_salt_amount)      (Track L)
-//   [13]    collateral_value_commit  Poseidon(total_collateral_value, bond_salt_value)  (Track L)
-//   [14]    borrow_price_commit      Poseidon(oracle_price, bond_salt_price)        (Track L)
-//   [15]    loan_nullifier           Poseidon(sk, borrow_commitment)                (Track A)
+// output, which lands at index 0 ahead of its declared public inputs):
+//   [0]     collateral_pedersen_u    Jubjub x — Pedersen commit to total_collateral_amount
+//   [1]     collateral_pedersen_v    Jubjub y
+//   [2]     loan_pedersen_u          Jubjub x — Pedersen commit to borrow_amount
+//   [3]     loan_pedersen_v          Jubjub y
+//   [4]     oracle_price             1e14-scaled cross-asset ratio (R20: now PUBLIC + real)
+//   [5]     borrow_asset_tag         (0/1/2 = XLM/USDC/EURC)
+//   [6]     collateral_asset_tag     (must match each collateral note)
+//   [7]     hf_min_bps               (health-factor floor, bps)
+//   [8]     max_ltv_bps              (max LTV, bps)
+//   [9]     deposit_root             (root at witness generation time)
+//   [10]    borrow_commitment        (new leaf appended to loan tree)
+//   [11-14] nullifiers[0..4]         (one per spent collateral note)
+//   [15]    borrow_amount_commit     Poseidon(borrow_amount, bond_salt_amount)      (Track L, unchanged)
+//   [16]    collateral_value_commit  Poseidon(total_collateral_value, bond_salt_value)  (Track L, unchanged)
+//   [17]    borrow_price_commit      Poseidon(oracle_price, bond_salt_price)        (Track L, unchanged)
+//   [18]    loan_nullifier           Poseidon(sk, borrow_commitment)                (Track A)
 //
 // Private witness:
 //   sk                          shielded identity secret
 //   borrow_salt                 blinding for the new borrow note
+//   borrow_amount                R20: moved from public input to private witness
 //   collateral_amounts[4]       amount per note (RAW token units)
 //   collateral_salts[4]         per-note salts
 //   collateral_indices[4]       positions in the deposit tree
 //   collateral_paths[4][20]     merkle siblings per level per note
 //   collateral_bits[4][20]      path bits per level per note
-//   oracle_price                1e14-scaled CROSS-ASSET RATIO: one raw
-//                               collateral unit priced in raw borrow
-//                               units (same-asset = 1e14). Not a USD
-//                               price. Unconstrained here — nothing in
-//                               this circuit binds it to a real feed,
-//                               so the LTV band below is decorative and
-//                               the contract's denomination cap is the
-//                               real solvency guard.
+//   collateral_blind            blinding factor for collateral_pedersen (< 2^251, see jubjub_pedersen.circom)
+//   loan_blind                  blinding factor for loan_pedersen (< 2^251)
 //   bond_salt_amount            salt for borrow_amount_commit          (Track L)
 //   bond_salt_value             salt for collateral_value_commit       (Track L)
 //   bond_salt_price             salt for borrow_price_commit           (Track L)
 //
 // LTV check: Σ (amount × price) × 10000 >= borrow_amount × hf_min_bps.
+// R20: this check is now the REAL solvency guard, not decorative —
+// `oracle_price` is a verified public signal instead of an
+// unconstrained private witness.
 
 include "circomlib/circuits/poseidon.circom";
 include "circomlib/circuits/comparators.circom";
+include "jubjub_pedersen.circom";
 
 template MerkleInclusion(depth) {
     signal input leaf;
@@ -90,7 +104,7 @@ template MerkleInclusion(depth) {
 
 template Borrow(depth, notes) {
     // Public inputs.
-    signal input borrow_amount;
+    signal input oracle_price;
     signal input borrow_asset_tag;
     signal input collateral_asset_tag;
     signal input hf_min_bps;
@@ -110,37 +124,26 @@ template Borrow(depth, notes) {
     // storage slot keyed by loan commitment.
     signal input loan_nullifier;
 
-    // R17: RAW (unpriced) sum of the 4 collateral amounts, revealed so
-    // the contract can size a dynamic, price-aware borrow cap instead
-    // of a flat per-asset denomination. Deliberately NOT
-    // `total_collateral_value` (below) — that quantity is already
-    // multiplied by `oracle_price`, an unconstrained PRIVATE witness
-    // the prover fully controls, so a contract that multiplied it by
-    // its OWN real price again would compute
-    // `real_price * fake_oracle_price * real_collateral` — still
-    // attacker-steerable to any value, the exact exploit this signal
-    // exists to close, just relocated. `total_collateral_amount` has no
-    // price factor at all: it's the sum of 4 Merkle-verified,
-    // commitment-bound real note amounts, so a prover cannot lie about
-    // it without breaking Merkle inclusion (same soundness argument as
-    // withdraw.circom's amount handling). The contract multiplies THIS
-    // by its own independently-fetched real price. A circuit-computed
-    // value must be a template OUTPUT to be publicly exposed — an input
-    // would be unconstrained and a prover could declare any value. This
-    // is a real new on-chain leak of the borrower's total raw
-    // collateral amount (see docs/REMEDIATION.md R17) — accepted
-    // trade-off, not hidden by accident.
-    signal output total_collateral_amount;
+    // R20: Pedersen commitments to the (now fully private)
+    // total_collateral_amount and borrow_amount, so the contract can
+    // fold them into a running homomorphic aggregate without ever
+    // learning either amount. See jubjub_pedersen.circom.
+    signal output collateral_pedersen_u;
+    signal output collateral_pedersen_v;
+    signal output loan_pedersen_u;
+    signal output loan_pedersen_v;
 
     // Private witness.
     signal input sk;
     signal input borrow_salt;
+    signal input borrow_amount;
     signal input collateral_amounts[notes];
     signal input collateral_salts[notes];
     signal input collateral_indices[notes];
     signal input collateral_paths[notes][depth];
     signal input collateral_bits[notes][depth];
-    signal input oracle_price;
+    signal input collateral_blind;
+    signal input loan_blind;
     signal input bond_salt_amount;
     signal input bond_salt_value;
     signal input bond_salt_price;
@@ -180,11 +183,10 @@ template Borrow(depth, notes) {
     borrowCommit.inputs[3] <== borrow_salt;
     borrowCommit.out === borrow_commitment;
 
-    // Collateral USD value (in borrow-asset units), price-tainted by
-    // the private, unconstrained `oracle_price` witness — stays
-    // INTERNAL (not public). Only used below for the circuit's own
-    // (decorative — see file header) LTV check and the Track L bond
-    // commitment; the contract never reads this directly.
+    // Collateral value in borrow-asset units, using the now-public,
+    // contract-verified oracle_price. R20: this is the real solvency
+    // check — oracle_price is no longer an unconstrained private
+    // witness, so this signal is trustworthy.
     signal total_collateral_value;
     signal partial_values[notes];
     for (var i = 0; i < notes; i++) {
@@ -193,9 +195,10 @@ template Borrow(depth, notes) {
     // For notes=4 unroll to keep the circuit simple.
     total_collateral_value <== partial_values[0] + partial_values[1] + partial_values[2] + partial_values[3];
 
-    // R17: raw, unpriced sum — see the signal's declaration comment
-    // above for why this (not total_collateral_value) is what the
-    // contract needs.
+    // R20: raw, unpriced sum — stays fully internal (never a public
+    // signal). Only used below to feed the Pedersen commitment; the
+    // contract never sees it in the clear.
+    signal total_collateral_amount;
     total_collateral_amount <== collateral_amounts[0] + collateral_amounts[1] + collateral_amounts[2] + collateral_amounts[3];
 
     // LTV check: `total_collateral_value * 10000 >= borrow_amount * hf_min_bps`.
@@ -219,6 +222,20 @@ template Borrow(depth, notes) {
     ltvCheck.in[0] <== ltv_lhs;
     ltvCheck.in[1] <== ltv_rhs;
     ltvCheck.out === 1;
+
+    // R20: Pedersen commitments to the private amounts, so the
+    // contract can homomorphically aggregate without decoding.
+    component collateralPedersen = PedersenCommit();
+    collateralPedersen.value <== total_collateral_amount;
+    collateralPedersen.blinding <== collateral_blind;
+    collateral_pedersen_u <== collateralPedersen.xout;
+    collateral_pedersen_v <== collateralPedersen.yout;
+
+    component loanPedersen = PedersenCommit();
+    loanPedersen.value <== borrow_amount;
+    loanPedersen.blinding <== loan_blind;
+    loan_pedersen_u <== loanPedersen.xout;
+    loan_pedersen_v <== loanPedersen.yout;
 
     // Track L bond commitments.
     component bondAmount = Poseidon(2);
@@ -244,7 +261,7 @@ template Borrow(depth, notes) {
 }
 
 component main {public [
-    borrow_amount,
+    oracle_price,
     borrow_asset_tag,
     collateral_asset_tag,
     hf_min_bps,

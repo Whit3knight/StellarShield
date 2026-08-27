@@ -191,9 +191,19 @@ function decodeEventAmounts(
     return { amount: toBigint(body[4]), collateralAmount: null }
   }
   if (type === "borrow") {
-    // (index, root, leaf, memo, n0..n3, declared_borrow_amount,
-    // total_collateral_amount) post-R19; 9 elements post-R17 (no
-    // collateral amount yet); 8 pre-R17 (neither amount).
+    // R20: (index, root, leaf, memo, n0..n3, collateral_pedersen_u,
+    // collateral_pedersen_v, loan_pedersen_u, loan_pedersen_v) — 12
+    // elements, body[8..11] are BytesN<32> Jubjub coordinates, not
+    // amounts. total_collateral_amount/borrow_amount are pure private
+    // witnesses now (see borrow.circom's R20 header comment) — there
+    // is no public amount left to decode at all, permanently (not a
+    // decode gap; `undoDelta` already has the DENOMINATION fallback
+    // wired for exactly this case). Pre-R20 shapes: 10 elements
+    // (post-R19, body[8]/body[9] were real numeric amounts), 9
+    // (post-R17), 8 (pre-R17).
+    if (body.length >= 12) {
+      return { amount: null, collateralAmount: null }
+    }
     return {
       amount: toBigint(body[8]),
       collateralAmount: toBigint(body[9]),
