@@ -81,6 +81,15 @@ export type BorrowProofResult = {
  * range-checks `borrow_amount` against an LTV band (never an equality),
  * so shrinking the amount keeps the proof valid.
  */
+/// R17: matches `dynamic_borrow_cap`'s formula exactly
+/// (`contracts/borrow-pool/src/lib.rs`, `total_collateral_amount *
+/// ratio / 1e14 * max_ltv_bps/10000 * 9500/10000`) — including the
+/// 95% safety margin on top of the LTV band. Without this margin the
+/// client would compute a borrow amount the contract's own dynamic
+/// cap then rejects with `DenominationMismatch`, since the contract
+/// applies the margin and the client didn't.
+const DYNAMIC_CAP_SAFETY_MARGIN_BPS = 9500n
+
 export function computeBorrowAmount({
   totalCollateral,
   ratio,
@@ -93,8 +102,8 @@ export function computeBorrowAmount({
   denomination: bigint
 }): bigint {
   const fromLtv =
-    (totalCollateral * ratio * BigInt(maxLtvBps)) /
-    (10_000n * PRICE_RATIO_SCALE)
+    (totalCollateral * ratio * BigInt(maxLtvBps) * DYNAMIC_CAP_SAFETY_MARGIN_BPS) /
+    (10_000n * PRICE_RATIO_SCALE * 10_000n)
   const cap = (denomination * 9n) / 10n
 
   return fromLtv < cap ? fromLtv : cap

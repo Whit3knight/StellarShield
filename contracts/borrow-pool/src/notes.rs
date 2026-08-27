@@ -52,3 +52,21 @@ pub fn denomination(env: &Env, symbol: &Symbol) -> Option<i128> {
         None
     }
 }
+
+/// Token decimal places (matches each SAC's real decimals AND
+/// `features/markets/data.ts`'s `assets` map — all three are 7 today).
+/// R17: kept as an explicit per-asset lookup (not folded into a shared
+/// constant) so `reflector::price_ratio`'s formula stays parameterized —
+/// the same discipline `features/markets/prices.ts`'s own comment
+/// documents ("keeping them visible is what stops a 6-decimal asset
+/// from silently re-breaking borrow sizing").
+pub fn decimals(env: &Env, symbol: &Symbol) -> Option<i32> {
+    if symbol == &Symbol::new(env, "XLM")
+        || symbol == &Symbol::new(env, "USDC")
+        || symbol == &Symbol::new(env, "EURC")
+    {
+        Some(7)
+    } else {
+        None
+    }
+}

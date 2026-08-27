@@ -1,4 +1,4 @@
 curve=bls12381
 protocol=groth16
-nPublic=15
-ic_count=16
+nPublic=16
+ic_count=17

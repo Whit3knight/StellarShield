@@ -43,9 +43,10 @@ describe("computeBorrowAmount", () => {
       denomination: DENOMINATION.USDC,
     })
 
-    // 4 XLM (40_000_000 raw) × 0.17111797923866 × 0.625
-    //   = 0.427794948… USDC → 4_277_949 raw.
-    expect(amount).toBe(4_277_949n)
+    // 4 XLM (40_000_000 raw) × 0.17111797923866 × 0.625 × 0.95 (R17
+    // dynamic-cap safety margin, matches dynamic_borrow_cap's own
+    // 9500/10000 factor) = 0.40640515… USDC → 4_064_052 raw.
+    expect(amount).toBe(4_064_052n)
     // Under the cap, so the LTV band — not the cap — set this value.
     expect(amount).toBeLessThan((DENOMINATION.USDC * 9n) / 10n)
   })

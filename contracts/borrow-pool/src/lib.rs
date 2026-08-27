@@ -16,11 +16,11 @@ mod merkle_zeros;
 mod notes;
 mod poseidon;
 mod poseidon_constants;
+mod price_cap_client;
 mod rate;
 mod repay_verifier;
 mod state;
 mod tokens;
-mod verifier;
 mod withdraw_verifier;
 
 use state::{RateParams, RiskParams};
@@ -44,23 +44,6 @@ pub const MAX_ORACLE_AGE_SECS: u64 = 300;
 /// seconds *ahead* of `now` before rejecting as future-dated.
 pub const ORACLE_FUTURE_SKEW_SECS: u64 = 30;
 
-/// Phase-1 privacy: amount fields moved to circuit-private witness.
-/// Chain no longer sees the raw borrow / collateral amounts — only the
-/// policy thresholds, market context, and account (still visible via
-/// tx source auth). Phase 2 will swap `account` for a nullifier.
-#[contracttype]
-#[derive(Clone)]
-pub struct BorrowIntent {
-    pub account: Address,
-    pub proof_id: BytesN<32>,
-    pub market: Symbol,
-    pub collateral_symbol: Symbol,
-    pub borrow_symbol: Symbol,
-    pub health_factor_bps: u32,
-    pub max_ltv_bps: u32,
-    pub expires_at: u64,
-}
-
 #[contracttype]
 #[derive(Clone)]
 pub struct BorrowProof {
@@ -74,20 +57,6 @@ pub struct BorrowProof {
     /// Oracle epoch the proof was generated against. Cross-check against
     /// the current ledger timestamp for freshness.
     pub oracle_epoch: u64,
-}
-
-/// Anonymized receipt: no borrow / collateral amounts. Users store
-/// their own numbers client-side (session store). Chain records only
-/// the fact that a proof-backed position exists.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct BorrowReceipt {
-    pub account: Address,
-    pub proof_id: BytesN<32>,
-    pub market: Symbol,
-    pub borrow_symbol: Symbol,
-    pub collateral_symbol: Symbol,
-    pub confirmed_at: u64,
 }
 
 /// Static metadata for a market pair. Registered by the admin at
@@ -105,9 +74,6 @@ pub struct MarketMeta {
 enum DataKey {
     Admin,
     Markets,
-    Position(Address, BytesN<32>),
-    PositionsByAccount(Address),
-    ProofUsed(BytesN<32>),
 }
 
 #[contracterror]
@@ -127,6 +93,11 @@ pub enum Error {
     DenominationMismatch = 11,
     AssetUnknown = 12,
     TreeCapacityExceeded = 13,
+    /// R17: a field element decoded to a fund-moving or cap-deciding
+    /// amount had non-zero high bits (would have silently wrapped
+    /// under the old low-16-bytes-only read) or exceeded
+    /// `MAX_NOTE_AMOUNT`. See `fr_to_amount_checked`.
+    AmountOutOfRange = 14,
 }
 
 const BORROW_EVENT: Symbol = symbol_short!("borrow");
@@ -229,6 +200,17 @@ impl BorrowPool {
         let admin = Self::require_admin(&env)?;
         admin.require_auth();
         tokens::set_reserve(&env, &asset, &token_contract);
+        Ok(())
+    }
+
+    /// R17 (split): wire the `borrow-cap-helper` contract address so
+    /// `borrow_shielded` can reach it. Unset -> `borrow_shielded` falls
+    /// back to its flat per-asset cap, same fail-closed shape as an
+    /// absent Reflector feed.
+    pub fn set_borrow_helper(env: Env, helper: Address) -> Result<(), Error> {
+        let admin = Self::require_admin(&env)?;
+        admin.require_auth();
+        state::set_borrow_helper(&env, &helper);
         Ok(())
     }
 
@@ -373,6 +355,18 @@ impl BorrowPool {
         state::total_borrow(&env, &asset)
     }
 
+    /// R17 value-sum counters (raw asset units) — distinct from
+    /// `total_deposit`/`total_borrow`'s note counts. Exposed so the
+    /// frontend can read real deposited/borrowed value now that notes
+    /// are variable-amount.
+    pub fn total_deposit_value(env: Env, asset: Symbol) -> u128 {
+        state::total_deposit_value(&env, &asset)
+    }
+
+    pub fn total_borrow_value(env: Env, asset: Symbol) -> u128 {
+        state::total_borrow_value(&env, &asset)
+    }
+
     pub fn borrow_index(env: Env, asset: Symbol) -> state::IndexSnapshot {
         rate::accrue_borrow_index(&env, &asset)
     }
@@ -385,10 +379,11 @@ impl BorrowPool {
     // Shielded pool — user-facing operations
     //
     // `deposit_shielded` accepts a Groth16 proof that the caller knows
-    // sk + salt for the declared commitment. Contract additionally
-    // asserts the transferred amount matches the fixed denomination
-    // per asset — a bug here lets an attacker mint a commitment
-    // claiming more collateral than they parked in the pool.
+    // sk + salt for the declared commitment. R17: amount is real user
+    // input (checked-conversion range-guarded), not a fixed
+    // denomination — contract asserts the transferred amount matches
+    // the DECLARED amount; a bug here lets an attacker mint a
+    // commitment claiming more collateral than they parked in the pool.
 
     pub fn deposit_shielded(
         env: Env,
@@ -417,11 +412,12 @@ impl BorrowPool {
         if declared_tag != expected_tag {
             return Err(Error::DenominationMismatch);
         }
-        let denomination =
-            notes::denomination(&env, &asset).ok_or(Error::AssetUnknown)?;
-        let declared_amount = fr_to_i128(&amount_fr);
-        if declared_amount != denomination {
-            return Err(Error::DenominationMismatch);
+        // R17: amount is real user input, not a fixed denomination —
+        // checked-conversion rejects an out-of-range field element
+        // (see fr_to_amount_checked), then just requires positive.
+        let declared_amount = fr_to_amount_checked(&amount_fr)?;
+        if declared_amount <= 0 {
+            return Err(Error::AmountOutOfRange);
         }
 
         if !deposit_verifier::verify_groth16(
@@ -434,8 +430,13 @@ impl BorrowPool {
             return Err(Error::InvalidProof);
         }
 
-        // Pull collateral into the contract.
-        tokens::transfer_in(&env, &asset, &from, denomination);
+        // Pull collateral into the contract. R17: transfer the
+        // DECLARED amount, not a looked-up denomination constant — the
+        // two only had to match while the equality check above enforced
+        // it; now that it doesn't, using the wrong one here would pull
+        // the wrong quantity of real tokens against a note that commits
+        // to a different value.
+        tokens::transfer_in(&env, &asset, &from, declared_amount);
 
         // Append commitment to the deposit tree for `asset` and persist
         // the new frontier + root.
@@ -457,32 +458,52 @@ impl BorrowPool {
             &asset,
             state::total_deposit(&env, &asset).saturating_add(1),
         );
+        state::set_total_deposit_value(
+            &env,
+            &asset,
+            state::total_deposit_value(&env, &asset)
+                .saturating_add(declared_amount as u128),
+        );
 
-        // Publish `(index, commitment, memo)` so any client can
+        // Publish `(index, commitment, memo, amount)` so any client can
         // reconstruct the tree from events without contract storage
         // reads. Commitment is public (a Poseidon output that leaks
         // nothing about amount/sk/salt); memo remains encrypted for
-        // the recipient only.
+        // the recipient only. R17: `amount` is appended so public
+        // history replay (features/markets/market-history.ts) can
+        // reflect real deposited value instead of a fixed unit — a new
+        // on-chain leak of this deposit's amount at deposit time,
+        // additional to (not the same as) the collateral-value leak at
+        // borrow time. See docs/REMEDIATION.md R17.
         env.events().publish(
             (DEPOSIT_EVENT, asset.clone()),
-            (next_index, new_root.to_bytes(), leaf.to_bytes(), memo),
+            (
+                next_index,
+                new_root.to_bytes(),
+                leaf.to_bytes(),
+                memo,
+                declared_amount,
+            ),
         );
         Ok(next_index)
     }
 
     /// Quad-deposit variant that ships FOUR leaves under one Groth16
-    /// proof. Public signals order (snarkjs outputs first):
-    ///   [0..3] commitment[0..3]
-    ///   [4]    amount     (fixed denomination, RAW token units)
-    ///   [5]    asset_tag  (0 = XLM, 1 = USDC, 2 = EURC)
-    /// The circuit constrains each `commitment[i] == Poseidon(amount,
-    /// asset_tag, sk, salt_i)` for a shared `sk`. One pairing check on
-    /// chain covers all four, so the per-tx CPU budget only pays for
-    /// verification once — an ordinary `deposit_shielded_batch` at N=4
-    /// runs 4 verifies (~240M CPU) which trips the network's 100M cap.
-    /// Contract still transfers the denomination four times and
-    /// appends four leaves, so the caller pushes `4 * denomination`
-    /// worth of the underlying token in one shot.
+    // proof. Public signals order (snarkjs outputs first):
+    //   [0..3] commitment[0..3]
+    //   [4]    amount     (R17: real user input, shared across all 4 notes — RAW token units)
+    //   [5]    asset_tag  (0 = XLM, 1 = USDC, 2 = EURC)
+    // The circuit constrains each `commitment[i] == Poseidon(amount,
+    // asset_tag, sk, salt_i)` for a shared `sk` AND a shared `amount`
+    // (one amount signal for all 4 notes — a quad deposit always
+    // produces 4 equally-sized notes; a user wanting 4 different sizes
+    // needs 4 singleton `deposit_shielded` calls instead). One pairing
+    // check on chain covers all four, so the per-tx CPU budget only
+    // pays for verification once — an ordinary `deposit_shielded_batch`
+    // at N=4 runs 4 verifies (~240M CPU) which trips the network's
+    // 100M cap. Contract still transfers the declared amount four
+    // times and appends four leaves, so the caller pushes `4 *
+    // declared_amount` worth of the underlying token in one shot.
     pub fn deposit_shielded_quad(
         env: Env,
         from: Address,
@@ -501,16 +522,16 @@ impl BorrowPool {
 
         let expected_tag =
             notes::asset_tag(&env, &asset).ok_or(Error::AssetUnknown)?;
-        let denomination =
-            notes::denomination(&env, &asset).ok_or(Error::AssetUnknown)?;
 
         let asset_tag_fr = proof.public_signals.get(5).unwrap();
         if fr_to_u32(&asset_tag_fr) != expected_tag {
             return Err(Error::DenominationMismatch);
         }
+        // R17: one shared declared amount for all 4 notes.
         let amount_fr = proof.public_signals.get(4).unwrap();
-        if fr_to_i128(&amount_fr) != denomination {
-            return Err(Error::DenominationMismatch);
+        let declared_amount = fr_to_amount_checked(&amount_fr)?;
+        if declared_amount <= 0 {
+            return Err(Error::AmountOutOfRange);
         }
 
         if !deposit_quad_verifier::verify_groth16(
@@ -526,8 +547,8 @@ impl BorrowPool {
         // Pull four notes' worth of collateral in one SAC call — each
         // `token::transfer` alone runs ~15M CPU on Soroban, so four
         // separate transfers plus the pairing check would trip the
-        // 100M per-tx cap. Amount is bounded (denomination × 4).
-        tokens::transfer_in(&env, &asset, &from, denomination * 4);
+        // 100M per-tx cap.
+        tokens::transfer_in(&env, &asset, &from, declared_amount * 4);
 
         let capacity = 1u64 << (merkle::DEPTH as u64);
         let mut frontier_arr =
@@ -574,6 +595,8 @@ impl BorrowPool {
 
         // Emit one event per leaf so the client's scanner and the
         // event-replay witness rebuild both keep working unchanged.
+        // R17: amount appended per-event (see deposit_shielded's note
+        // on the new leak this represents).
         for i in 0u32..4 {
             let leaf_fr = proof.public_signals.get(i).unwrap();
             env.events().publish(
@@ -583,6 +606,7 @@ impl BorrowPool {
                     new_root_bytes.clone(),
                     leaf_fr.to_bytes(),
                     memos.get(i).unwrap().clone(),
+                    declared_amount,
                 ),
             );
             indexes.push_back(next_index + (i as u64));
@@ -597,16 +621,22 @@ impl BorrowPool {
         state::set_deposit_root(&env, &asset, &new_root_bytes);
         state::set_deposit_next_index(&env, &asset, next_index);
         state::set_total_deposit(&env, &asset, total.saturating_add(4));
+        state::set_total_deposit_value(
+            &env,
+            &asset,
+            state::total_deposit_value(&env, &asset)
+                .saturating_add((declared_amount as u128).saturating_mul(4)),
+        );
 
         Ok(indexes)
     }
 
     /// Batched `deposit_shielded`. `proofs[i]` mints the leaf described
-    /// by `memos[i]`; the pair length must match. Signed once at the
-    /// caller (single `from.require_auth()`), so the wallet UX only
-    /// prompts once for a full round of shielded collateral instead of
-    /// N separate deposits. Returns the assigned leaf indexes in the
-    /// same order the proofs came in.
+    // by `memos[i]`; the pair length must match. Signed once at the
+    // caller (single `from.require_auth()`), so the wallet UX only
+    // prompts once for a full round of shielded collateral instead of
+    // N separate deposits. Returns the assigned leaf indexes in the
+    // same order the proofs came in.
     pub fn deposit_shielded_batch(
         env: Env,
         from: Address,
@@ -625,8 +655,6 @@ impl BorrowPool {
 
         let expected_tag =
             notes::asset_tag(&env, &asset).ok_or(Error::AssetUnknown)?;
-        let denomination =
-            notes::denomination(&env, &asset).ok_or(Error::AssetUnknown)?;
         let capacity = 1u64 << (merkle::DEPTH as u64);
 
         // Load the frontier ONCE, mutate in place across every leaf so
@@ -635,6 +663,7 @@ impl BorrowPool {
             load_frontier(&env, state::deposit_frontier(&env, &asset));
         let mut next_index = state::deposit_next_index(&env, &asset);
         let mut total = state::total_deposit(&env, &asset);
+        let mut total_value = state::total_deposit_value(&env, &asset);
         let mut last_root_bytes: Option<BytesN<32>> = None;
         let mut indexes: Vec<u64> = Vec::new(&env);
 
@@ -652,8 +681,10 @@ impl BorrowPool {
             if fr_to_u32(&asset_tag_fr) != expected_tag {
                 return Err(Error::DenominationMismatch);
             }
-            if fr_to_i128(&amount_fr) != denomination {
-                return Err(Error::DenominationMismatch);
+            // R17: each proof in the batch may declare its own amount.
+            let declared_amount = fr_to_amount_checked(&amount_fr)?;
+            if declared_amount <= 0 {
+                return Err(Error::AmountOutOfRange);
             }
 
             if !deposit_verifier::verify_groth16(
@@ -666,7 +697,7 @@ impl BorrowPool {
                 return Err(Error::InvalidProof);
             }
 
-            tokens::transfer_in(&env, &asset, &from, denomination);
+            tokens::transfer_in(&env, &asset, &from, declared_amount);
 
             if next_index >= capacity {
                 return Err(Error::TreeCapacityExceeded);
@@ -683,12 +714,14 @@ impl BorrowPool {
                     new_root_bytes.clone(),
                     leaf.to_bytes(),
                     memo.clone(),
+                    declared_amount,
                 ),
             );
             indexes.push_back(next_index);
             last_root_bytes = Some(new_root_bytes);
             next_index += 1;
             total = total.saturating_add(1);
+            total_value = total_value.saturating_add(declared_amount as u128);
         }
 
         state::set_deposit_frontier(
@@ -701,17 +734,24 @@ impl BorrowPool {
         }
         state::set_deposit_next_index(&env, &asset, next_index);
         state::set_total_deposit(&env, &asset, total);
+        state::set_total_deposit_value(&env, &asset, total_value);
 
         Ok(indexes)
     }
 
-    /// Burn one deposit note via zk proof, release the fixed
-    /// denomination to `to`. Prover shows Merkle inclusion at the
-    /// current deposit_root plus a valid nullifier so the contract
-    /// can block reuse.
+    /// Burn one deposit note via zk proof, release its real (R17:
+    // variable) amount to `to`. Prover shows Merkle inclusion at the
+    // current deposit_root plus a valid nullifier so the contract
+    // can block reuse. Provably safe to trust the declared amount
+    // without a separate equality check: `denomination` (really "the
+    // note's amount") is fed directly into the circuit's Poseidon
+    // commitment (`withdraw.circom:87`), and Merkle inclusion only
+    // succeeds if that commitment matches a leaf that's actually in
+    // the tree — a prover cannot declare an amount different from
+    // what was really deposited without breaking the inclusion proof.
     ///
-    /// Public signals order: [asset_tag, denomination, deposit_root,
-    /// nullifier].
+    // Public signals order: [asset_tag, denomination, deposit_root,
+    // nullifier].
     pub fn withdraw_shielded(
         env: Env,
         to: Address,
@@ -733,10 +773,12 @@ impl BorrowPool {
         if fr_to_u32(&asset_tag_fr) != expected_tag {
             return Err(Error::DenominationMismatch);
         }
-        let denomination =
-            notes::denomination(&env, &asset).ok_or(Error::AssetUnknown)?;
-        if fr_to_i128(&denomination_fr) != denomination {
-            return Err(Error::DenominationMismatch);
+        // R17: declared amount, checked-conversion range-guarded (see
+        // fr_to_amount_checked) instead of equality-checked against a
+        // fixed denomination.
+        let declared_amount = fr_to_amount_checked(&denomination_fr)?;
+        if declared_amount <= 0 {
+            return Err(Error::AmountOutOfRange);
         }
 
         // Contract's stored deposit root must match the value the
@@ -766,7 +808,7 @@ impl BorrowPool {
         state::mark_deposit_nullifier_used(&env, &asset, &nullifier_bytes);
 
         // Release tokens back to the caller.
-        tokens::transfer_out(&env, &asset, &to, denomination);
+        tokens::transfer_out(&env, &asset, &to, declared_amount);
 
         // Aggregate accounting: one fewer active deposit note.
         state::set_total_deposit(
@@ -774,27 +816,38 @@ impl BorrowPool {
             &asset,
             state::total_deposit(&env, &asset).saturating_sub(1),
         );
+        state::set_total_deposit_value(
+            &env,
+            &asset,
+            state::total_deposit_value(&env, &asset)
+                .saturating_sub(declared_amount as u128),
+        );
 
         env.events().publish(
             (WITHDRAW_EVENT, asset.clone()),
-            (nullifier_bytes.clone(), to.clone()),
+            (nullifier_bytes.clone(), to.clone(), declared_amount),
         );
         Ok(())
     }
 
     /// Shielded borrow. Consumes N=4 collateral notes via nullifiers,
-    /// appends a new loan-note commitment to the loan tree, emits an
-    /// encrypted memo attaching the note metadata for the borrower.
+    // appends a new loan-note commitment to the loan tree, emits an
+    // encrypted memo attaching the note metadata for the borrower.
     ///
-    /// Public signals order (must match the borrow circuit):
-    ///   [0]     borrow_amount
-    ///   [1]     borrow_asset_tag
-    ///   [2]     collateral_asset_tag
-    ///   [3]     hf_min_bps
-    ///   [4]     max_ltv_bps
-    ///   [5]     deposit_root
-    ///   [6]     borrow_commitment
-    ///   [7..11] nullifiers[0..4]
+    // Public signals order (must match the borrow circuit). Circuit
+    // OUTPUTS sort before {public [...]}-listed INPUTS in snarkjs's
+    // ordering, so R17's new `total_collateral_amount` output is index
+    // 0, not the last entry — every other index shifted +1 versus the
+    // pre-R17 contract:
+    //   [0]      total_collateral_amount (R17: RAW unpriced sum of the 4 collateral notes)
+    //   [1]      borrow_amount
+    //   [2]      borrow_asset_tag
+    //   [3]      collateral_asset_tag
+    //   [4]      hf_min_bps
+    //   [5]      max_ltv_bps
+    //   [6]      deposit_root
+    //   [7]      borrow_commitment
+    //   [8..12]  nullifiers[0..4]
     pub fn borrow_shielded(
         env: Env,
         from: Address,
@@ -805,20 +858,21 @@ impl BorrowPool {
     ) -> Result<u64, Error> {
         from.require_auth();
 
-        if proof.public_signals.len() != 15 {
+        if proof.public_signals.len() != 16 {
             return Err(Error::InvalidProof);
         }
-        let borrow_amount_fr = proof.public_signals.get(0).unwrap();
-        let borrow_tag_fr = proof.public_signals.get(1).unwrap();
-        let collateral_tag_fr = proof.public_signals.get(2).unwrap();
-        let hf_min_fr = proof.public_signals.get(3).unwrap();
-        let max_ltv_fr = proof.public_signals.get(4).unwrap();
-        let deposit_root_fr = proof.public_signals.get(5).unwrap();
-        let borrow_commit_fr = proof.public_signals.get(6).unwrap();
-        let borrow_amount_commit_fr = proof.public_signals.get(11).unwrap();
-        let collateral_value_commit_fr = proof.public_signals.get(12).unwrap();
-        let borrow_price_commit_fr = proof.public_signals.get(13).unwrap();
-        let loan_nullifier_fr = proof.public_signals.get(14).unwrap();
+        let total_collateral_amount_fr = proof.public_signals.get(0).unwrap();
+        let borrow_amount_fr = proof.public_signals.get(1).unwrap();
+        let borrow_tag_fr = proof.public_signals.get(2).unwrap();
+        let collateral_tag_fr = proof.public_signals.get(3).unwrap();
+        let hf_min_fr = proof.public_signals.get(4).unwrap();
+        let max_ltv_fr = proof.public_signals.get(5).unwrap();
+        let deposit_root_fr = proof.public_signals.get(6).unwrap();
+        let borrow_commit_fr = proof.public_signals.get(7).unwrap();
+        let borrow_amount_commit_fr = proof.public_signals.get(12).unwrap();
+        let collateral_value_commit_fr = proof.public_signals.get(13).unwrap();
+        let borrow_price_commit_fr = proof.public_signals.get(14).unwrap();
+        let loan_nullifier_fr = proof.public_signals.get(15).unwrap();
 
         // Asset + risk parameter cross-check. Contract's stored risk
         // params dictate what the proof MUST have used; the circuit
@@ -843,15 +897,50 @@ impl BorrowPool {
             return Err(Error::InvalidProof);
         }
 
-        // THE solvency guard. The circuit's LTV/HF band is decorative:
-        // `oracle_price` is an unconstrained private witness, so nothing
-        // binds it to a real price and a prover can size `borrow_amount`
-        // freely. Capping at one denomination is also what keeps the
-        // loan repayable — repay.circom burns ONE deposit note, so a
-        // loan larger than a single denomination can never be closed.
-        let max_borrow = notes::denomination(&env, &borrow_asset)
+        // R17: THE solvency guard, now price-aware instead of a flat
+        // per-asset ceiling. `total_collateral_amount` is provably
+        // honest (see borrow.circom's declaration comment) — it's the
+        // sum of 4 Merkle-verified real note amounts, no price factor.
+        // The contract multiplies it by a price it reads itself from
+        // Reflector (never trusting anything the prover claims about
+        // price) to get a real collateral value in borrow-asset units,
+        // then applies max_ltv_bps and a 95% safety margin.
+        //
+        // The dynamic cap is used AS-IS when Reflector has a live feed
+        // — deliberately NOT min'd against the old flat per-asset
+        // denomination. That flat number was never a real solvency
+        // limit; it only existed because deposits (and therefore what a
+        // single future repay note could cover) were fixed-size. R17
+        // makes deposits variable too (see deposit_shielded), so a
+        // well-collateralized borrower can now legitimately exceed the
+        // old fixed unit — capping them at it would silently defeat the
+        // entire point of this change. The flat denomination cap only
+        // still matters as the FALLBACK when Reflector has no live feed
+        // for either leg: fail-closed to the old, historically-safe
+        // small amount rather than fail-open to an unbounded loan with
+        // no price backing at all.
+        let total_collateral_amount = fr_to_amount_checked(&total_collateral_amount_fr)?;
+        if total_collateral_amount <= 0 {
+            return Err(Error::AmountOutOfRange);
+        }
+        let declared_borrow_amount = fr_to_amount_checked(&borrow_amount_fr)?;
+        if declared_borrow_amount <= 0 {
+            return Err(Error::AmountOutOfRange);
+        }
+
+        let flat_cap = notes::denomination(&env, &borrow_asset)
             .ok_or(Error::AssetUnknown)?;
-        if fr_to_i128(&borrow_amount_fr) > max_borrow {
+        let max_borrow = match dynamic_borrow_cap(
+            &env,
+            &collateral_asset,
+            &borrow_asset,
+            total_collateral_amount,
+            risk.max_ltv_bps,
+        ) {
+            Some(dynamic_cap) if dynamic_cap > 0 => dynamic_cap,
+            _ => flat_cap,
+        };
+        if declared_borrow_amount > max_borrow {
             return Err(Error::DenominationMismatch);
         }
 
@@ -862,12 +951,14 @@ impl BorrowPool {
             return Err(Error::InvalidProof);
         }
 
-        // Nullifier freshness: all four must be unused.
+        // Nullifier freshness: all four must be unused. R17: indices
+        // shifted +1 (now 8..12) versus pre-R17 — see the signal-order
+        // table in this function's doc comment.
         let mut nullifier_bytes: [soroban_sdk::BytesN<32>; 4] = [
-            proof.public_signals.get(7).unwrap().to_bytes(),
             proof.public_signals.get(8).unwrap().to_bytes(),
             proof.public_signals.get(9).unwrap().to_bytes(),
             proof.public_signals.get(10).unwrap().to_bytes(),
+            proof.public_signals.get(11).unwrap().to_bytes(),
         ];
         for null in nullifier_bytes.iter() {
             if state::deposit_nullifier_used(&env, &collateral_asset, null) {
@@ -916,16 +1007,30 @@ impl BorrowPool {
         state::set_loan_root(&env, &borrow_asset, &new_root.to_bytes());
         state::set_loan_next_index(&env, &borrow_asset, next_index + 1);
 
-        // Aggregate accounting.
+        // Aggregate accounting. Note counts (total_deposit/total_borrow)
+        // still drive Merkle tree-indexing elsewhere and stay note-count
+        // semantics; the R17 value counters track real amounts.
         state::set_total_deposit(
             &env,
             &collateral_asset,
             state::total_deposit(&env, &collateral_asset).saturating_sub(4),
         );
+        state::set_total_deposit_value(
+            &env,
+            &collateral_asset,
+            state::total_deposit_value(&env, &collateral_asset)
+                .saturating_sub(total_collateral_amount as u128),
+        );
         state::set_total_borrow(
             &env,
             &borrow_asset,
             state::total_borrow(&env, &borrow_asset).saturating_add(1),
+        );
+        state::set_total_borrow_value(
+            &env,
+            &borrow_asset,
+            state::total_borrow_value(&env, &borrow_asset)
+                .saturating_add(declared_borrow_amount as u128),
         );
         rate::accrue_borrow_index(&env, &borrow_asset);
 
@@ -971,25 +1076,40 @@ impl BorrowPool {
                 nullifier_bytes[1].clone(),
                 nullifier_bytes[2].clone(),
                 nullifier_bytes[3].clone(),
+                // R17: real minted loan amount, for public history
+                // replay (features/markets/market-history.ts).
+                declared_borrow_amount,
             ),
         );
         Ok(next_index)
     }
 
     /// Loan-tree variant of withdraw. Same Groth16 circuit as the
-    /// deposit-side withdraw, but the contract checks the caller's
-    /// declared `amount` against the loan tree's root instead of the
-    /// fixed deposit denomination. Payout size is variable (whatever
-    /// the borrow proof committed to), so this DOES leak the loan
-    /// amount publicly on Horizon — accepted trade-off for MVP: chain
-    /// observer sees an unlinkable withdrawal of amount X, no wallet
-    /// linkage to any specific borrow tx.
+    // deposit-side withdraw, but the contract checks the caller's
+    // declared `amount` against the loan tree's root instead of the
+    // fixed deposit denomination. Payout size is variable (whatever
+    // the borrow proof committed to), so this DOES leak the loan
+    // amount publicly on Horizon — accepted trade-off for MVP: chain
+    // observer sees an unlinkable withdrawal of amount X, no wallet
+    // linkage to any specific borrow tx.
     ///
-    /// Public signals order (same as withdraw_shielded):
-    ///   [0] asset_tag
-    ///   [1] amount           (borrow amount minted by borrow_shielded)
-    ///   [2] loan_root
-    ///   [3] nullifier
+    // R17: no separate ceiling check against the old flat denomination
+    // here — `borrow_shielded` can now legitimately mint above it (see
+    // its dynamic-cap comment), so that number is no longer a valid
+    // upper bound on a real claim. The amount doesn't need a second
+    // ceiling anyway: it's bound into the Poseidon commitment
+    // (`withdraw.circom:87`), so Merkle inclusion against the loan
+    // root only succeeds if it matches a leaf `borrow_shielded` really
+    // appended — meaning it was already checked against the cap that
+    // applied AT MINT TIME. `fr_to_amount_checked` still bounds the
+    // value to a sane overall ceiling regardless (protects against the
+    // field-wraparound class of attack, not a business-logic cap).
+    ///
+    // Public signals order (same as withdraw_shielded):
+    //   [0] asset_tag
+    //   [1] amount           (borrow amount minted by borrow_shielded)
+    //   [2] loan_root
+    //   [3] nullifier
     pub fn withdraw_loan_shielded(
         env: Env,
         to: Address,
@@ -1012,17 +1132,13 @@ impl BorrowPool {
             return Err(Error::DenominationMismatch);
         }
 
-        let amount = fr_to_i128(&amount_fr);
+        // R17: checked-conversion (was fr_to_i128 — the same
+        // truncation gap fr_to_amount_checked closes elsewhere) plus a
+        // positivity check; no separate flat-denomination ceiling (see
+        // doc comment above).
+        let amount = fr_to_amount_checked(&amount_fr)?;
         if amount <= 0 {
-            return Err(Error::InvalidProof);
-        }
-        // Defense in depth: borrow_shielded already caps the minted
-        // loan note at one denomination, so no legitimate loan note can
-        // ask for more than this on the way out.
-        let max_amount =
-            notes::denomination(&env, &asset).ok_or(Error::AssetUnknown)?;
-        if amount > max_amount {
-            return Err(Error::DenominationMismatch);
+            return Err(Error::AmountOutOfRange);
         }
 
         let stored_root =
@@ -1055,6 +1171,11 @@ impl BorrowPool {
             &asset,
             state::total_borrow(&env, &asset).saturating_sub(1),
         );
+        state::set_total_borrow_value(
+            &env,
+            &asset,
+            state::total_borrow_value(&env, &asset).saturating_sub(amount as u128),
+        );
 
         env.events().publish(
             (WITHDRAW_EVENT, asset.clone(), Symbol::new(&env, "loan")),
@@ -1064,26 +1185,26 @@ impl BorrowPool {
     }
 
     /// Shielded repay. Burns one loan note + one same-asset deposit
-    /// note. Circuit enforces
-    ///   `deposit_amount * borrow_index_snapshot >=
-    ///    loan_amount    * borrow_index_now`
-    /// so the pool is made whole for the accrued debt. Both
-    /// nullifiers marked used, aggregate borrow + deposit counters
-    /// decremented. No public transfer.
+    // note. Circuit enforces
+    //   `deposit_amount * borrow_index_snapshot >=
+    //    loan_amount    * borrow_index_now`
+    // so the pool is made whole for the accrued debt. Both
+    // nullifiers marked used, aggregate borrow + deposit counters
+    // decremented. No public transfer.
     ///
-    /// Public signals:
-    ///   [0] asset_tag
-    ///   [1] loan_root
-    ///   [2] deposit_root
-    ///   [3] loan_nullifier
-    ///   [4] deposit_nullifier
-    ///   [5] borrow_index_snapshot    (Track D)
-    ///   [6] borrow_index_now         (Track D)
+    // Public signals:
+    //   [0] asset_tag
+    //   [1] loan_root
+    //   [2] deposit_root
+    //   [3] loan_nullifier
+    //   [4] deposit_nullifier
+    //   [5] borrow_index_snapshot    (Track D)
+    //   [6] borrow_index_now         (Track D)
     ///
-    /// `loan_commitment` comes in as a tx arg so the contract can
-    /// look up the BorrowIndexAtOpen sidecar; pre-D loans without
-    /// the sidecar are grandfathered as zero-interest by treating
-    /// `snapshot = index_now` (the ratio collapses to 1.0).
+    // `loan_commitment` comes in as a tx arg so the contract can
+    // look up the BorrowIndexAtOpen sidecar; pre-D loans without
+    // the sidecar are grandfathered as zero-interest by treating
+    // `snapshot = index_now` (the ratio collapses to 1.0).
     pub fn repay_shielded(
         env: Env,
         from: Address,
@@ -1166,6 +1287,8 @@ impl BorrowPool {
         state::mark_loan_nullifier_used(&env, &asset, &loan_nul_bytes);
         state::mark_deposit_nullifier_used(&env, &asset, &dep_nul_bytes);
 
+        // Note-count counters: unaffected by R17, one fewer note either
+        // way regardless of amount.
         state::set_total_borrow(
             &env,
             &asset,
@@ -1176,6 +1299,17 @@ impl BorrowPool {
             &asset,
             state::total_deposit(&env, &asset).saturating_sub(1),
         );
+        // R17 value counters (total_borrow_value/total_deposit_value)
+        // are DELIBERATELY NOT adjusted here: repay_shielded's public
+        // signals carry no amount at all (loan_amount/deposit_amount
+        // are private witnesses, only proven via the Track D
+        // inequality — "No public transfer" per this function's own
+        // header comment), so the contract has no honest amount to
+        // decrement by without a repay.circom change, which is out of
+        // R17's approved scope (repay needs no circuit change). Known
+        // limitation: the value counters drift (over-count) relative to
+        // real backing as repays accumulate — logged as a follow-up,
+        // not silently ignored. See docs/REMEDIATION.md R17.
 
         env.events().publish(
             (REPAY_EVENT, asset.clone()),
@@ -1185,25 +1319,25 @@ impl BorrowPool {
     }
 
     /// Shielded liquidation (v1). Permissionless — any caller who
-    /// holds the memo openings for an underwater loan can burn its
-    /// nullifier via the sk-binding liquidate circuit. Contract
-    /// cross-checks the 3 bond commitments in the proof match the
-    /// stored `LiquidationBond` and enforces the risk-params
-    /// threshold. Bounty payout (Track C-simple) mints a fresh
-    /// denomination note to the liquidator via the caller-supplied
-    /// commitment; see the append + DEPOSIT_EVENT below.
-    /// Post-Track-A bonds route through `liquidate_shielded_v2`
-    /// (no sk in the circuit); this fn stays as the grandfathered
-    /// path for pre-A loans. See docs/liquidation-design.md.
+    // holds the memo openings for an underwater loan can burn its
+    // nullifier via the sk-binding liquidate circuit. Contract
+    // cross-checks the 3 bond commitments in the proof match the
+    // stored `LiquidationBond` and enforces the risk-params
+    // threshold. Bounty payout (Track C-simple) mints a fresh
+    // denomination note to the liquidator via the caller-supplied
+    // commitment; see the append + DEPOSIT_EVENT below.
+    // Post-Track-A bonds route through `liquidate_shielded_v2`
+    // (no sk in the circuit); this fn stays as the grandfathered
+    // path for pre-A loans. See docs/liquidation-design.md.
     ///
-    /// Public signals:
-    ///   [0] loan_commitment
-    ///   [1] borrow_amount_commit
-    ///   [2] collateral_value_commit
-    ///   [3] borrow_price_commit
-    ///   [4] current_price
-    ///   [5] threshold_bps
-    ///   [6] loan_nullifier
+    // Public signals:
+    //   [0] loan_commitment
+    //   [1] borrow_amount_commit
+    //   [2] collateral_value_commit
+    //   [3] borrow_price_commit
+    //   [4] current_price
+    //   [5] threshold_bps
+    //   [6] loan_nullifier
     pub fn liquidate_shielded(
         env: Env,
         liquidator: Address,
@@ -1334,21 +1468,21 @@ impl BorrowPool {
     }
 
     /// Shielded liquidation v2 (Track A). Uses the pre-published loan
-    /// nullifier from the LoanNullifier sidecar so a service worker
-    /// holding only the memo openings — never the borrower's sk —
-    /// can trigger. Requires a post-Track-A bond; pre-A loans stay on
-    /// the v1 path via `liquidate_shielded`.
+    // nullifier from the LoanNullifier sidecar so a service worker
+    // holding only the memo openings — never the borrower's sk —
+    // can trigger. Requires a post-Track-A bond; pre-A loans stay on
+    // the v1 path via `liquidate_shielded`.
     ///
-    /// Circuit public signals (5):
-    ///   [0] borrow_amount_commit          from LiquidationBond
-    ///   [1] collateral_value_commit       from LiquidationBond
-    ///   [2] borrow_price_commit           from LiquidationBond
-    ///   [3] current_price                 oracle-supplied
-    ///   [4] threshold_bps                 matches risk_params.liquidation_threshold_bps
+    // Circuit public signals (5):
+    //   [0] borrow_amount_commit          from LiquidationBond
+    //   [1] collateral_value_commit       from LiquidationBond
+    //   [2] borrow_price_commit           from LiquidationBond
+    //   [3] current_price                 oracle-supplied
+    //   [4] threshold_bps                 matches risk_params.liquidation_threshold_bps
     ///
-    /// `loan_commitment` + `loan_nullifier` come in as tx args; the
-    /// contract validates them against `liquidation_bond` +
-    /// `loan_nullifier` storage. Bounty payout is identical to v1.
+    // `loan_commitment` + `loan_nullifier` come in as tx args; the
+    // contract validates them against `liquidation_bond` +
+    // `loan_nullifier` storage. Bounty payout is identical to v1.
     pub fn liquidate_shielded_v2(
         env: Env,
         liquidator: Address,
@@ -1480,16 +1614,6 @@ impl BorrowPool {
 // -----------------------------------------------------------------
 // Helpers
 
-fn fr_to_i128(value: &Fr) -> i128 {
-    let bytes = value.to_bytes();
-    let raw: [u8; 32] = bytes.into();
-    let mut low: u128 = 0;
-    for byte in raw.iter().skip(16) {
-        low = (low << 8) | (*byte as u128);
-    }
-    low as i128
-}
-
 fn fr_to_u128(value: &Fr) -> u128 {
     let bytes = value.to_bytes();
     let raw: [u8; 32] = bytes.into();
@@ -1500,6 +1624,49 @@ fn fr_to_u128(value: &Fr) -> u128 {
     out
 }
 
+/// Generous ceiling for any single note/loan amount, RAW asset units —
+/// ~1e11x the largest current denomination (10_000_000 XLM stroops),
+/// while staying far under BLS12-381's field modulus (~2^255) and
+/// under 2^128 with headroom for `amount * oracle_price` (1e14-scaled)
+/// inside the borrow circuit's own 128-bit comparators.
+const MAX_NOTE_AMOUNT: i128 = 1_000_000_000_000_000_000;
+
+/// Checked Fr -> i128 for any field element that becomes a fund-moving
+/// or cap-deciding amount. Rejects a field element whose high 16 bytes
+/// are non-zero, instead of the naive approach of silently discarding
+/// them (which `fr_to_u32`/`fr_to_u128` above still do — safe for their
+/// actual callers: `fr_to_u32` reads tags/bps values that are always
+/// small, `fr_to_u128` reads the Track D index ratio, a separate,
+/// already-documented gap outside R17's approved scope — see this
+/// function's own note in docs/REMEDIATION.md).
+///
+/// R17: a prover controls the full ~255-bit field element for values
+/// like the new `total_collateral_amount` signal (since `oracle_price`
+/// stays an unconstrained private witness even here). Without this
+/// check, a chosen field element that wraps past 2^128 lets its
+/// truncated low-128-bit projection read as any attacker-picked
+/// cap-passing amount while the real proven collateral is far
+/// smaller — this closes that gap. It also gates every relaxed
+/// deposit/withdraw equality check below, and `withdraw_loan_shielded`'s
+/// pre-existing payout read (same-class gap, unrelated to R17's new
+/// signal, bundled here since the file's already being touched for
+/// this redeploy). See docs/REMEDIATION.md R17/R17a.
+fn fr_to_amount_checked(value: &Fr) -> Result<i128, Error> {
+    let bytes = value.to_bytes();
+    let raw: [u8; 32] = bytes.into();
+    if raw[..16].iter().any(|b| *b != 0) {
+        return Err(Error::AmountOutOfRange);
+    }
+    let mut low: u128 = 0;
+    for byte in raw.iter().skip(16) {
+        low = (low << 8) | (*byte as u128);
+    }
+    if low > MAX_NOTE_AMOUNT as u128 {
+        return Err(Error::AmountOutOfRange);
+    }
+    Ok(low as i128)
+}
+
 fn fr_to_u32(value: &Fr) -> u32 {
     let bytes = value.to_bytes();
     let raw: [u8; 32] = bytes.into();
@@ -1507,6 +1674,42 @@ fn fr_to_u32(value: &Fr) -> u32 {
         | ((raw[29] as u32) << 16)
         | ((raw[30] as u32) << 8)
         | (raw[31] as u32)
+}
+
+/// R17 (split): price-aware borrow cap from REAL, honest collateral
+/// (the circuit-proven `total_collateral_amount`, no price factor
+/// baked in by the prover). The actual Reflector read + LTV math now
+/// live in the separate `borrow-cap-helper` contract (kept out of this
+/// contract's own WASM so calls that never need it — deposit/withdraw/
+/// repay/liquidate — don't pay to parse that code; see
+/// docs/REMEDIATION.md R17). Returns `None` (caller falls back to the
+/// flat denomination cap) if no helper is wired, or the helper reports
+/// no live Reflector feed for either leg — same fail-closed posture as
+/// before the split, not a behavior change.
+fn dynamic_borrow_cap(
+    env: &Env,
+    collateral_asset: &Symbol,
+    borrow_asset: &Symbol,
+    total_collateral_amount: i128,
+    max_ltv_bps: u32,
+) -> Option<i128> {
+    let helper = state::borrow_helper(env)?;
+    let reflector_contract = state::reflector(env)?;
+    let collateral_decimals = notes::decimals(env, collateral_asset)?;
+    let borrow_decimals = notes::decimals(env, borrow_asset)?;
+
+    price_cap_client::BorrowCapHelperClient::new(env, &helper)
+        .try_dynamic_borrow_cap(
+            &reflector_contract,
+            collateral_asset,
+            borrow_asset,
+            &collateral_decimals,
+            &borrow_decimals,
+            &total_collateral_amount,
+            &max_ltv_bps,
+        )
+        .ok()?
+        .ok()?
 }
 
 fn load_frontier(
@@ -1529,162 +1732,6 @@ fn frontier_to_vec(env: &Env, frontier: &[Fr; merkle::DEPTH]) -> Vec<BytesN<32>>
         out.push_back(entry.to_bytes());
     }
     out
-}
-
-#[contractimpl]
-impl BorrowPool {
-
-    pub fn borrow(
-        env: Env,
-        intent: BorrowIntent,
-        proof: BorrowProof,
-    ) -> Result<BorrowReceipt, Error> {
-        intent.account.require_auth();
-
-        // Amounts live inside the circuit as private witness — the
-        // proof itself asserts positivity + range. No chain-side amount
-        // check possible without breaking privacy.
-
-        let now = env.ledger().timestamp();
-        if intent.expires_at != 0 && now > intent.expires_at {
-            return Err(Error::IntentExpired);
-        }
-
-        // Oracle freshness: accept a small forward skew for browser
-        // clock drift, and up to MAX_ORACLE_AGE_SECS in the past.
-        let too_far_ahead = proof.oracle_epoch > now
-            && proof.oracle_epoch - now > ORACLE_FUTURE_SKEW_SECS;
-        let too_far_behind = proof.oracle_epoch < now
-            && now - proof.oracle_epoch > MAX_ORACLE_AGE_SECS;
-        if too_far_ahead || too_far_behind {
-            return Err(Error::StaleOracle);
-        }
-
-        // Groth16 verify. Public signals order matches the circuit's
-        // public inputs (account, market, proof_id, collateral_symbol,
-        // borrow_symbol, hf_min_bps, max_ltv_bps, oracle_epoch) followed
-        // by the public output (oracle_price_commitment). Amounts moved
-        // to private witness for Phase-1 privacy.
-        if !verifier::verify_groth16(
-            &env,
-            proof.a.clone(),
-            proof.b.clone(),
-            proof.c.clone(),
-            proof.public_signals.clone(),
-        ) {
-            return Err(Error::InvalidProof);
-        }
-
-        let storage = env.storage().persistent();
-        let proof_key = DataKey::ProofUsed(intent.proof_id.clone());
-        if storage.has(&proof_key) {
-            return Err(Error::ProofReplayed);
-        }
-        storage.set(&proof_key, &true);
-
-        let receipt = BorrowReceipt {
-            account: intent.account.clone(),
-            proof_id: intent.proof_id.clone(),
-            market: intent.market.clone(),
-            borrow_symbol: intent.borrow_symbol.clone(),
-            collateral_symbol: intent.collateral_symbol.clone(),
-            confirmed_at: now,
-        };
-
-        // Position now keyed by (account, proof_id) so each borrow
-        // gets its own storage slot instead of overwriting the prior
-        // receipt.
-        storage.set(
-            &DataKey::Position(intent.account.clone(), intent.proof_id.clone()),
-            &receipt,
-        );
-
-        // Append proof_id to the per-account index so
-        // `positions_by_account` can enumerate without scanning storage.
-        let index_key = DataKey::PositionsByAccount(intent.account.clone());
-        let mut index: Vec<BytesN<32>> = storage
-            .get(&index_key)
-            .unwrap_or_else(|| Vec::new(&env));
-        index.push_back(intent.proof_id.clone());
-        storage.set(&index_key, &index);
-
-        env.events().publish((BORROW_EVENT,), receipt.clone());
-
-        Ok(receipt)
-    }
-
-    /// Latest receipt for `account`. Returns the most recent entry
-    /// from the per-account index; `None` if the account has never
-    /// borrowed. Kept for back-compat with the drawer's single-slot
-    /// path — new consumers should call `positions_by_account`.
-    pub fn position(env: Env, account: Address) -> Option<BorrowReceipt> {
-        let storage = env.storage().persistent();
-        let index: Vec<BytesN<32>> = storage
-            .get(&DataKey::PositionsByAccount(account.clone()))
-            .unwrap_or_else(|| Vec::new(&env));
-        let last = index.get(index.len().checked_sub(1)?)?;
-        storage.get(&DataKey::Position(account, last))
-    }
-
-    pub fn positions_by_account(env: Env, account: Address) -> Vec<BorrowReceipt> {
-        let storage = env.storage().persistent();
-        let index: Vec<BytesN<32>> = storage
-            .get(&DataKey::PositionsByAccount(account.clone()))
-            .unwrap_or_else(|| Vec::new(&env));
-
-        let mut out: Vec<BorrowReceipt> = Vec::new(&env);
-        for proof_id in index.iter() {
-            if let Some(receipt) =
-                storage.get::<_, BorrowReceipt>(&DataKey::Position(account.clone(), proof_id))
-            {
-                out.push_back(receipt);
-            }
-        }
-        out
-    }
-
-    /// Close a borrow position. Owner-authed; deletes the receipt and
-    /// drops the proof_id from the per-account index. Real production
-    /// would settle the actual debt + collateral movement here; this
-    /// skeleton just retires the on-chain record.
-    ///
-    /// Returns the closed receipt so callers get audit info.
-    pub fn repay(
-        env: Env,
-        account: Address,
-        proof_id: BytesN<32>,
-    ) -> Result<BorrowReceipt, Error> {
-        account.require_auth();
-
-        let storage = env.storage().persistent();
-        let position_key = DataKey::Position(account.clone(), proof_id.clone());
-        let receipt: BorrowReceipt =
-            storage.get(&position_key).ok_or(Error::PositionNotFound)?;
-
-        storage.remove(&position_key);
-
-        let index_key = DataKey::PositionsByAccount(account.clone());
-        let index: Vec<BytesN<32>> = storage
-            .get(&index_key)
-            .unwrap_or_else(|| Vec::new(&env));
-
-        let mut next_index: Vec<BytesN<32>> = Vec::new(&env);
-        for existing in index.iter() {
-            if existing != proof_id {
-                next_index.push_back(existing);
-            }
-        }
-
-        if next_index.is_empty() {
-            storage.remove(&index_key);
-        } else {
-            storage.set(&index_key, &next_index);
-        }
-
-        env.events().publish((REPAY_EVENT,), receipt.clone());
-
-        Ok(receipt)
-    }
 }
 
 impl BorrowPool {

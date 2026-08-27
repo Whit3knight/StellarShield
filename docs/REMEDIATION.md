@@ -176,7 +176,76 @@ README documents `CBJZP45H…4N7L`; `.env.local` runs `CATPLYD…52YX`. **Fix:**
 
 **Effort:** S · **Success:** `rg` for stale ID returns zero; `list_markets` against documented ID returns live markets; no mock refs in `types.ts`.
 
-### R17 — Fixed-denomination notes block variable loan/collateral amounts [LOW — scoped, deferred]
+### R17 — Fixed-denomination notes block variable loan/collateral amounts [SHIPPED — Phase 1 deployed]
+
+**Update (this session, after the design below was scoped): implemented
+and deployed.** Path 1 ("reveal-sum") was built, with two corrections
+made during implementation that the original scoping below did not
+anticipate:
+
+- The signal actually exposed is `total_collateral_amount` — the RAW,
+  un-multiplied sum of the 4 collateral amounts — not
+  `total_collateral_value` as originally sketched below.
+  `total_collateral_value` is already multiplied by `oracle_price`, an
+  unconstrained PRIVATE witness the prover fully controls; exposing
+  that and multiplying by a real price again in Rust would compute
+  `real_price * fake_oracle_price * real_collateral` — still fully
+  attacker-steerable, the same exploit this signal exists to close,
+  just relocated. `total_collateral_amount` has no price factor, so a
+  prover cannot lie about it without breaking Merkle inclusion.
+- The cap formula is NOT `min(flat_cap, dynamic_cap)`. That formula
+  would silently defeat the feature: the old flat per-asset
+  denomination would remain an unconditional ceiling on every loan,
+  same as before. Shipped formula: use `dynamic_cap` as-is whenever
+  Reflector has a live feed for both legs and the result is positive;
+  fall back to the flat denomination ONLY when no feed is available
+  (fail-closed to the old safe amount, not fail-open to unlimited).
+
+Also closed as part of this work, not originally scoped below: a
+field-element truncation bug (`fr_to_i128`/`fr_to_u128` read only the
+low 128 bits of a 255-bit BLS12-381 field element with no check the
+high bits are zero) that would have let a forged value wrap around
+`2^128` and defeat the new cap — and every other amount-carrying
+equality check in the contract — through modular wraparound. Fixed via
+a new `fr_to_amount_checked()` used everywhere a field element becomes
+a fund-moving or cap-deciding value (deposit/withdraw/borrow amounts,
+the new `total_collateral_amount` signal, `withdraw_loan_shielded`'s
+payout). `fr_to_i128` was deleted once unused rather than left in the
+tree as a hazard.
+
+Shipped: `contracts/circuits/shielded-borrow/src/borrow.circom` (new
+public output), `contracts/borrow-pool/src/reflector.rs` (new — first
+Rust Reflector client in this repo), `contracts/borrow-pool/src/lib.rs`
+(relaxed equality checks to range checks across deposit/withdraw/
+borrow, dynamic cap, new `total_deposit_value`/`total_borrow_value`
+counters + public view fns), `contracts/borrow-pool/src/state.rs`,
+`contracts/borrow-pool/src/notes.rs` (`decimals()`),
+`contracts/borrow-pool/src/borrow_verifier.rs` (17th VK IC point).
+Deployed in place via `upgrade` to the live testnet contract
+(`CCNLBMUTHMO5SXRBJ5DIKZDSS3J3OEW4PB5UFWATEXWLEDBGOBIEAEIZ`, new wasm
+hash `1bd9eb2a4e3ca7f2a06f3b0b9b28f2a8e520818b513ff558ccad51bace2b0e14`,
+previous `fe7d0378666d97bd70eafa2cd9bf664a73e55cb245d48ea409a355b5f53d0033`
+recorded for rollback). TS bindings, circuit artifacts, and the
+artifact manifest were regenerated and `bun run check:artifacts` /
+`lint` / `typecheck` / `test` all pass post-redeploy.
+
+`repay_shielded` deliberately does NOT update the new
+`total_deposit_value`/`total_borrow_value` counters — its public
+signals carry no amount (loan/deposit amounts stay private witnesses
+there), so those two counters will drift over time relative to real
+value. Documented as a known limitation in `lib.rs`, not silently
+ignored; out of this session's approved scope to fix (would need its
+own circuit change).
+
+Frontend UI wiring (deposit/borrow amount as real typed user input)
+and the accounting-consumer updates (`market-history.ts`,
+`market-stats.ts`, `derive-metrics.ts`, `scanner.ts`'s deposit branch)
+are Phase 2/3 of the same plan — not yet done as of this update, gated
+on the live-network verification checklist passing against the
+redeployed contract.
+
+**Original scoping below, kept for the design rationale (formula
+details are superseded by the Update above):**
 
 **Root cause.** Note amounts are fixed per-asset denominations (`DENOMINATION` in
 `features/notes/note.ts`, mirrored in `contracts/borrow-pool/src/notes.rs`:
@@ -248,10 +317,133 @@ hard-equality-checks `note.amount !== DENOMINATION[asset]` and would become
 a sum/range check. `repay.circom` and `withdraw.circom` already support
 variable amounts today — no circuit change needed there.
 
-**Effort:** Unscoped · **Status:** Deferred, no timeline — gated on demand
-validation per `docs/BRD.md` BR1, not slotted into M1-M4. Revisit only when
-real usage shows the fixed-denomination cap is a binding constraint, not
-preemptively.
+**Effort (original estimate):** Unscoped · **Status (original):** Deferred,
+no timeline. Superseded — see the Update at the top of this entry:
+Phase 1 (contract + circuit) is built and deployed; Phase 2/3
+(accounting + frontend wiring) are the remaining work, gated on the
+live-network verification checklist.
+
+### R18 — Poseidon constant re-decoding blew the per-tx instruction budget [SHIPPED — fixed and deployed]
+
+**Discovered while verifying R17's Phase 1f redeploy.** After that
+upgrade, every Groth16-verifying entrypoint — including
+`deposit_shielded` singleton, whose own verify path R17 never touched
+— started failing simulation with `HostError: Error(Budget,
+ExceededLimit)`. Seven parallel research agents initially converged on
+"R17's WASM growth (68,538→74,839 bytes) pushed an already-thin margin
+over budget," and a contract split (moving `reflector.rs` +
+`dynamic_borrow_cap` into a separate `borrow-cap-helper` contract,
+cross-called only from `borrow_shielded`) was designed and built on
+that theory. The split shrank `borrow-pool` to 62,320 bytes — *below*
+the pre-R17 baseline — but a deposit still failed identically on a
+freshly deployed instance. A same-moment control redeploy of the
+*original, pre-R17* wasm ALSO failed on the same call, which it had
+passed hours earlier — directly falsifying the WASM-size theory (a
+smaller binary than ever failed; unmodified old code that used to pass
+also failed with no code change on that side).
+
+**Actual root cause, found by direct measurement, not size or
+crypto-primitive cost:** `contracts/borrow-pool/src/poseidon.rs`'s
+`poseidon()` function decodes the T3 round-constant tables (`C_T3` +
+`M_T3` + `P_T3` + `S_T3`, 498 `Fr` values) from raw bytes on **every
+single call**, via `c_t3(env)`/`m_t3(env)`/`p_t3(env)`/`s_t3(env)`.
+`merkle::append`'s `DEPTH=20` tree-insertion walk calls
+`poseidon::hash_two_to_one` once per level — 20 calls, each redecoding
+the exact same 498 constants from scratch. Measured directly via
+`stellar contract invoke --build-only` → `stellar tx simulate` →
+`stellar tx decode`, reading `resources.instructions` off the decoded
+`SorobanTransactionData` (the technique this whole investigation
+eventually converged on as the only reliable ground truth — Soroban
+attaches no cost breakdown to a Budget-exceeded error on any RPC,
+local or public, confirmed exhaustively): **one DEPTH=20 Merkle
+insertion alone costs ~368.9M instructions — 92% of testnet's entire
+400,000,000 `txMaxInstructions` budget** — dwarfing the ~50M for a
+full Groth16 verify (3-signal deposit circuit) and ~1.5M for an
+authorized token transfer. Soroban's own calibrated cost table
+(`ContractCostParamsCpuInstructions` ledger config, read directly)
+shows the individual field ops are cheap (`Bls12381FrMul` const=332,
+`Bls12381FrAddSub` const=74) — the cost lives in the pure-WASM control
+flow and per-call host-object overhead of decoding ~500 constants
+from bytes 20 times over, not in the field arithmetic itself.
+
+This bug pre-dates R17 entirely — `merkle::append` has redecoded these
+constants on every call since the module was first written. R17
+merely added enough incidental weight (a few hundred KB of binary
+growth, one more storage write) to tip a call that was *already*
+consuming 92%+ of the budget over the edge. A pre-existing code
+comment in `lib.rs` ("four separate transfers plus the pairing check
+would trip the 100M per-tx cap") shows the original author already
+suspected this call was living dangerously close to some ceiling —
+just misattributed to token transfers rather than Merkle hashing, and
+under a stale assumption about the cap's actual value (100M vs.
+testnet's real 400M).
+
+**Fix:** `poseidon::Hash2Constants` — decode the T3 tables ONCE per
+tree-walk and reuse across all 20 (or 21, for
+`append_four_aligned`'s 4-leaf-aligned insert) levels, instead of once
+per level. Same Poseidon math, same output, zero security change —
+purely eliminates redundant decoding. Measured: 368.9M → 287.8M
+instructions for the same 20-level walk (**-22%, -81.1M**). Applied to
+`merkle::append`, `merkle::append_four_aligned`, and
+`merkle::verify_inclusion` (dev/test utility, fixed for consistency).
+
+**Verified end-to-end on testnet, both on temporary contracts and
+against the live redeployed contract**
+(`CCNLBMUTHMO5SXRBJ5DIKZDSS3J3OEW4PB5UFWATEXWLEDBGOBIEAEIZ`):
+`deposit_shielded` singleton succeeded repeatedly (6+ real on-chain
+transactions) where it had failed 100% of the time before the fix.
+`deposit_shielded_quad` (a separate, larger 6-public-signal circuit)
+still exceeds budget even after this fix — a known, disclosed
+remaining limitation, not blocking since 4 singleton deposits cover
+the same collateral-note requirement. `borrow_shielded` — the actual
+R17 feature, including its cross-contract call to the new
+`borrow-cap-helper` for the dynamic price-aware cap — was exercised
+successfully end-to-end for the first time in this investigation
+(real on-chain tx, `SUCCESS` status).
+
+**Two more real bugs found and fixed as a direct consequence of R17's
+event-schema change** (amount appended to `DEPOSIT_EVENT`/
+`BORROW_EVENT`), surfaced only because this investigation finally
+reached a live post-R17 borrow flow: `features/shielded-pool/
+withdraw-tree.ts`'s `decodeDepositEvent` and `features/notes/
+scanner.ts`'s `decodeIndexMemo`/`decodeBorrowSpentNullifiers` all
+hardcoded exact event-array lengths (4/8) that R17's appended field
+changed to 5/9, silently failing to decode every post-R17 deposit/
+borrow event on the LIVE contract (misreported as "expired from RPC
+retention" — a generic fallback message, not a real retention issue).
+Relaxed to accept both old and new shapes. Also applied the R17-plan's
+already-scoped Phase 3 item: `borrow-prover.ts`'s `computeBorrowAmount`
+now applies the same 9500/10000 safety margin `dynamic_borrow_cap`
+does, so client-computed borrow amounts don't get rejected by the
+contract's own (correctly) more conservative cap.
+
+**Shipped:** `contracts/borrow-pool/src/{poseidon.rs,merkle.rs}` (the
+fix), `contracts/borrow-cap-helper/` (new, stateless helper contract —
+`CB42XZGW4G6WJE5NVXFZKP5TFIE564JBHJ7COH6KHDNK6UIRP6KOBKHK` — holding
+only `reflector.rs` + `dynamic_borrow_cap`'s body, cross-called from
+`borrow_shielded` via a new `state::borrow_helper` address + admin-
+gated `set_borrow_helper`), plus the removal of confirmed-dead legacy
+code (the non-shielded transparent `borrow`/`repay`/`position`/
+`positions_by_account` path and its `verifier.rs`, retired per
+CLAUDE.md but still compiled into every build until now) as a
+genuinely free size/complexity cut alongside the real fix. Deployed to
+the live contract via `upgrade` (new wasm hash
+`54fc5b2ed181574840abcb1b5bc615ff497d371fc76d35778349cfaa2e1d77d3`).
+`features/shielded-pool/withdraw-tree.ts`, `features/notes/
+scanner.ts`, `features/shielded-pool/borrow-prover.ts` (+ its test)
+carry the three JS-side fixes.
+
+**Not fixed / open follow-up:** `deposit_shielded_quad`'s own budget
+margin (6-signal verify + `append_four_aligned`'s 21-hash walk still
+exceeds budget even after the T3 caching fix) — would need its own
+investigation (possibly the same class of redundant-decode issue in
+the T5/T7 constant paths, unverified) or an explicit product decision
+to retire the quad path in favor of always doing N singleton deposits.
+The contract-split-into-helper work, while it ultimately wasn't what
+fixed the failing calls (none of them ever called Reflector), is kept
+regardless: it's a real, verified size reduction and establishes a
+clean pattern (stateless helper, cross-called only when needed) for
+any future logic that doesn't belong in every call's hot path.
 
 ### Small items (slot into sequence)
 

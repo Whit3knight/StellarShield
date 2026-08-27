@@ -374,7 +374,13 @@ function decodeDepositEvent(
   } catch {
     return null
   }
-  if (!Array.isArray(native) || native.length !== 4) return null
+  // R17 appended `declared_amount` to DEPOSIT_EVENT's body (index 4),
+  // so post-upgrade events carry 5 elements, not 4 — index/leaf stay
+  // at their original positions (0/2) since the new field is
+  // appended, not inserted. Accept both shapes so events spanning the
+  // upgrade (pre- and post-R17) both decode instead of the newer ones
+  // silently failing this length check and reading as tree gaps.
+  if (!Array.isArray(native) || native.length < 4) return null
 
   return nativeToIndexedLeaf(native[0], native[2])
 }

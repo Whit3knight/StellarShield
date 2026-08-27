@@ -8,19 +8,26 @@ pragma circom 2.1.9;
 // max-LTV band. Issue 4 nullifiers + one new borrow commitment for
 // the loan tree.
 //
-// Public signals order (matches BorrowPool::borrow_shielded):
-//   [0]     borrow_amount            (loan in RAW token units / stroops)
-//   [1]     borrow_asset_tag         (0/1/2 = XLM/USDC/EURC)
-//   [2]     collateral_asset_tag     (must match each collateral note)
-//   [3]     hf_min_bps               (health-factor floor, bps)
-//   [4]     max_ltv_bps              (max LTV, bps)
-//   [5]     deposit_root             (root at witness generation time)
-//   [6]     borrow_commitment        (new leaf appended to loan tree)
-//   [7-10]  nullifiers[0..4]         (one per spent collateral note)
-//   [11]    borrow_amount_commit     Poseidon(borrow_amount, bond_salt_amount)      (Track L)
-//   [12]    collateral_value_commit  Poseidon(total_collateral_value, bond_salt_value)  (Track L)
-//   [13]    borrow_price_commit      Poseidon(oracle_price, bond_salt_price)        (Track L)
-//   [14]    loan_nullifier           Poseidon(sk, borrow_commitment)                (Track A)
+// Public signals order (matches BorrowPool::borrow_shielded). Circuit
+// OUTPUTS sort before {public [...]}-listed INPUTS in snarkjs's public
+// signal ordering (verified against deposit.circom's own commitment
+// output, which lands at index 0 ahead of its declared public inputs) —
+// so the new `total_collateral_amount` output below is index 0, not the
+// last entry, and every other index shifts by +1 versus the pre-R17
+// circuit:
+//   [0]     total_collateral_amount (R17: circuit OUTPUT, RAW unpriced sum of the 4 collateral_amounts — see below)
+//   [1]     borrow_amount            (loan in RAW token units / stroops)
+//   [2]     borrow_asset_tag         (0/1/2 = XLM/USDC/EURC)
+//   [3]     collateral_asset_tag     (must match each collateral note)
+//   [4]     hf_min_bps               (health-factor floor, bps)
+//   [5]     max_ltv_bps              (max LTV, bps)
+//   [6]     deposit_root             (root at witness generation time)
+//   [7]     borrow_commitment        (new leaf appended to loan tree)
+//   [8-11]  nullifiers[0..4]         (one per spent collateral note)
+//   [12]    borrow_amount_commit     Poseidon(borrow_amount, bond_salt_amount)      (Track L)
+//   [13]    collateral_value_commit  Poseidon(total_collateral_value, bond_salt_value)  (Track L)
+//   [14]    borrow_price_commit      Poseidon(oracle_price, bond_salt_price)        (Track L)
+//   [15]    loan_nullifier           Poseidon(sk, borrow_commitment)                (Track A)
 //
 // Private witness:
 //   sk                          shielded identity secret
@@ -103,6 +110,28 @@ template Borrow(depth, notes) {
     // storage slot keyed by loan commitment.
     signal input loan_nullifier;
 
+    // R17: RAW (unpriced) sum of the 4 collateral amounts, revealed so
+    // the contract can size a dynamic, price-aware borrow cap instead
+    // of a flat per-asset denomination. Deliberately NOT
+    // `total_collateral_value` (below) — that quantity is already
+    // multiplied by `oracle_price`, an unconstrained PRIVATE witness
+    // the prover fully controls, so a contract that multiplied it by
+    // its OWN real price again would compute
+    // `real_price * fake_oracle_price * real_collateral` — still
+    // attacker-steerable to any value, the exact exploit this signal
+    // exists to close, just relocated. `total_collateral_amount` has no
+    // price factor at all: it's the sum of 4 Merkle-verified,
+    // commitment-bound real note amounts, so a prover cannot lie about
+    // it without breaking Merkle inclusion (same soundness argument as
+    // withdraw.circom's amount handling). The contract multiplies THIS
+    // by its own independently-fetched real price. A circuit-computed
+    // value must be a template OUTPUT to be publicly exposed — an input
+    // would be unconstrained and a prover could declare any value. This
+    // is a real new on-chain leak of the borrower's total raw
+    // collateral amount (see docs/REMEDIATION.md R17) — accepted
+    // trade-off, not hidden by accident.
+    signal output total_collateral_amount;
+
     // Private witness.
     signal input sk;
     signal input borrow_salt;
@@ -151,7 +180,11 @@ template Borrow(depth, notes) {
     borrowCommit.inputs[3] <== borrow_salt;
     borrowCommit.out === borrow_commitment;
 
-    // Collateral USD value (in borrow-asset units).
+    // Collateral USD value (in borrow-asset units), price-tainted by
+    // the private, unconstrained `oracle_price` witness — stays
+    // INTERNAL (not public). Only used below for the circuit's own
+    // (decorative — see file header) LTV check and the Track L bond
+    // commitment; the contract never reads this directly.
     signal total_collateral_value;
     signal partial_values[notes];
     for (var i = 0; i < notes; i++) {
@@ -159,6 +192,11 @@ template Borrow(depth, notes) {
     }
     // For notes=4 unroll to keep the circuit simple.
     total_collateral_value <== partial_values[0] + partial_values[1] + partial_values[2] + partial_values[3];
+
+    // R17: raw, unpriced sum — see the signal's declaration comment
+    // above for why this (not total_collateral_value) is what the
+    // contract needs.
+    total_collateral_amount <== collateral_amounts[0] + collateral_amounts[1] + collateral_amounts[2] + collateral_amounts[3];
 
     // LTV check: `total_collateral_value * 10000 >= borrow_amount * hf_min_bps`.
     signal lhs;

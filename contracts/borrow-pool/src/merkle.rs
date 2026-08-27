@@ -55,6 +55,10 @@ pub fn append(
     next_index: u64,
 ) -> Fr {
     let zeros = zero_hashes(env);
+    // Decode Poseidon(2)'s round constants ONCE for this whole
+    // DEPTH-level walk instead of once per level — see
+    // poseidon::Hash2Constants's doc comment for why this matters.
+    let hasher = poseidon::Hash2Constants::load(env);
     let mut current = leaf.clone();
     let mut index = next_index;
 
@@ -66,11 +70,11 @@ pub fn append(
             // it, and pair with the zero-subtree hash to derive the
             // interior node.
             frontier[level] = current.clone();
-            current = poseidon::hash_two_to_one(env, &current, &zeros[level]);
+            current = hasher.hash(env, &current, &zeros[level]);
         } else {
             // We're the right child. Combine with the frontier entry
             // for our left sibling.
-            current = poseidon::hash_two_to_one(env, &frontier[level], &current);
+            current = hasher.hash(env, &frontier[level], &current);
         }
         index >>= 1;
     }
@@ -93,11 +97,12 @@ pub fn append_four_aligned(
 ) -> Fr {
     debug_assert_eq!(next_index & 0b11, 0, "next_index must be 4-aligned");
     let zeros = zero_hashes(env);
+    let hasher = poseidon::Hash2Constants::load(env);
 
     // Level 0 & 1: fill from the four fresh leaves.
-    let l1a = poseidon::hash_two_to_one(env, &leaves[0], &leaves[1]);
-    let l1b = poseidon::hash_two_to_one(env, &leaves[2], &leaves[3]);
-    let mut current = poseidon::hash_two_to_one(env, &l1a, &l1b);
+    let l1a = hasher.hash(env, &leaves[0], &leaves[1]);
+    let l1b = hasher.hash(env, &leaves[2], &leaves[3]);
+    let mut current = hasher.hash(env, &l1a, &l1b);
 
     // Frontier at levels 0 and 1 mirrors what a per-leaf append would
     // have written at position `next_index + 3`:
@@ -113,9 +118,9 @@ pub fn append_four_aligned(
         let is_left = index & 1 == 0;
         if is_left {
             frontier[level] = current.clone();
-            current = poseidon::hash_two_to_one(env, &current, &zeros[level]);
+            current = hasher.hash(env, &current, &zeros[level]);
         } else {
-            current = poseidon::hash_two_to_one(env, &frontier[level], &current);
+            current = hasher.hash(env, &frontier[level], &current);
         }
         index >>= 1;
     }
@@ -133,14 +138,15 @@ pub fn verify_inclusion(
     path: &[Fr; DEPTH],
     root: &Fr,
 ) -> bool {
+    let hasher = poseidon::Hash2Constants::load(env);
     let mut current = leaf.clone();
     let mut index = leaf_index;
     for level in 0..DEPTH {
         let sibling = &path[level];
         current = if index & 1 == 0 {
-            poseidon::hash_two_to_one(env, &current, sibling)
+            hasher.hash(env, &current, sibling)
         } else {
-            poseidon::hash_two_to_one(env, sibling, &current)
+            hasher.hash(env, sibling, &current)
         };
         index >>= 1;
     }

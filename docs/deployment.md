@@ -141,13 +141,58 @@ and Track D sidecars follow this pattern.
 
 ## Rollback
 
-Record the previous WASM_HASH before every upgrade:
+Record the previous WASM_HASH before every upgrade. `stellar contract
+inspect` is deprecated (CLI 27+); fetch + hash the currently-live wasm
+instead:
 
 ```bash
-stellar contract inspect --network testnet --id $CONTRACT_ID
-# → grep for CurrentContractExecutable, capture hash
+stellar contract fetch --network testnet --id $CONTRACT_ID --out-file /tmp/prev.wasm
+sha256sum /tmp/prev.wasm   # → LAST_GOOD hash
 ```
 
 If a broken upgrade lands, re-upload the last-known-good wasm (already
-on chain, just re-`install`) and invoke `upgrade --wasm_hash
+on chain, just re-`upload`) and invoke `upgrade --wasm_hash
 $LAST_GOOD` from the admin identity.
+
+**Before any upgrade that touches a Groth16-verifying entrypoint's
+transitive cost** (not just its own code — the whole contract's WASM
+gets parsed on every call, and any code it calls into shares the same
+per-tx instruction budget, `txMaxInstructions` — currently 400,000,000
+on testnet): run the same call the change might affect via
+`stellar contract invoke --build-only | stellar tx simulate | stellar
+tx decode`, reading `resources.instructions`, against a throwaway
+temp-deployed copy of the new wasm BEFORE upgrading the live contract.
+R18 (`docs/REMEDIATION.md`) was a real per-tx-budget regression that
+shipped silently because this check didn't exist — a smaller/larger
+wasm alone doesn't predict pass/fail, actual measurement does.
+
+## Price-cap helper contract (R18)
+
+`borrow_shielded`'s dynamic borrow cap lives in a separate, stateless
+contract — `contracts/borrow-cap-helper/` — cross-called only from
+that one entrypoint, so deposit/withdraw/repay/liquidate never pay for
+code they don't use. Current live instance:
+`CB42XZGW4G6WJE5NVXFZKP5TFIE564JBHJ7COH6KHDNK6UIRP6KOBKHK`.
+
+Redeploying the helper (its own logic changed, not `borrow-pool`'s):
+
+```bash
+cd contracts
+stellar contract build --package borrow-cap-helper
+stellar contract upload --source deployer --network testnet \
+  --wasm target/wasm32v1-none/release/borrow_cap_helper.wasm
+# → NEW_HELPER_HASH
+stellar contract deploy --source deployer --network testnet \
+  --wasm-hash $NEW_HELPER_HASH
+# → NEW_HELPER_ID (fresh address — the helper is stateless, no init needed)
+stellar contract invoke --source deployer --network testnet --id $CONTRACT_ID -- \
+  set_borrow_helper --helper $NEW_HELPER_ID
+```
+
+If `borrow-pool` is upgraded without also redeploying the helper, the
+existing `set_borrow_helper` wiring survives (it's core contract
+storage, untouched by an `upgrade`) — no re-wiring needed unless the
+helper itself changes. If `state::borrow_helper` is ever unset (fresh
+deploy, or before the first `set_borrow_helper` call),
+`dynamic_borrow_cap` falls back to the flat per-asset denomination
+cap — fail-closed, not fail-open.

@@ -49,6 +49,42 @@ fn pow5(env: &Env, value: &Fr) -> Fr {
     mul(env, &fourth, value)
 }
 
+/// Pre-decoded Poseidon(2) [t=3] round-constant tables. `poseidon()`
+/// below decodes all 498 T3 constants (C+M+P+S) from raw bytes on
+/// EVERY call via `c_t3`/`m_t3`/`p_t3`/`s_t3` — fine for a one-off
+/// hash, but `merkle::append`'s 20-level walk called it 20 times in a
+/// row, redecoding the exact same constants from scratch each level.
+/// Measured directly (R18, see docs/REMEDIATION.md): caching this
+/// decode once and reusing it across a DEPTH=20 walk cuts that walk's
+/// instruction cost from ~368.9M to ~287.8M (-22%), a real, security-
+/// neutral fix (same Poseidon math, same output) — not a rewrite of
+/// the permutation itself. Callers that only ever hash once (anything
+/// outside a tree-walk loop) can keep using `hash2`/`poseidon`
+/// directly; this exists for hot loops only.
+pub struct Hash2Constants {
+    c: [Fr; C_T3.len()],
+    m: [[Fr; T3]; T3],
+    p: [[Fr; T3]; T3],
+    s: [Fr; S_T3.len()],
+}
+
+impl Hash2Constants {
+    pub fn load(env: &Env) -> Self {
+        Self {
+            c: c_t3(env),
+            m: m_t3(env),
+            p: p_t3(env),
+            s: s_t3(env),
+        }
+    }
+
+    /// Poseidon(2) using the cached constants — same output as
+    /// `hash_two_to_one(env, a, b)`, without redecoding the tables.
+    pub fn hash(&self, env: &Env, a: &Fr, b: &Fr) -> Fr {
+        permute::<T3>(env, &[a.clone(), b.clone()], R_P_T3, &self.c, &self.m, &self.p, &self.s)
+    }
+}
+
 /// Poseidon(inputs). Length 2 → t=3; length 4 → t=5; length 6 → t=7.
 /// Any other width panics — the circuits and the client never call
 /// with other widths, so failing loudly here catches wiring bugs.

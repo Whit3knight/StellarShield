@@ -887,12 +887,20 @@ function decodeIndexedEvent(
   if (!Array.isArray(native)) return null
 
   // Event body shapes accepted:
-  //   deposit / repay-back: (index, root, leaf, memo)
-  //   borrow post-upgrade:  (index, root, leaf, memo, n0, n1, n2, n3)
-  //   legacy:               (index, memo)
+  //   deposit / repay-back:        (index, root, leaf, memo)
+  //   borrow post-upgrade:         (index, root, leaf, memo, n0, n1, n2, n3)
+  //   R17 (amount appended,        as above + declared_amount — index/memo
+  //   deposit=5 / borrow=9):       positions are unchanged since amount is
+  //                                appended, not inserted.
+  //   legacy:                      (index, memo)
   let rawIndex: unknown
   let rawMemo: unknown
-  if (native.length === 4 || native.length === 8) {
+  if (
+    native.length === 4 ||
+    native.length === 5 ||
+    native.length === 8 ||
+    native.length === 9
+  ) {
     rawIndex = native[0]
     rawMemo = native[3]
   } else if (native.length === 2) {
@@ -929,7 +937,11 @@ function decodeBorrowSpentNullifiers(
   } catch {
     return []
   }
-  if (!Array.isArray(native) || native.length !== 8) return []
+  // R17 appended declared_borrow_amount after the 4 nullifiers, so
+  // post-upgrade borrow events carry 9 elements, not 8 — the
+  // nullifier tail itself is still at indices 4..8.
+  if (!Array.isArray(native) || (native.length !== 8 && native.length !== 9))
+    return []
   const out: bigint[] = []
   for (let i = 4; i < 8; i++) {
     const bytes = memoBytes(native[i])

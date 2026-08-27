@@ -21,6 +21,13 @@ pub enum InstanceKey {
     RiskParams,
     ReflectorContract,
     LiquidationServicePk,
+    // R17: address of the `borrow-cap-helper` contract, the only
+    // reader of `ReflectorContract` now (split out to keep this
+    // contract's own WASM small — see reflector.rs's former header
+    // comment / docs/REMEDIATION.md R17). `None` until wired via
+    // `set_borrow_helper`; `borrow_shielded` falls back to its flat
+    // cap when unset, same fail-closed shape as an absent price feed.
+    BorrowHelperContract,
 }
 
 // Persistent storage keys. Compound keys embed the discriminant so
@@ -38,6 +45,15 @@ pub enum PersistentKey {
     LiquidityIndex(Symbol),
     TotalDeposit(Symbol),
     TotalBorrow(Symbol),
+    // R17: value-sum counters (raw asset units), separate from the
+    // note-count counters above. Note counts still drive Merkle
+    // tree-indexing/capacity; these track how much VALUE is actually
+    // deposited/borrowed now that notes are variable-amount. Missing
+    // keys default to 0 (see total_deposit_value/total_borrow_value
+    // below), so no migration step is needed — accrual just starts
+    // from zero whenever this first gets written.
+    TotalDepositValue(Symbol),
+    TotalBorrowValue(Symbol),
     LiquidationBond(BytesN<32>),
     // Track A sidecar: pre-published loan nullifier keyed by
     // loan_commitment. Absent for pre-A bonds → liquidate falls back
@@ -124,6 +140,18 @@ pub fn set_reflector(env: &Env, reflector: &Address) {
 
 pub fn reflector(env: &Env) -> Option<Address> {
     env.storage().instance().get(&InstanceKey::ReflectorContract)
+}
+
+// --- Borrow-cap helper contract (R17 split) -----------------------------
+
+pub fn set_borrow_helper(env: &Env, helper: &Address) {
+    env.storage()
+        .instance()
+        .set(&InstanceKey::BorrowHelperContract, helper);
+}
+
+pub fn borrow_helper(env: &Env) -> Option<Address> {
+    env.storage().instance().get(&InstanceKey::BorrowHelperContract)
 }
 
 // --- Liquidation service pubkey (Track L) ------------------------------
@@ -369,6 +397,32 @@ pub fn set_total_borrow(env: &Env, asset: &Symbol, value: u128) {
     env.storage()
         .persistent()
         .set(&PersistentKey::TotalBorrow(asset.clone()), &value);
+}
+
+pub fn total_deposit_value(env: &Env, asset: &Symbol) -> u128 {
+    env.storage()
+        .persistent()
+        .get(&PersistentKey::TotalDepositValue(asset.clone()))
+        .unwrap_or(0u128)
+}
+
+pub fn set_total_deposit_value(env: &Env, asset: &Symbol, value: u128) {
+    env.storage()
+        .persistent()
+        .set(&PersistentKey::TotalDepositValue(asset.clone()), &value);
+}
+
+pub fn total_borrow_value(env: &Env, asset: &Symbol) -> u128 {
+    env.storage()
+        .persistent()
+        .get(&PersistentKey::TotalBorrowValue(asset.clone()))
+        .unwrap_or(0u128)
+}
+
+pub fn set_total_borrow_value(env: &Env, asset: &Symbol, value: u128) {
+    env.storage()
+        .persistent()
+        .set(&PersistentKey::TotalBorrowValue(asset.clone()), &value);
 }
 
 // --- Interest accrual indices ------------------------------------------

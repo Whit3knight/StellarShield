@@ -1,18 +1,23 @@
 //! Groth16 verifier for the shielded-borrow circuit.
 //!
-//! Public signals (matches BorrowPool::borrow_shielded):
-//!   [0]      borrow_amount
-//!   [1]      borrow_asset_tag
-//!   [2]      collateral_asset_tag
-//!   [3]      hf_min_bps
-//!   [4]      max_ltv_bps
-//!   [5]      deposit_root
-//!   [6]      borrow_commitment
-//!   [7..11]  nullifiers[0..4]
-//!   [11]     borrow_amount_commit         (Track L bond)
-//!   [12]     collateral_value_commit      (Track L bond)
-//!   [13]     borrow_price_commit          (Track L bond)
-//!   [14]     loan_nullifier               (Track A pre-published)
+//! Public signals (matches BorrowPool::borrow_shielded). Circuit OUTPUTS
+//! sort before {public [...]}-listed INPUTS in snarkjs's ordering, so
+//! R17's new `total_collateral_value` output is index 0, not the last
+//! entry — verified empirically against the compiled circuit's .sym
+//! table, not assumed:
+//!   [0]      total_collateral_value       (R17: circuit output, 1e14-scaled)
+//!   [1]      borrow_amount
+//!   [2]      borrow_asset_tag
+//!   [3]      collateral_asset_tag
+//!   [4]      hf_min_bps
+//!   [5]      max_ltv_bps
+//!   [6]      deposit_root
+//!   [7]      borrow_commitment
+//!   [8..12]  nullifiers[0..4]
+//!   [12]     borrow_amount_commit         (Track L bond)
+//!   [13]     collateral_value_commit      (Track L bond)
+//!   [14]     borrow_price_commit          (Track L bond)
+//!   [15]     loan_nullifier               (Track A pre-published)
 
 use soroban_sdk::{
     crypto::bls12_381::{Fr, G1Affine, G2Affine},
@@ -40,6 +45,7 @@ const VK_IC_12: &[u8; 96] = include_bytes!("vk/borrow/vk_ic_12.bin");
 const VK_IC_13: &[u8; 96] = include_bytes!("vk/borrow/vk_ic_13.bin");
 const VK_IC_14: &[u8; 96] = include_bytes!("vk/borrow/vk_ic_14.bin");
 const VK_IC_15: &[u8; 96] = include_bytes!("vk/borrow/vk_ic_15.bin");
+const VK_IC_16: &[u8; 96] = include_bytes!("vk/borrow/vk_ic_16.bin");
 
 pub fn verify_groth16(
     env: &Env,
@@ -48,7 +54,7 @@ pub fn verify_groth16(
     proof_c: G1Affine,
     pub_signals: Vec<Fr>,
 ) -> bool {
-    let ic_len = 16u32;
+    let ic_len = 17u32;
     if pub_signals.len() + 1 != ic_len {
         return false;
     }
@@ -94,5 +100,6 @@ fn ic_points(env: &Env) -> Vec<G1Affine> {
         G1Affine::from_array(env, VK_IC_13),
         G1Affine::from_array(env, VK_IC_14),
         G1Affine::from_array(env, VK_IC_15),
+        G1Affine::from_array(env, VK_IC_16),
     ]
 }
