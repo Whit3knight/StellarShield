@@ -464,6 +464,34 @@ pre-R17 baseline) and establishes a clean pattern (stateless helper,
 cross-called only when needed) for any future logic that doesn't
 belong in every call's hot path.
 
+### R19 — BORROW_EVENT didn't carry the collateral amount it consumed [SHIPPED]
+
+Found while implementing R17 Phase 2 (`market-history.ts`'s backward
+event-replay needs real amounts, not fixed note-count deltas).
+`borrow_shielded` already computes `total_collateral_amount` (the
+exact sum of the 4 spent collateral notes) and uses it to decrement
+`state::total_deposit_value` on-chain — but never published that
+number anywhere, so an off-chain replay of `BORROW_EVENT` history had
+no way to reconstruct how much collateral value a given historical
+borrow actually consumed. `declared_borrow_amount` (the loan side) was
+already on the event from R17; only the collateral side was missing.
+
+**Fix:** appended `total_collateral_amount` to `BORROW_EVENT`'s tuple
+(now 10 elements: `index, root, leaf, memo, n0..n3, declared_borrow_amount,
+total_collateral_amount`). Same leak class already accepted for
+`declared_borrow_amount` — the value was already derivable from the
+proof's public `total_collateral_amount` signal, this just makes it
+convenient to replay off-chain. `features/notes/scanner.ts`'s
+`decodeIndexMemo`/`decodeBorrowSpentNullifiers` length checks widened
+to accept 10 alongside the existing 4/5/8/9. Verified end-to-end on a
+temp contract: a real `borrow_shielded` call's event decoded with
+`total_collateral_amount = 40,000,000` (4 × 10,000,000 XLM notes),
+exactly matching what was actually spent. Deployed to the live
+contract via `upgrade` (wasm hash
+`1b2366fd097a3ef5e804dfe27d66ed7f0b2156b8e4a2d6b5dc34473781a93f5a`) —
+no circuit or VK change, no TS bindings change (only an internal event
+payload, not a function signature).
+
 ### Small items (slot into sequence)
 
 - **Zero Rust contract tests** — blocked on soroban-sdk 23. One README line stating the block + stopgap (TS fixtures + R6 e2e). Re-check next sdk release.

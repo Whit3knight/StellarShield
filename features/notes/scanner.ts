@@ -889,9 +889,10 @@ function decodeIndexedEvent(
   // Event body shapes accepted:
   //   deposit / repay-back:        (index, root, leaf, memo)
   //   borrow post-upgrade:         (index, root, leaf, memo, n0, n1, n2, n3)
-  //   R17 (amount appended,        as above + declared_amount — index/memo
-  //   deposit=5 / borrow=9):       positions are unchanged since amount is
-  //                                appended, not inserted.
+  //   R17 (declared_amount         deposit=5 / borrow=9 — index/memo
+  //   appended):                   positions unchanged, amount appended.
+  //   R19 (total_collateral_amount borrow=10 — same reasoning, appended
+  //   also appended to borrow):    after declared_borrow_amount.
   //   legacy:                      (index, memo)
   let rawIndex: unknown
   let rawMemo: unknown
@@ -899,7 +900,8 @@ function decodeIndexedEvent(
     native.length === 4 ||
     native.length === 5 ||
     native.length === 8 ||
-    native.length === 9
+    native.length === 9 ||
+    native.length === 10
   ) {
     rawIndex = native[0]
     rawMemo = native[3]
@@ -937,10 +939,13 @@ function decodeBorrowSpentNullifiers(
   } catch {
     return []
   }
-  // R17 appended declared_borrow_amount after the 4 nullifiers, so
-  // post-upgrade borrow events carry 9 elements, not 8 — the
-  // nullifier tail itself is still at indices 4..8.
-  if (!Array.isArray(native) || (native.length !== 8 && native.length !== 9))
+  // R17 appended declared_borrow_amount (9 elements), R19 appended
+  // total_collateral_amount after that (10) — the nullifier tail
+  // itself is still at indices 4..8 in every shape.
+  if (
+    !Array.isArray(native) ||
+    (native.length !== 8 && native.length !== 9 && native.length !== 10)
+  )
     return []
   const out: bigint[] = []
   for (let i = 4; i < 8; i++) {

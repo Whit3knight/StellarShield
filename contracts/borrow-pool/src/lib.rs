@@ -1079,6 +1079,19 @@ impl BorrowPool {
                 // R17: real minted loan amount, for public history
                 // replay (features/markets/market-history.ts).
                 declared_borrow_amount,
+                // R19: real collateral value consumed by this borrow —
+                // needed so market-history.ts's backward event-replay
+                // can undo the exact amount `total_deposit_value` was
+                // decremented by on-chain (see the
+                // set_total_deposit_value call above), instead of
+                // guessing a flat per-note denomination that stops
+                // being true once deposits carry real, variable
+                // amounts (R17 Phase 3). Same leak class as
+                // declared_borrow_amount above — collateral value was
+                // already derivable from the circuit's public
+                // total_collateral_amount signal; this just makes it
+                // convenient to replay off-chain too.
+                total_collateral_amount,
             ),
         );
         Ok(next_index)
