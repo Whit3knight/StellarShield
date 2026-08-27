@@ -59,10 +59,13 @@ pragma circom 2.1.9;
 //   bond_salt_value             salt for collateral_value_commit       (Track L)
 //   bond_salt_price             salt for borrow_price_commit           (Track L)
 //
-// LTV check: Σ (amount × price) × 10000 >= borrow_amount × hf_min_bps.
-// R20: this check is now the REAL solvency guard, not decorative —
+// LTV check: Σ (amount × price) × 10000 >= borrow_amount × hf_min_bps × PRICE_SCALE.
+// R20: this check is the real solvency guard, not decorative —
 // `oracle_price` is a verified public signal instead of an
-// unconstrained private witness.
+// unconstrained private witness. Post-R20 follow-up: both LTV/HF
+// comparators scale `borrow_amount`'s side by PRICE_SCALE (1e14) to
+// match `oracle_price`'s own scale — the original R17-era formula
+// compared them directly, off by ~1e14x too loose.
 
 include "circomlib/circuits/poseidon.circom";
 include "circomlib/circuits/comparators.circom";
@@ -201,24 +204,44 @@ template Borrow(depth, notes) {
     signal total_collateral_amount;
     total_collateral_amount <== collateral_amounts[0] + collateral_amounts[1] + collateral_amounts[2] + collateral_amounts[3];
 
-    // LTV check: `total_collateral_value * 10000 >= borrow_amount * hf_min_bps`.
+    // Dimensional fix (post-R20 follow-up): `oracle_price`/`total_
+    // collateral_value` carry PRICE_SCALE (1e14, matches `prices.ts`'s
+    // `PRICE_RATIO_SCALE`) — `borrow_amount` does not. Comparing them
+    // directly (as this circuit did through R20) is off by ~1e14x too
+    // loose: 1 stroop of collateral could satisfy max-LTV against a
+    // borrow of ~6.25e13 raw units at a realistic testnet price. Both
+    // checks below now scale `borrow_amount`'s side by PRICE_SCALE to
+    // match, canceling the factor instead of dividing it away (division
+    // isn't native arithmetic here; multiplying the other side by the
+    // same compile-time constant is equivalent and constraint-free).
+    var PRICE_SCALE = 100000000000000; // 1e14
+
+    // LTV check: `total_collateral_value * 10000 >= borrow_amount * hf_min_bps * PRICE_SCALE`.
     signal lhs;
     signal rhs;
     lhs <== total_collateral_value * 10000;
-    rhs <== borrow_amount * hf_min_bps;
+    rhs <== borrow_amount * hf_min_bps * PRICE_SCALE;
 
-    component hfCheck = GreaterEqThan(128);
+    // 160 bits: borrow_amount (<= MAX_NOTE_AMOUNT, ~60 bits) * hf_min_bps
+    // (u32, <= 32 bits) * PRICE_SCALE (~47 bits) can reach ~139 bits in
+    // the admin-set-risk-params worst case (deployed value is 12500,
+    // ~14 bits, but the circuit doesn't itself bound hf_min_bps/
+    // max_ltv_bps below u32) — 128 would silently miscompare once
+    // either side exceeds it, since GreaterEqThan/LessEqThan's
+    // subtraction trick is only sound when both operands fit the
+    // declared width.
+    component hfCheck = GreaterEqThan(160);
     hfCheck.in[0] <== lhs;
     hfCheck.in[1] <== rhs;
     hfCheck.out === 1;
 
-    // Max LTV: `borrow_amount * 10000 <= max_ltv_bps * total_collateral_value`.
+    // Max LTV: `borrow_amount * 10000 * PRICE_SCALE <= max_ltv_bps * total_collateral_value`.
     signal ltv_lhs;
     signal ltv_rhs;
-    ltv_lhs <== borrow_amount * 10000;
+    ltv_lhs <== borrow_amount * 10000 * PRICE_SCALE;
     ltv_rhs <== max_ltv_bps * total_collateral_value;
 
-    component ltvCheck = LessEqThan(128);
+    component ltvCheck = LessEqThan(160);
     ltvCheck.in[0] <== ltv_lhs;
     ltvCheck.in[1] <== ltv_rhs;
     ltvCheck.out === 1;

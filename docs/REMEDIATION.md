@@ -602,6 +602,64 @@ a *different* curve from circomlib's BN254-embedded "Baby Jubjub").
   `lint`/`typecheck`/`test` (271 passing)/`build`/`check:bundle` all
   green before deploy.
 
+### R21 — R20's LTV/HF checks were dimensionally broken, ~1e14x too loose [SHIPPED]
+
+Found immediately after shipping R20, before starting unrelated work —
+re-reading `borrow.circom`'s pre-existing (not introduced by R20) LTV/HF
+comparators while investigating liquidation's known dimensional bug (S4)
+surfaced the same defect class one file over.
+
+`oracle_price` carries `PRICE_RATIO_SCALE` (1e14, matches
+`features/markets/prices.ts`). `total_collateral_value = Σ amount ×
+oracle_price` inherits that scale; `borrow_amount` never did. The
+comparators compared them directly:
+```
+lhs = total_collateral_value * 10000        // scaled by 1e14
+rhs = borrow_amount * hf_min_bps            // NOT scaled
+```
+— off by ~1e14x too loose in both directions (HF floor and max-LTV
+ceiling). Concrete number at a real testnet price (~1.8e13): 1 stroop of
+collateral would satisfy max-LTV against a borrow of up to ~6.25e13 raw
+units. R20 made this check's price input honest (verified against live
+Reflector) but didn't touch the formula itself, and R20 also **removed**
+the old contract-side `dynamic_borrow_cap` (which WAS scale-correct) on
+the premise that the in-circuit check was now the real guard — so for
+the few hours between R20 and this fix, an attacker bypassing the
+client's own `computeBorrowAmount` helper (which was always scale-correct)
+could have opened a materially under-collateralized position with a
+valid proof. No such transaction was observed on the live contract in
+that window (testnet, single active client).
+
+**Fix:** both comparators now scale `borrow_amount`'s side by the same
+`PRICE_SCALE` constant (1e14) instead of dividing the collateral side —
+equivalent, and division isn't native circom arithmetic. Also widened
+`GreaterEqThan`/`LessEqThan` from 128 to 160 bits: `borrow_amount`
+(~60 bits) × `hf_min_bps`/`max_ltv_bps` (circuit-unbounded, u32 ⇒ up to
+32 bits) × `PRICE_SCALE` (~47 bits) can reach ~139 bits in the
+admin-set-risk-params worst case — comfortably over 128, which would
+have silently miscompared (circomlib's comparator trick is only sound
+when both operands fit the declared width) even after the scale fix.
+Deployed values (`hf_min_bps=12500`, `max_ltv_bps=6250`) are nowhere
+near that bound, but the circuit itself doesn't constrain the bps
+values' bit-width, so the wider comparator is not speculative margin —
+it closes an actually-reachable-by-admin-misconfiguration unsoundness.
+
+**Verification:** rebuilt witness for the same realistic scenario R20
+used (40,000,000 raw collateral, 1e14 parity price) — legitimate
+borrow (5,000,000, well under the corrected ~25,000,000 cap) still
+produces a valid witness; an oversized borrow (30,000,000, over the
+cap) now correctly fails witness generation (`Assert Failed`, the
+`ltvCheck` constraint) — confirmed it did NOT fail pre-fix by
+construction (this is exactly the bug). Full new trusted setup +
+Groth16 prove/verify cycle passed. Retested the full deposit→borrow
+round trip on the temp contract with the corrected wasm — still
+succeeds for an honest client. Deployed to the live contract via
+`upgrade` (wasm hash
+`c19b28f2135c66ad175a25b991bf0ca2747363d42826f995b1ce83e657ac6317`);
+`borrow-cap-helper` untouched (this fix is entirely inside
+`borrow.circom`/`borrow_verifier.rs`'s VK). Storage confirmed intact
+post-upgrade. `lint`/`typecheck`/`test` (271 passing) all green.
+
 ### Small items (slot into sequence)
 
 - **Zero Rust contract tests** — blocked on soroban-sdk 23. One README line stating the block + stopgap (TS fixtures + R6 e2e). Re-check next sdk release.

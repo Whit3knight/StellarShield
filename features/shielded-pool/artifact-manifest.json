@@ -1,8 +1,8 @@
 {
   "borrow_eligibility.wasm": "ce290e4eb948a1b8568ff99bbe00c456be020f3e8a8212d796f763172b9f9581",
   "borrow_eligibility.zkey": "e648b7267fc4cf45a182adfb31ae3a2266c66247a654c0e34a46d53f54721ec5",
-  "shielded/borrow/borrow.wasm": "8729710cbc041701e8f849aabb2a6ce86f76fb8a669f08f21f1afe102775361f",
-  "shielded/borrow/borrow.zkey": "3fa268244d3e45025013d505a0cec6f5b2f5c1fbce2ab2df9af6cf562093b227",
+  "shielded/borrow/borrow.wasm": "527545dcebee38f7a88b182c92ef8d77137ccee9d10e5acbddb4062ef89f4213",
+  "shielded/borrow/borrow.zkey": "0b005d24705768f008c92be781b65be8f6e5a7d3564694e8d82acbb0331d9b7a",
   "shielded/deposit/deposit.wasm": "9a61fbfac0af24ec3364a10a05807a134ebc5bfdb333a2dc3ccacac97f50f6ba",
   "shielded/deposit/deposit.zkey": "0e477d067d74b1603e5808f2ce6598ba08ca8d17a547ff6841763018707083f5",
   "shielded/deposit_quad/deposit.wasm": "c0e60ca9e36f200d25e7a6c3ef5f3d2589e5a9b7ffa231e9a38d1bea32891d00",
