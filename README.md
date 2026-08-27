@@ -56,15 +56,14 @@ keep them equal.
 | --- | --- |
 | Phase 1 (receipt registry → real testnet) | shipped |
 | Phase 2 v1 shielded pool (deposit / withdraw / borrow / repay / withdraw_loan) | shipped |
-| Track L v1 self-liquidate (bond commits, liquidate circuit, health badge) | built, **triggering inert** — see Liquidation status below |
-| Track C-simple bounty payout (1×denomination per liquidation) | shipped (contract path; unreachable while triggering is inert) |
+| Track L v1 self-liquidate (bond commits, liquidate circuit, health badge) | shipped, triggering works (R22) — see Liquidation status below |
+| Track C-simple bounty payout (1×denomination per liquidation) | shipped |
 | Track G-lite watchlist CLI (`bun run scan:underwater`) | shipped |
-| **Track A** ivk/nk split → pre-published `loan_nullifier` + sidecar + `liquidate_shielded_v2` | built, **triggering inert** — see Liquidation status below |
+| **Track A** ivk/nk split → pre-published `loan_nullifier` + sidecar + `liquidate_shielded_v2` | shipped, triggering works (R22) — see Liquidation status below |
 | **Track D** interest accrual on repay (`BorrowIndexAtOpen` + extended repay circuit) | shipped |
 | Track E fixture harness (TS-side against on-disk fixtures) | shipped |
 | Track G-full permissionless service worker (authenticated CLI mode) | shipped (needs deployed `liquidation_service_pk` slot value + matching `LIQUIDATION_SERVICE_SK` to activate) |
-| Autonomous liquidation loop (`scan:underwater --trigger`) | shipped but inert — the loop runs, the underwater proof never succeeds (see below) |
-| **Track V3** liquidate circuit with explicit divisor + contract-read price | not started — the blocker for live liquidation |
+| Autonomous liquidation loop (`scan:underwater --trigger`) | shipped, works (R22) |
 | Service keypair generator (`bun run gen:service-key`) | shipped |
 | Deployment runbook + lifecycle demo doc | shipped (`docs/deployment.md`, `docs/demo.md`) |
 | Multi-note deposit (`shielded-deposit-quad` circuit + `deposit-quad-prover.ts`) | experimental — circuit, verifier (`deposit_quad_verifier`), prover, and artifacts exist but are not wired into `use-deposit.ts`; not a supported flow |
@@ -231,7 +230,7 @@ stellar contract invoke \
 ## Deferred
 
 - **Collateral recovery on repay — SHIPPED (R23)**: `repay_shielded_v2` mints a recovered collateral commitment back to `collateral_asset`'s deposit tree, sized from the loan's Track L bond. This is the default path for every loan since Track L. Only pre-Track-L loans (no `LiquidationBond` on file) still fall back to v1 `repay_shielded`, which burns the original collateral notes permanently.
-- **Liquidation triggering — built but INERT (fails closed)**. Every piece exists and is wired: the borrow circuit publishes 3 bond commitments; the contract persists `LiquidationBond` keyed by the loan commitment; `shielded-liquidate` (v1, 1476 non-linear constraints) and `shielded-liquidate-v2` (Track A, 933 non-linear, pot12, no `sk` in the witness) both prove a position underwater and burn the loan nullifier via `liquidate_shielded` / `liquidate_shielded_v2`; `useLiquidate` fetches the `LoanNullifier` sidecar and branches v2-present / v1-fallback; `LoanHealthBadge` renders health from cached Reflector prices; the CLI can trigger autonomously. **What does not work is the underwater test itself.** Both circuits compare `loan_amount · threshold_bps · borrow_price` against `collateral_notional · current_price · 10000`, but `collateral_notional` carries the borrow circuit's `1e14` price scale that the loan side does not, so the inequality is dimensionally mismatched and no honest position satisfies it — witness generation fails and no liquidation can be triggered. Both call sites also skip when Reflector has no feed. Before commit `09471e9` the same comparison ran fail-OPEN, with every position testing as underwater; it now fails closed, which is the safe direction but is not a working feature. Unblocking it needs a v3 circuit with an explicit divisor plus a contract-read price — see the `ponytail:` comments in `features/shielded-pool/use-liquidate.ts` and `contracts/scripts/scan-underwater.ts`. Design context in `docs/liquidation-design.md` §Track A.
+- **Liquidation triggering — SHIPPED (R22)**. Every piece is wired: the borrow circuit publishes 3 bond commitments; the contract persists `LiquidationBond` keyed by the loan commitment; `shielded-liquidate` (v1) and `shielded-liquidate-v2` (Track A, no `sk` in the witness) both prove a position underwater and burn the loan nullifier via `liquidate_shielded` / `liquidate_shielded_v2`; `useLiquidate` fetches the `LoanNullifier` sidecar and branches v2-present / v1-fallback; `LoanHealthBadge` renders health from cached Reflector prices; the CLI can trigger autonomously. The underwater test itself used to be dimensionally broken (`collateral_notional` carried the borrow circuit's `1e14` price scale, `loan_amount` didn't — no honest position could satisfy it) — fixed by cross-multiplying instead of dividing (no field-division bug, no dimensional mismatch), matching `threshold_bps`'s convention to `components/organisms/loan-health.ts`, and adding a live Reflector cross-check on `current_price` (`liquidate_shielded`/`liquidate_shielded_v2` reject a fabricated price, same shape as `borrow_shielded`'s own oracle check). Both call sites still skip/fail-closed when Reflector has no feed. Design context in `docs/liquidation-design.md` §Track A; fix detail in `docs/REMEDIATION.md` R22.
 - **Other deferred**: automated e2e prove→submit→verify testnet harness (all 3 recent hotfixes — pub-signal order, G2 encoding, Merkle budget — would have been caught by one).
 - **Reflector on-chain commitment cross-check**: borrow circuit publishes a Poseidon commitment over the oracle price; the contract now enforces oracle freshness but not the commitment match. Waiting on a paired oracle attestation channel.
 - **Rust unit tests**: soroban-sdk `testutils` feature triggers an upstream ed25519-dalek / rand_core conflict against soroban-env-host 22.1.x. Fixture cross-checks in `contracts/borrow-pool/tests/{poseidon,merkle}_fixtures.txt` cover the primitives until soroban-sdk 23 lands.
@@ -257,10 +256,17 @@ Testnet stage. These are honest limitations, not solved problems:
 - **Anonymity set is effectively zero** at current testnet volume with fixed
   denominations. Timing/amount correlation links deposits to withdrawals
   regardless of the cryptography.
-- **Oracle price commitment is not cross-checked on-chain** (the contract
-  enforces freshness only). A malicious client can commit to a price that
-  differs from Reflector; `bun run scan:underwater` monitoring is the interim
-  detection. See `docs/REMEDIATION.md` for the sequenced fixes (R1, R3, R7).
+- **Oracle price is cross-checked live, but not commitment-bound (R20, gated R7-real)**.
+  `borrow_shielded`/`liquidate_shielded`/`liquidate_shielded_v2` all verify
+  their proof's price against a live Reflector read within a 200bps
+  tolerance and fail closed (`Error::StaleOracle`) if Reflector has no
+  feed or the price is out of band — a client can no longer fabricate an
+  arbitrary price. What's still missing: the contract doesn't pin the
+  proof to a specific Reflector round on-chain, so a narrow window
+  around the tolerance band is unverified beyond "was live at call
+  time." Deeper on-chain commitment cross-check (R7-real) is gated on
+  the mainnet decision — see `docs/REMEDIATION.md` R20 (shipped) and R7
+  (gated).
 
 ## Commands cheat sheet
 
