@@ -259,8 +259,8 @@ function AssetGroupCard({
         {
           label: "Amounts",
           value: (
-            <PrivateValue className="italic text-muted-foreground">
-              Hidden (private note)
+            <PrivateValue className="font-mono text-muted-foreground">
+              {formatGroupAmounts(group)}
             </PrivateValue>
           ),
         },
@@ -431,6 +431,22 @@ const STALE_LOAN_SECS = 30 * 24 * 60 * 60
 
 function formatNoteAmount(note: ShieldedNote): string {
   return `${formatRawAmount(note.amount, note.asset)} ${note.asset}`
+}
+
+// Sums notes already visible one scroll down (NoteList renders each
+// one's real amount) — this reveals nothing a viewer couldn't already
+// add up themselves.
+function formatGroupAmounts(group: AssetGroup): string {
+  const parts: string[] = []
+  if (group.deposits.length > 0) {
+    const total = group.deposits.reduce((sum, note) => sum + note.amount, 0n)
+    parts.push(`${formatRawAmount(total, group.asset)} ${group.asset} deposited`)
+  }
+  if (group.loans.length > 0) {
+    const total = group.loans.reduce((sum, note) => sum + note.amount, 0n)
+    parts.push(`${formatRawAmount(total, group.asset)} ${group.asset} borrowed`)
+  }
+  return parts.join(" · ")
 }
 
 function pickRepaySource(
