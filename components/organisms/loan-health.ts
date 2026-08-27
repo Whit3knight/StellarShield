@@ -68,16 +68,9 @@ export function loanHealth({
   // and the only ordering that liquidates before a position is
   // already underwater.
   //
-  // ponytail: contracts/circuits/shielded-liquidate{,-v2}/src/liquidate.circom
-  // consumes the SAME on-chain `threshold_bps` under the opposite
-  // convention — `underwater when collateral/loan < threshold_bps/10000`,
-  // i.e. 85%, a floor rather than an LTV cap. That would mean the
-  // position isn't liquidatable until it is already ~15% underwater.
-  // Harmless today only because liquidation triggering is separately
-  // dimensionally inert (see the ponytail: notes in use-liquidate.ts
-  // and scan-underwater.ts) and fails closed regardless of this gate.
-  // Whoever builds the v3 circuit must pick ONE convention for both
-  // sides — matching this UI's reading, not the current circuits' —
-  // or the "at risk" badge and the prover will disagree by ~1.38x.
+  // R22: contracts/circuits/shielded-liquidate{,-v2}/src/liquidate.circom
+  // and features/shielded-pool/liquidate-math.ts now consume
+  // `threshold_bps` under this exact same convention (see
+  // docs/REMEDIATION.md R22 — they used to have it backwards).
   return { atRisk: hfPercent * thresholdBps < 10_000 * 100, hfPercent }
 }

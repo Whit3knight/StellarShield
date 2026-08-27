@@ -46,6 +46,7 @@ import type { SupportedAssetSymbol } from "@/features/markets"
 import { computeCommitment, DENOMINATION, randomFieldElement } from "@/features/notes"
 import { deriveShieldedIdentity, encodeMemoBundle, encryptMemo, tryDecryptAnyMemo } from "@/features/notes/memo"
 import { fetchAllContractEvents, type RpcEvent } from "@/features/notes/rpc-events"
+import { collateralNow, isUnderwater } from "@/features/shielded-pool/liquidate-math"
 import { proveLiquidateV2 } from "@/features/shielded-pool/liquidate-v2-prover"
 
 const CONTRACT =
@@ -324,15 +325,12 @@ async function triggerAll(
       SUPPORTED_ASSETS[Number(row.bond.collateral_asset_tag)]
     if (!borrowAsset || !collateralAsset) continue
 
-    // ponytail: cross-asset liquidation triggering is dimensionally
-    // inert until a v3 circuit with an explicit divisor + a
-    // contract-read price lands. Fails closed (no feed → skip); the
-    // old code fetched the LOAN asset's USD price to compare against a
-    // collateral-denominated bond, which was fail-open — every
-    // position looked underwater.
-    //
-    // v3 also has to fix the threshold_bps convention — see the
-    // ponytail: note in components/organisms/loan-health.ts.
+    // R22: the underwater math and threshold_bps convention were fixed
+    // (see docs/REMEDIATION.md R22) — triggering is live. Still fails
+    // closed if Reflector is unreachable (no feed → skip), same as
+    // before; the contract independently cross-checks this price
+    // against a live read too, so a stale/wrong value here just gets
+    // rejected on submit rather than triggering a bad liquidation.
     const priceNow = await fetchPriceRatio(collateralAsset, borrowAsset).catch(
       () => null
     )
@@ -495,14 +493,23 @@ function checkUnderwater(inputs: {
   borrowPrice: bigint
   priceNow: bigint
 }): { underwater: boolean; hfRatio: number } {
-  const lhs =
-    inputs.loanAmount * BigInt(LIQUIDATION_THRESHOLD_BPS) * inputs.borrowPrice
-  const rhs = inputs.collateralNotional * inputs.priceNow * 10_000n
-  const underwater = lhs > rhs
-  // hf_ratio = collateral_value_now / (loan_amount * threshold)
-  //          = (collateral_notional * priceNow) / (loan_amount * threshold * borrowPrice / 10_000)
-  //          = rhs / lhs
-  const hfRatio = lhs === 0n ? Infinity : Number(rhs) / Number(lhs)
+  const underwater = isUnderwater({
+    loanAmount: inputs.loanAmount,
+    collateralNotional: inputs.collateralNotional,
+    borrowPrice: inputs.borrowPrice,
+    currentPrice: inputs.priceNow,
+    thresholdBps: LIQUIDATION_THRESHOLD_BPS,
+  })
+  const now = collateralNow({
+    collateralNotional: inputs.collateralNotional,
+    borrowPrice: inputs.borrowPrice,
+    currentPrice: inputs.priceNow,
+  })
+  // hfRatio = collateralNow / (loanAmount * threshold/10000) — 1.0 at
+  // exactly the liquidation boundary, <1 underwater, >1 healthy.
+  const denominator = inputs.loanAmount * BigInt(LIQUIDATION_THRESHOLD_BPS)
+  const hfRatio =
+    denominator === 0n ? Infinity : Number(now * 10_000n) / Number(denominator)
   return { underwater, hfRatio }
 }
 

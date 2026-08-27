@@ -61,9 +61,8 @@ note inventory from public chain events **within the RPC retention window**
    repays with interest. Wants loan size and liquidation level private.
 3. **Lena, liquidation operator** — runs `bun run scan:underwater` for the
    watchlist and triage. Never holds borrower *spending* keys (v2 circuit), but
-   **does** decrypt all borrowers' position openings (REMEDIATION R3). She
-   cannot currently earn a bounty: `--trigger` never produces a valid
-   underwater proof (see P0 solvency).
+   **does** decrypt all borrowers' position openings (REMEDIATION R3). Can now
+   earn a bounty (R22 — see P0 solvency).
 4. **Devon, developer/admin** — deploys/upgrades contract, sets params,
    registers markets, maintains circuits.
 
@@ -92,26 +91,27 @@ note inventory from public chain events **within the RPC retention window**
 - On a fresh browser, recover my note inventory by scanning public events
   (window-bounded — NFR-R1).
 
-### P0 — solvency `[BUILT — TRIGGERING INERT]`
+### P0 — solvency `[IMPLEMENTED — R22]`
 
-Every component below exists and is wired end to end, but no liquidation can
-actually fire: the v1/v2 underwater inequality compares a `1e14`-scaled
-`collateral_notional` against an unscaled loan side, so witness generation
-fails for every position (`liquidate_v2.circom:59-72`). It **fails closed**.
-Before commit `09471e9` the same comparison was fail-OPEN — every position
-tested as underwater. Unblocking requires a v3 circuit with an explicit
-divisor plus a contract-read price (`ponytail:` comments in
-`features/shielded-pool/use-liquidate.ts`, `contracts/scripts/scan-underwater.ts`).
+Triggering works. Fixed three bugs (see `docs/REMEDIATION.md` R22): the
+v1/v2 underwater inequality compared a `1e14`-scaled `collateral_notional`
+against an unscaled loan side (dimensionally broken since `09471e9`,
+which is why it went from fail-OPEN — every position tested underwater —
+to fail-CLOSED — no proof could ever satisfy it); `threshold_bps`'s
+convention was backwards from `components/organisms/loan-health.ts`'s own
+"at risk" math; and the contract never cross-checked `current_price`
+against a live oracle read. A real forced-underwater liquidation now
+succeeds on-chain against a live Reflector price.
 
 - Self-liquidate an underwater position (v1 circuit + bond commitments).
-  `[BUILT — cannot trigger]`
+  `[IMPLEMENTED]`
 - As an operator, liquidate underwater positions without borrower spending
   keys via memo openings + v2 circuit (`liquidate_shielded_v2`); v1 fallback
-  for grandfathered bonds. `[BUILT — cannot trigger]`
+  for grandfathered bonds. `[IMPLEMENTED]`
 - Enumerate live bonds (watchlist), triage with decrypted openings
   (authenticated mode). `[IMPLEMENTED]` Auto-trigger (`--trigger` +
-  `LIQUIDATOR_SECRET` + `LIQUIDATION_SERVICE_SK`) runs the loop but never
-  produces a proof. `[BUILT — inert]`
+  `LIQUIDATOR_SECRET` + `LIQUIDATION_SERVICE_SK`) runs the loop and
+  produces real proofs. `[IMPLEMENTED]`
 
 ### P1 — quality of life
 
@@ -264,8 +264,7 @@ divisor plus a contract-read price (`ponytail:` comments in
 - **FR-L3:** `--trigger` requires **both** `LIQUIDATION_SERVICE_SK` and
   `LIQUIDATOR_SECRET` (Stellar signing key); autonomous loop. Activation
   additionally requires the on-chain `liquidation_service_pk` slot set.
-  `[built, inert — the loop runs but the underwater proof never succeeds;
-  see P0 solvency]`
+  `[IMPLEMENTED — R22]`
 - **FR-L4:** `bun run gen:service-key` keypair generator.
 
 ## 5. Non-Functional Requirements
@@ -356,10 +355,12 @@ backward-compat. Remaining gaps:
    the liquidate v2/v1 branch remain untested at the unit level (the latter is
    a one-line `!= null` in a heavy async hook; the e2e harness exercises the
    real paths).
-2b. **No liquidation proving test at any level.** The underwater inequality
-   went fail-OPEN and then fail-CLOSED without a single test noticing. A
-   fixture asserting "underwater position ⇒ proof succeeds; healthy ⇒ fails"
-   is the highest-value missing test in the repo.
+2b. ✅ **Closed — liquidation formula tested** (R22).
+   `features/shielded-pool/liquidate-math.test.ts` asserts
+   underwater/healthy cases and cross-checks every boundary against
+   `loan-health.ts`'s own fixture. The underwater inequality had gone
+   fail-OPEN and then fail-CLOSED without a single test noticing before
+   this landed.
 3. ✅ **Closed — e2e prove→submit→verify harness** (`bun run test:e2e`) now
    asserts the on-chain borrow verify and runs on a schedule in CI. This is the
    primary regression net for the pub-signal-order / G2 / Merkle-budget class,
@@ -384,7 +385,7 @@ backward-compat. Remaining gaps:
 | Recovery | Persisted local note store + ~7-day event scan (backup export removed 2026-07) | Indexer/archive, gated on mainnet |
 | Proving | Real in-browser Groth16, artifacts hash-pinned (R8); dev trusted setup | Production ceremony / universal setup |
 | Repay | Burns collateral notes; interest accrual live | v2 repay circuit: collateral recovery |
-| Liquidation | v1 + v2 circuits, contract fns, hook, and CLI all built; **triggering inert (fails closed)** on a dimensional mismatch; single trusted operator | v3 circuit with explicit divisor + contract-read price, then activate service; decentralization dropped (FROST) — operator trust stays unless revisited |
+| Liquidation | v1 + v2 circuits, contract fns, hook, and CLI all built; **triggering works (R22)** — cross-multiplied underwater check, live-price cross-check, correct threshold_bps convention; single trusted operator | Activate a production service operator; decentralization dropped (FROST) — operator trust stays unless revisited |
 | Solvency | In-circuit LTV/HF band is the real guard (R20) — `oracle_price` is a public signal verified against a live Reflector read, 200bps tolerance, fails closed with no fallback cap; collateral/loan amounts private again via Jubjub Pedersen commitments | — |
 | Oracle | Reflector freshness check only (live-price strkey bug fixed) | On-chain commitment cross-check |
 | Testing | TS unit (197 in 27 files) + fixture harness + **e2e testnet harness in CI (R6)** | Rust tests post soroban-sdk 23; liquidation proving fixture |
@@ -434,14 +435,12 @@ Business questions live in BRD §12; engineering remediation questions in REMEDI
 **Status:** M1 (docs honest), M2 (trustworthy build), and M3 (privacy works)
 of [REMEDIATION.md](./REMEDIATION.md) are complete. The unit-domain break
 (`09471e9`) moved solvency from the circuit into the contract and left
-liquidation triggering inert; R20 has since moved it back into the circuit
-(shipped — see REMEDIATION.md R20). Liquidation
-triggering is a separate, still-unresolved gap. **Recommended next:** (1) the
-R20 live-contract upgrade once verified end-to-end on a temp deploy; (2) a
-liquidation proving fixture (gap 2b) — the missing regression that let
-liquidation flip from fail-open to fail-closed unnoticed; (3) the v3
-liquidate circuit with an explicit divisor + contract-read price, which the
-fixture would then gate; (4) manual browser smoke-test of the R1 signature
-popup UX; (5) minor dead-code cleanups (OQ #1 above); (6) v2 repay
-(collateral recovery); (7) M4 mainnet-gate prerequisites remain gated on a
+liquidation triggering inert; R20/R21 moved borrow solvency back into the
+circuit and fixed its own dimensional bug, and R22 fixed liquidation's
+matching dimensional bug, its `threshold_bps` convention, and added the
+missing live-price cross-check — both shipped live. **Recommended next:**
+(1) manual browser smoke-test of the R1 signature popup UX; (2) minor
+dead-code cleanups (OQ #1 above, plus the now-fully-dead
+`dynamic_borrow_cap`/`borrow-cap-helper` entrypoint); (3) v2 repay
+(collateral recovery); (4) M4 mainnet-gate prerequisites remain gated on a
 mainnet decision.

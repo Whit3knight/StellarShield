@@ -156,15 +156,13 @@ export function useLiquidate(
         // the current reading must be that same ratio or the circuit's
         // underwater inequality compares two different dimensions.
         //
-        // ponytail: cross-asset liquidation triggering stays
-        // dimensionally inert until a v3 circuit with an explicit
-        // divisor + a contract-read price lands. It now fails closed —
-        // no feed, no liquidation. Previously it read the LOAN asset's
-        // USD price against a collateral-denominated bond, which was
-        // fail-open: every position looked underwater.
-        //
-        // v3 also has to fix the threshold_bps convention — see the
-        // ponytail: note in components/organisms/loan-health.ts.
+        // R22: the underwater math and threshold_bps convention were
+        // fixed (see docs/REMEDIATION.md R22) — triggering is live.
+        // proveLiquidate/proveLiquidateV2's own pre-flight guard
+        // (features/shielded-pool/liquidate-math.ts) throws before a
+        // proof is even attempted if this reads as healthy; the
+        // contract independently cross-checks this price against a
+        // live Reflector read too.
         const currentPrice = await fetchPriceRatio(
           collateralAsset,
           loanNote.asset

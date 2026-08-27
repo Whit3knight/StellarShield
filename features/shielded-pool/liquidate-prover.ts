@@ -16,6 +16,7 @@ import {
   type ShieldedAsset,
 } from "@/features/notes"
 import { fetchArtefact } from "./artifacts"
+import { isUnderwater } from "./liquidate-math"
 import { poseidon } from "@/features/notes/poseidon"
 import { bigintTo32Bytes, structureProof } from "./proof-encoding"
 
@@ -69,10 +70,7 @@ export async function proveLiquidate(
 
   // Client-side underwater sanity so we never generate a proof the
   // contract will reject.
-  const lhs =
-    inputs.loanAmount * BigInt(inputs.thresholdBps) * inputs.borrowPrice
-  const rhs = inputs.collateralNotional * inputs.currentPrice * 10_000n
-  if (lhs <= rhs) {
+  if (!isUnderwater(inputs)) {
     throw new Error("liquidate: position is not underwater at current price")
   }
 
@@ -114,16 +112,28 @@ export async function proveLiquidate(
         fullProve: (
           input: Record<string, string>,
           wasmFile: Uint8Array | string,
-          zkeyFile: Uint8Array | string
+          zkeyFile: Uint8Array | string,
+          logger?: unknown,
+          wtnsCalcOptions?: unknown,
+          proverOptions?: { singleThread?: boolean }
         ) => Promise<{ proof: unknown; publicSignals: string[] }>
       }
     }
   ).groth16
 
+  // In Bun the multithreaded Groth16 prover crashes on Web Worker
+  // message dispatch (same issue borrow-prover.ts works around) —
+  // relevant here because scan-underwater.ts's `--trigger` flow calls
+  // this from Bun directly, not just the browser.
+  const singleThread =
+    typeof (globalThis as { Bun?: unknown }).Bun !== "undefined"
   const { proof, publicSignals } = await groth16.fullProve(
     witnessInputs,
     wasm,
-    zkey
+    zkey,
+    undefined,
+    undefined,
+    { singleThread }
   )
 
   const structured = structureProof(

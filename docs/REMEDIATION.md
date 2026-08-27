@@ -660,6 +660,103 @@ succeeds for an honest client. Deployed to the live contract via
 `borrow.circom`/`borrow_verifier.rs`'s VK). Storage confirmed intact
 post-upgrade. `lint`/`typecheck`/`test` (271 passing) all green.
 
+### R22 — Liquidation v3: fixed the dimensional bug, threshold_bps convention, and missing live-price check [SHIPPED]
+
+Resolves **S4** below. Liquidation triggering has been inert since
+`09471e9` — the v1/v2 underwater inequality is dimensionally broken
+(`collateral_notional` carries `PRICE_RATIO_SCALE`, 1e14, from being
+`raw_collateral × borrow_price` at open; `loan_amount` doesn't), so no
+proof could ever satisfy it. Three independent bugs, found by direct
+code reading, ship together — fixing only the dimensional one would
+still let a prover fabricate `current_price` to force `underwater` on a
+healthy position, the exact fail-open regression `09471e9` avoided:
+
+1. **Missing `PRICE_SCALE` factor** — same bug class as R21, duplicated
+   in five places: both `contracts/circuits/shielded-liquidate{,-v2}/src/liquidate.circom`,
+   both provers' client-side pre-flight guards, and
+   `contracts/scripts/scan-underwater.ts`'s `checkUnderwater`.
+2. **`threshold_bps` convention was backwards from the UI.**
+   `components/organisms/loan-health.ts` (what renders the "at risk"
+   badge) treats it as a max-LTV ceiling on loan/collateral; both
+   circuits treated it as a floor on collateral/loan — the opposite
+   relationship. Circuits now match the UI's convention (which was
+   always correct).
+3. **No contract-side live-price cross-check** — `liquidate_shielded`/
+   `liquidate_shielded_v2` only checked `current_price != 0`, the same
+   gap R20 closed for `borrow_shielded`'s `oracle_price`. A prover could
+   supply any non-zero price and the underwater check would evaluate
+   against a fabricated number.
+
+**Fix:**
+- Both circuits: underwater when `collateral_now * threshold_bps <
+  loan_amount * 10000`, matching `loan-health.ts` exactly, where
+  `collateral_now` descales `collateral_notional` back through
+  `current_price / (borrow_price * PRICE_SCALE)`.
+- **A real bug surfaced mid-implementation, corrected before shipping:**
+  the first version computed `collateral_now` via a witness-supplied
+  field division (`<--` + `===`, the same pattern
+  `jubjub_pedersen.circom`'s `PedersenCommit` uses for curve-point
+  arithmetic). That pattern is only sound when the division is *exact* —
+  circom's `/` is field-inverse multiplication, not integer floor
+  division, so for any non-exact quotient (i.e. any real price ratio)
+  it produces a ~253-bit field-inverse artifact instead of the intended
+  small integer, and `Num2Bits` fails for every real input. Caught by
+  testing against real testnet data (not just contrived synthetic
+  cases) — the synthetic unit tests alone had passed. **Fixed** by
+  cross-multiplying instead — no division anywhere:
+  `collateral_notional * current_price * threshold_bps < loan_amount *
+  10000 * borrow_price * PRICE_SCALE`. Comparator widened to
+  `LessThan(200)` — real proof data lands around ~126 bits; generous
+  headroom over that, not the field's ~253-bit ceiling, same
+  "comfortably safe for realistic values, contract-level trust for the
+  rest" judgment call R21 used, given `threshold_bps` is circuit-
+  unconstrained u32 and `current_price`/`collateral_notional` aren't
+  range-checked in-circuit (soundness against an absurd value comes
+  from the contract's live-price cross-check and `fr_to_amount_checked`,
+  not an in-circuit bound).
+- `lib.rs`: new shared `verify_live_price` helper (extracted from R20's
+  inline `borrow_shielded` block, reused there too) — both liquidate
+  functions now cross-check `current_price` against a live Reflector
+  read via the existing `live_oracle_price`/`BorrowCapHelper::price_ratio`
+  (no helper redeploy needed) within `ORACLE_PRICE_TOLERANCE_BPS`,
+  failing closed with `Error::StaleOracle`. Replaced the old
+  `fr_to_u128`-based zero-check with `fr_to_amount_checked` (avoids a
+  low-128-bit-truncation false-positive edge case on the zero guard).
+- New `features/shielded-pool/liquidate-math.ts` — one shared
+  `isUnderwater`/`collateralNow` implementation, imported by both
+  provers and `scan-underwater.ts` instead of five independently-
+  maintained copies of the same formula, which is the direct reason
+  this bug survived multiple earlier fix opportunities.
+- **Separately discovered and fixed while testing on real data**: both
+  liquidate provers never set snarkjs's `singleThread` proverOption, so
+  `groth16.fullProve` crashes under Bun (the multithreaded prover
+  breaks on Web Worker message dispatch) — the same issue
+  `borrow-prover.ts` already works around. This silently broke
+  `scan-underwater.ts`'s `--trigger` flow (a Bun script) for as long as
+  it's existed; not caught until this fix was tested against a real
+  on-chain proof generation rather than only synthetic witnesses.
+- New `features/shielded-pool/liquidate-math.test.ts`: known-good/
+  known-bad cases plus an exact cross-check against `loan-health.ts`'s
+  `loanHealth()` at every boundary case in its own existing fixture —
+  closes REMEDIATION's own "no fixture at any level covers liquidation"
+  gap for the formula itself.
+- **Verification**: synthetic witness tests (underwater passes, healthy
+  fails) for both circuits before AND after the division→cross-multiply
+  fix (the "before" round is what caught the division bug); full local
+  Groth16 prove/verify for both; a **real on-chain test** — opened a
+  loan on a temp contract at the actual ~59.37% LTV `computeBorrowAmount`
+  produces, temporarily lowered `liquidation_threshold_bps` below that
+  (genuinely underwater at the real current price, no fabricated data),
+  decrypted the borrower's own memo for the bond opening, generated a
+  real `liquidate_shielded_v2` proof against a live Reflector price, and
+  it succeeded on-chain; then restored the threshold and confirmed the
+  now-healthy position's proof generation correctly refuses. Deployed to
+  the live contract via `upgrade` (wasm hash
+  `abc26f23641f42dd0d27cf0505e7bb2df87bc207a9b1b3ea3f3e5ce9a95c4717`);
+  `borrow-cap-helper` untouched. Storage confirmed intact post-upgrade.
+  `lint`/`typecheck`/`test` (278 passing)/`build`/`check:bundle` all
+  green.
+
 ### Small items (slot into sequence)
 
 - **Zero Rust contract tests** — blocked on soroban-sdk 23. One README line stating the block + stopgap (TS fixtures + R6 e2e). Re-check next sdk release.
@@ -772,7 +869,7 @@ should be treated as one work item at the ceremony gate.
 LTV/HF band is the real solvency guard again. See R20 above for the full
 design and its own pending-upgrade caveat.
 
-### S4 — Liquidation triggering is inert; was previously fail-OPEN (`09471e9`) [CRITICAL]
+### S4 — Liquidation triggering is inert; was previously fail-OPEN (`09471e9`) [RESOLVED by R22]
 
 The register assumes Track A/L liquidation works. It does not.
 
@@ -790,12 +887,14 @@ skip when Reflector has no feed. See the `ponytail:` comments in
 `features/shielded-pool/use-liquidate.ts` and
 `contracts/scripts/scan-underwater.ts`.
 
-**Unblock:** a v3 liquidate circuit with an explicit divisor plus a
-contract-read price. **Gate it on a test first** — no fixture at any level
-covers liquidation proving, which is why the mechanism flipped from fail-open
-to fail-closed unnoticed. A fixture asserting "underwater ⇒ proof succeeds;
-healthy ⇒ proof fails" belongs ahead of the v3 build, and belongs in M2's
-safety-net bucket, not M4.
+**Update (R22):** implemented. Both circuits now cross-multiply instead of
+comparing dimensionally-mismatched values, `threshold_bps`'s convention
+matches `loan-health.ts`, and the contract cross-checks `current_price`
+against a live Reflector read. A real forced-underwater liquidation
+succeeded on-chain against a live price. See R22 above for the full
+writeup, including a real division-vs-cross-multiplication bug caught
+mid-implementation. `features/shielded-pool/liquidate-math.test.ts` is
+the fixture this section originally called for.
 
 ### S5 — Claim and repay are mutually exclusive
 

@@ -952,14 +952,7 @@ impl BorrowPool {
         if oracle_price <= 0 {
             return Err(Error::AmountOutOfRange);
         }
-        let live_price = live_oracle_price(&env, &collateral_asset, &borrow_asset)
-            .ok_or(Error::StaleOracle)?;
-        let price_diff = (oracle_price - live_price).abs();
-        if price_diff.saturating_mul(10_000)
-            > live_price.saturating_mul(ORACLE_PRICE_TOLERANCE_BPS as i128)
-        {
-            return Err(Error::StaleOracle);
-        }
+        verify_live_price(&env, &collateral_asset, &borrow_asset, oracle_price)?;
 
         // Deposit root sanity: must match the current on-chain state.
         let stored_root = state::deposit_root(&env, &collateral_asset)
@@ -1410,11 +1403,16 @@ impl BorrowPool {
         let threshold_fr = proof.public_signals.get(5).unwrap();
         let nullifier_fr = proof.public_signals.get(6).unwrap();
 
-        // A zero current_price satisfies the circuit's underwater
-        // inequality for free — every open position becomes liquidatable.
-        if fr_to_u128(&proof.public_signals.get(4).unwrap()) == 0 {
-            return Err(Error::InvalidProof);
+        // R22: current_price is now cross-checked against a live
+        // Reflector read (same shape as borrow_shielded's oracle_price,
+        // R20) instead of only a non-zero guard — a prover could
+        // otherwise supply any non-zero price and the circuit's
+        // underwater check would evaluate against a fabricated number.
+        let current_price = fr_to_amount_checked(&proof.public_signals.get(4).unwrap())?;
+        if current_price <= 0 {
+            return Err(Error::AmountOutOfRange);
         }
+        verify_live_price(&env, &collateral_asset, &borrow_asset, current_price)?;
 
         let loan_commit_bytes = loan_commit_fr.to_bytes();
         let bond = state::liquidation_bond(&env, &loan_commit_bytes)
@@ -1555,11 +1553,14 @@ impl BorrowPool {
         let borrow_price_commit_fr = proof.public_signals.get(2).unwrap();
         let threshold_fr = proof.public_signals.get(4).unwrap();
 
-        // A zero current_price satisfies the circuit's underwater
-        // inequality for free — every open position becomes liquidatable.
-        if fr_to_u128(&proof.public_signals.get(3).unwrap()) == 0 {
-            return Err(Error::InvalidProof);
+        // R22: current_price is now cross-checked against a live
+        // Reflector read instead of only a non-zero guard — see the
+        // matching comment in liquidate_shielded (v1).
+        let current_price = fr_to_amount_checked(&proof.public_signals.get(3).unwrap())?;
+        if current_price <= 0 {
+            return Err(Error::AmountOutOfRange);
         }
+        verify_live_price(&env, &collateral_asset, &borrow_asset, current_price)?;
 
         let bond = state::liquidation_bond(&env, &loan_commitment)
             .ok_or(Error::InvalidProof)?;
@@ -1793,6 +1794,28 @@ fn live_oracle_price(env: &Env, collateral_asset: &Symbol, borrow_asset: &Symbol
         )
         .ok()?
         .ok()?
+}
+
+/// R22: shared oracle-price cross-check, extracted from R20's inline
+/// `borrow_shielded` block so `liquidate_shielded`/`liquidate_shielded_v2`
+/// can reuse the exact same fail-closed logic for `current_price`
+/// instead of a third copy — verifies `claimed_price` (already
+/// range-checked via `fr_to_amount_checked` by the caller) matches a
+/// live Reflector read within `ORACLE_PRICE_TOLERANCE_BPS`.
+fn verify_live_price(
+    env: &Env,
+    collateral_asset: &Symbol,
+    borrow_asset: &Symbol,
+    claimed_price: i128,
+) -> Result<(), Error> {
+    let live_price =
+        live_oracle_price(env, collateral_asset, borrow_asset).ok_or(Error::StaleOracle)?;
+    let price_diff = (claimed_price - live_price).abs();
+    if price_diff.saturating_mul(10_000) > live_price.saturating_mul(ORACLE_PRICE_TOLERANCE_BPS as i128)
+    {
+        return Err(Error::StaleOracle);
+    }
+    Ok(())
 }
 
 fn load_frontier(

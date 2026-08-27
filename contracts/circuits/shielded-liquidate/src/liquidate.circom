@@ -8,17 +8,25 @@ pragma circom 2.1.9;
 //   2. The 3 bond commitments pinned at borrow-time match the private
 //      openings (loan_amount, collateral_notional, borrow_price).
 //   3. The loan is underwater at the caller-supplied `current_price`:
-//        loan_amount * threshold_bps * borrow_price
-//         > collateral_notional * current_price * 10_000
-//      Rearranged so both sides stay integer.
+//        collateral_now * threshold_bps < loan_amount * 10_000
+//      where collateral_now = collateral_notional * current_price /
+//      (borrow_price * PRICE_SCALE) — see the R22 comment below.
 //   4. `loan_nullifier = Poseidon(sk, loan_index)` matches, so the
 //      contract can burn the note atomically with the trigger.
 //
 // Contract cross-checks:
-//   - `current_price` freshness via oracle epoch.
+//   - `current_price` freshness via oracle epoch, AND (R22) magnitude
+//     against a live Reflector read.
 //   - `threshold_bps` matches its own risk_params.
 //   - The 3 bond commitments match the stored LiquidationBond keyed by
 //     `loan_commitment`.
+//
+// R22: the underwater check fixes two bugs the original circuit had
+// (see docs/REMEDIATION.md R22): a missing PRICE_SCALE divisor
+// (~1e14x too loose, why no proof could satisfy it post-09471e9,
+// exactly the R21 bug class) and a threshold_bps convention backwards
+// from components/organisms/loan-health.ts (the UI's own "at risk"
+// math) — this circuit now matches that convention.
 //
 // Public signals order:
 //   [0] loan_commitment
@@ -90,19 +98,33 @@ template Liquidate() {
     bondPrice.inputs[1] <== bond_salt_price;
     bondPrice.out === borrow_price_commit;
 
-    // 3. Underwater check:
-    //     loan_amount * threshold_bps * borrow_price
-    //       > collateral_notional * current_price * 10_000
-    signal lhs_partial;
-    signal lhs;
-    signal rhs_partial;
-    signal rhs;
-    lhs_partial <== loan_amount * threshold_bps;
-    lhs         <== lhs_partial * borrow_price;
-    rhs_partial <== collateral_notional * current_price;
-    rhs         <== rhs_partial * 10000;
+    // 3. Underwater check (R22 — see this file's header comment, and
+    // shielded-liquidate-v2's twin of this comment for why this is a
+    // cross-multiplication rather than a witness-division: field `/`
+    // is inverse multiplication, not integer floor division, and only
+    // gives the intended quotient when the division is exact — real
+    // price ratios essentially never are).
+    //
+    //   collateral_notional * current_price * threshold_bps
+    //     < loan_amount * 10000 * borrow_price * PRICE_SCALE
+    var PRICE_SCALE = 100000000000000; // 1e14, matches prices.ts PRICE_RATIO_SCALE
 
-    component underwater = GreaterThan(200);
+    signal cn_cp;
+    cn_cp <== collateral_notional * current_price;
+    signal lhs;
+    lhs <== cn_cp * threshold_bps;
+
+    signal la_bp;
+    la_bp <== loan_amount * borrow_price;
+    signal rhs;
+    rhs <== la_bp * (10000 * PRICE_SCALE);
+
+    // Width — see shielded-liquidate-v2's identical comment: generous
+    // headroom over the ~126-bit magnitude real proof data lands at,
+    // not the field's own ~253-bit ceiling. Soundness against an
+    // absurd current_price comes from the contract's live-price
+    // cross-check, not an in-circuit bound.
+    component underwater = LessThan(200);
     underwater.in[0] <== lhs;
     underwater.in[1] <== rhs;
     underwater.out === 1;
