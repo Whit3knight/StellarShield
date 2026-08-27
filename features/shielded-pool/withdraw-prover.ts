@@ -71,16 +71,29 @@ export async function proveWithdraw(
         fullProve: (
           input: Record<string, string | string[]>,
           wasmFile: Uint8Array | string,
-          zkeyFile: Uint8Array | string
+          zkeyFile: Uint8Array | string,
+          logger?: unknown,
+          wtnsCalcOptions?: unknown,
+          proverOptions?: { singleThread?: boolean }
         ) => Promise<{ proof: unknown; publicSignals: string[] }>
       }
     }
   ).groth16
 
+  // In Bun the multithreaded Groth16 prover crashes on Web Worker
+  // message dispatch — same issue every other prover in this codebase
+  // already works around (see docs/REMEDIATION.md R22). Browser
+  // callers (use-withdraw.ts) are unaffected; this only matters for
+  // Bun-based CLI/test scripts calling proveWithdraw directly.
+  const singleThread =
+    typeof (globalThis as { Bun?: unknown }).Bun !== "undefined"
   const { proof, publicSignals } = await groth16.fullProve(
     witnessInputs,
     wasm,
-    zkey
+    zkey,
+    undefined,
+    undefined,
+    { singleThread }
   )
 
   const structured = structureProof(

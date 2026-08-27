@@ -922,11 +922,115 @@ costs nothing behaviorally for honest callers.
   (no cross-contract call, well under budget). `lint`/`typecheck`/
   `test` (278 passing)/`cargo check`/`build`/`check:bundle` all green.
 
+### R25 — Loan/deposit claims could trap on a drained reserve instead of failing cleanly [SHIPPED]
+
+A real user hit `HostError: Error(Contract, #10)` calling
+`withdraw_loan_shielded` — the diagnostic log showed the pool's own
+XLM SAC balance (31,000,000 stroops) was smaller than the loan being
+claimed (250,000,000 stroops), so `tokens::transfer_out`'s raw
+`token::Client::transfer` call trapped inside the SAC with "balance is
+not sufficient to spend", escalated by the host into an opaque VM trap
+with no borrow-pool-level error code at all.
+
+**Root cause, structural, not a bug in any single call**: `borrow_shielded`
+mints a loan note based purely on collateral sufficiency (the circuit's
+LTV/HF band, cross-checked against a live oracle price) — it never
+checks whether the pool actually holds enough `borrow_asset` to pay the
+loan out later. A borrow can succeed while the pool's reserve for that
+asset is later drained by other deposits/withdrawals/claims before this
+borrower claims. This can't be caught at borrow time without either
+revealing amounts (breaking the R20 privacy design — `borrow_amount`/
+`total_collateral_amount` are private witnesses, never plaintext on
+the contract) or reviving an honest running `total_borrow_value` (a
+much larger redesign, evaluated and explicitly deferred — see the note
+below).
+
+**Fix**: at both real payout points — `withdraw_shielded` and
+`withdraw_loan_shielded`, the only two `tokens::transfer_out` call
+sites — check the pool's actual SAC balance before transferring, and
+fail with a new `Error::InsufficientLiquidity` (15) instead of letting
+the raw transfer trap. This is sound specifically *because* both of
+these are withdraw-time checks: the payout amount is already public at
+this point (it's about to move via a real, visible SAC transfer), so
+reading it to compare against the pool's balance reveals nothing a
+chain observer couldn't already see. The transaction reverts atomically
+either way, so a rejected claim leaves the nullifier unmarked — the
+note stays claimable once liquidity returns, not stuck.
+
+**A real instruction-budget complication, this time NOT self-inflicted**:
+`token::Client::balance()` had never been called anywhere in this
+contract before (only `.transfer()`, on the same client type), so
+adding it pulled in new host-call marshaling code, growing
+`borrow-pool`'s WASM (66995→67819 bytes, using a raw `env.invoke_contract`
+call rather than the typed `token::Client` wrapper — that alternative
+measured *larger*, 68170 bytes, once tried; see below). The initial
+assumption — "this pushed the already-marginal `deposit_shielded_quad`
+over budget, same R18/R23 pattern" — turned out to be **wrong**:
+`deposit_shielded_quad` was tested directly against the unmodified,
+currently-live R24 wasm (no R25 changes at all) and it **already**
+fails with `Error(Budget, ExceededLimit)`, 3/3 attempts, independent of
+this work. The apparent regression was an artifact of testing on
+near-empty fresh contracts, where the function's margin looks
+comfortable (measured 363.9M instructions once, 9% under the 400M
+ceiling) — that margin evidently erodes as a contract accumulates real
+state (larger Merkle trees, more nullifier entries), and the live
+contract has now accumulated enough that this pre-existing, previously
+undiscovered fragility is no longer theoretical. See the new small item
+below. Splitting the balance read into a separate helper contract (the
+usual R17/R23 fix for this budget class) was tried and **measured
+worse** here — 68170 bytes, bigger than either direct-embed option —
+because the thing being extracted (a single `i128` balance read) is
+smaller than the cross-contract client glue needed to reach it
+remotely; that pattern only pays off when the extracted logic (an
+embedded VK + pairing check, in R17/R23's case) is the larger side of
+that trade.
+**Verification**: real on-chain round trip on a temp contract —
+(a) deposit XLM then withdraw it back (pool balance sufficient) still
+succeeds normally; (b) XLM collateral, USDC borrow on a contract with
+zero USDC ever deposited (guaranteed shortfall, no real USDC needed to
+set up) — `withdraw_loan_shielded` cleanly rejects with
+`Error::InsufficientLiquidity` instead of a raw trap, and the loan
+nullifier is confirmed still unmarked afterward (retry-safe). Also
+fixed `withdraw-prover.ts` missing the R22 `singleThread` Bun
+Web-Worker workaround — the one remaining prover that hadn't picked it
+up, needed to run this item's own Bun-based test at all.
+`lint`/`typecheck`/`test` (281 passing)/`cargo check`/`build`/
+`check:bundle` all green.
+
+**Deliberately not built**: a borrow-time liquidity check. Would need
+either revealing `borrow_amount`/collateral amounts at borrow time
+(a real privacy regression, rejected), or reviving an honest
+plaintext `total_borrow_value` running total (R20 deliberately let
+this drift stale once amounts went private — see R20's own note on
+this same counter). That's a genuinely bigger redesign — a proper fix
+would need the contract to track committed exposure without decoding
+individual amounts (extending the R20 Jubjub Pedersen aggregate
+`RunningLoanCommit`/`RunningCollateralCommit` from "recorded, unread"
+to something the contract can actually bound against, or an explicit
+zero-knowledge solvency proof at claim time) — flagged as a new item,
+not attempted here.
+
+- **`deposit_shielded_quad` now fails its own instruction budget on
+  the live contract** — confirmed independent of R25 (see above): 3/3
+  simulation attempts against the unmodified R24 wasm return
+  `Error(Budget, ExceededLimit)`. This function is already documented
+  as experimental/unwired/not a supported flow (README roadmap table,
+  `docs/PRD.md`), used only by `contracts/scripts/e2e-borrow.ts`, never
+  by the real app — so this doesn't block anything user-facing, but it
+  does mean `e2e-borrow.ts`'s own collateral-provisioning step (which
+  calls `deposit_shielded_quad`) is now unreliable against the live
+  contract's current state. Needs a decision: reduce the function's own
+  instruction cost, or formally deprecate/remove it (it has zero real
+  callers) — not decided here.
+- **Borrow-time reserve-liquidity check** — deliberately not built;
+  see R25's own "Deliberately not built" note above. Real item, real
+  redesign, not a quick fix.
+
 ### Small items (slot into sequence)
 
 - **Zero Rust contract tests** — blocked on soroban-sdk 23. One README line stating the block + stopgap (TS fixtures + R6 e2e). Re-check next sdk release.
 - **`quote.ts` untested [DONE]** — `quote.test.ts` covers LTV/HF/liquidation-price edges: zero loan, zero collateral (including the health-factor-vs-liquidation-price distinction — the former reads 0, not null, when only collateral is zero), the max-LTV boundary (exactly at borrowing power passes, one cent over fails), and denomination-granularity truncation (an 8th fractional digit below the 7-decimal raw unit drops instead of rounding up).
-- **`shielded-deposit-quad` status [DONE]** — circuit + verifier + prover + artifacts exist, exercised only by `e2e-borrow.ts`, not wired into `use-deposit.ts`. README roadmap row exists ("experimental — ... not a supported flow"); `docs/PRD.md`'s stale `[STATUS UNCLEAR]` tag (claimed "in no roadmap track", no longer true) flipped to match. OQ-4 resolved.
+- **`shielded-deposit-quad` status [DONE, see R25 above for a new development]** — circuit + verifier + prover + artifacts exist, exercised only by `e2e-borrow.ts`, not wired into `use-deposit.ts`. README roadmap row exists ("experimental — ... not a supported flow"); `docs/PRD.md`'s stale `[STATUS UNCLEAR]` tag (claimed "in no roadmap track", no longer true) flipped to match. OQ-4 resolved. Its instruction budget has since gone from "documented as intermittently flaky" to "consistently fails on the live contract" — see R25.
 
 ---
 

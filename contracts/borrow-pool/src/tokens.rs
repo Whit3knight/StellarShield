@@ -8,7 +8,7 @@
 
 #![allow(dead_code)]
 
-use soroban_sdk::{contracttype, token, Address, Env, Symbol};
+use soroban_sdk::{contracttype, token, vec, Address, Env, IntoVal, Symbol};
 
 /// Instance-storage key mapping asset symbols to their SAC / Soroban
 /// token contract addresses. Set at `initialize` alongside the
@@ -30,6 +30,24 @@ pub fn reserve(env: &Env, asset: &Symbol) -> Option<Address> {
     env.storage()
         .instance()
         .get(&ReserveKey::Reserve(asset.clone()))
+}
+
+/// Pool's own current balance of `asset`, read straight from the SAC
+/// — the same value a raw `transfer_out` would trap against on
+/// shortfall. Raw `env.invoke_contract` rather than `token::Client`'s
+/// typed wrapper: `.balance()` is a distinct host-call site from the
+/// `.transfer()` calls below regardless of mechanism, and the typed
+/// client's own dispatch macro measured larger here (see
+/// docs/REMEDIATION.md R25).
+pub fn available_balance(env: &Env, asset: &Symbol) -> i128 {
+    let token_contract = reserve(env, asset)
+        .expect("tokens::available_balance: reserve not registered for asset");
+    let holder = env.current_contract_address();
+    env.invoke_contract(
+        &token_contract,
+        &Symbol::new(env, "balance"),
+        vec![env, holder.into_val(env)],
+    )
 }
 
 /// Pull `amount` of `asset` from `from` into the contract's own balance.

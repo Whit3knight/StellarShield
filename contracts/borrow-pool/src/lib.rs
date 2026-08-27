@@ -112,6 +112,14 @@ pub enum Error {
     /// under the old low-16-bytes-only read) or exceeded
     /// `MAX_NOTE_AMOUNT`. See `fr_to_amount_checked`.
     AmountOutOfRange = 14,
+    /// R25: pool's actual token balance can't cover this payout. The
+    /// borrow/deposit side never checks reserve liquidity (borrow and
+    /// collateral amounts are private witnesses since R20 — the
+    /// contract has no honest amount to bound a reserve check
+    /// against), so a valid note can still fail to pay out later if
+    /// other activity drained the reserve first. This turns that into
+    /// a clean, retryable error instead of a raw SAC transfer trap.
+    InsufficientLiquidity = 15,
 }
 
 const BORROW_EVENT: Symbol = symbol_short!("borrow");
@@ -234,6 +242,7 @@ impl BorrowPool {
         state::set_repay_v2_verifier(&env, &helper);
         Ok(())
     }
+
 
     pub fn set_rate_params(env: Env, params: RateParams) -> Result<(), Error> {
         let admin = Self::require_admin(&env)?;
@@ -839,6 +848,12 @@ impl BorrowPool {
             return Err(Error::InvalidProof);
         }
 
+        // R25: fail with a clean error, not a raw SAC transfer trap,
+        // if the pool's reserve can't cover this withdrawal.
+        if tokens::available_balance(&env, &asset) < declared_amount {
+            return Err(Error::InsufficientLiquidity);
+        }
+
         state::mark_deposit_nullifier_used(&env, &asset, &nullifier_bytes);
 
         // Release tokens back to the caller.
@@ -1212,6 +1227,14 @@ impl BorrowPool {
             proof.public_signals.clone(),
         ) {
             return Err(Error::InvalidProof);
+        }
+
+        // R25: fail with a clean error, not a raw SAC transfer trap,
+        // if the pool's reserve can't cover this claim — see this
+        // error variant's own doc comment for why this can't be
+        // caught earlier, at borrow time.
+        if tokens::available_balance(&env, &asset) < amount {
+            return Err(Error::InsufficientLiquidity);
         }
 
         state::mark_loan_nullifier_used(&env, &asset, &nullifier_bytes);
