@@ -433,17 +433,36 @@ the live contract via `upgrade` (new wasm hash
 scanner.ts`, `features/shielded-pool/borrow-prover.ts` (+ its test)
 carry the three JS-side fixes.
 
-**Not fixed / open follow-up:** `deposit_shielded_quad`'s own budget
-margin (6-signal verify + `append_four_aligned`'s 21-hash walk still
-exceeds budget even after the T3 caching fix) — would need its own
-investigation (possibly the same class of redundant-decode issue in
-the T5/T7 constant paths, unverified) or an explicit product decision
-to retire the quad path in favor of always doing N singleton deposits.
-The contract-split-into-helper work, while it ultimately wasn't what
-fixed the failing calls (none of them ever called Reflector), is kept
-regardless: it's a real, verified size reduction and establishes a
-clean pattern (stateless helper, cross-called only when needed) for
-any future logic that doesn't belong in every call's hot path.
+**`deposit_shielded_quad` — initially reported as still over budget,
+corrected after direct re-measurement.** A first post-fix test (via
+`contracts/scripts/e2e-borrow.ts`) failed identically to before. Component-
+level measurement of the exact same code paths (`probe_merkle21_cached`:
+21 cached Poseidon(2) calls matching `append_four_aligned` exactly =
+301,997,236 instructions; `probe_quad_verify`: the real 6-signal vk_x
+loop + pairing = 61,705,188; a 4-event publish with realistic ~180-byte
+memos = 1,462,657; an authorized token transfer = 1,468,499) summed to
+~366.6M — comfortably under the 400M budget, contradicting the observed
+failure. Direct re-test (3 fresh contract deploys, 3 real
+`deposit_shielded_quad` calls with real proofs) then **passed cleanly
+3/3**, on-chain `SUCCESS` each time. Conclusion: the earlier failure was
+transient testnet-side resource-estimation variance at a genuinely tight
+but real margin (~366.6M/400M, ~8% headroom) — not a residual code
+defect. Quad was never touched by a second fix; it's fixed by the same
+Hash2Constants change as everything else, just needed re-verification
+after the fact rather than trusting one failed run. ~8% headroom is
+real but not large — a future increase in quad's own logic (more
+signals, deeper storage writes) could plausibly tip it again; if that
+happens, the same instruction-measurement technique (`stellar contract
+invoke --build-only` → `tx simulate` → `tx decode`, reading
+`resources.instructions`) is the way to get a real number, not another
+guess from binary size.
+
+The contract-split-into-helper work, while it wasn't what fixed any of
+the failing calls (none of them ever called Reflector), is kept
+regardless: it's a real, verified size reduction (62,320B, below the
+pre-R17 baseline) and establishes a clean pattern (stateless helper,
+cross-called only when needed) for any future logic that doesn't
+belong in every call's hot path.
 
 ### Small items (slot into sequence)
 
