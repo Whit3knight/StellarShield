@@ -34,15 +34,21 @@ export function MarketCard({
   const borrowPrice = getAssetPriceUsd(market.symbol)
 
   const { isLoading, stats } = useMarketStats()
-  // Contract views are keyed by borrow asset (`market.symbol`).
-  // Utilisation and liquidity are properties of the asset pool, not of
-  // a specific borrow/collateral pair.
+  // Contract views are keyed by asset, not by market pair — each side
+  // of a pair (borrow, collateral) has its own independent pool and
+  // its own liquidity.
   const marketStat = stats[market.symbol]
   const rateParams = useRateParams()
   const metrics = deriveMarketMetrics(marketStat, market.symbol, {
     baseApr: rateParams.baseAprBps / 10_000,
     slopeApr: rateParams.slopeAprBps / 10_000,
   })
+  // Collateral side only needs its own available balance — no APR/
+  // utilization meaning for a card about the borrow leg's rate curve.
+  const collateralMetrics = deriveMarketMetrics(
+    stats[market.collateral],
+    market.collateral
+  )
 
   const risk = pickRisk(metrics.utilization)
   const chartPoints = normalizeChart(metrics.chart)
@@ -60,6 +66,10 @@ export function MarketCard({
       value: `${formatRawAmount(metrics.availableFundsRaw, market.symbol)} ${market.symbol}`,
     },
     { label: "Utilization", value: formatPercent(metrics.utilization * 100) },
+    {
+      label: "Collateral pool",
+      value: `${formatRawAmount(collateralMetrics.availableFundsRaw, market.collateral)} ${market.collateral}`,
+    },
   ]
 
   return (
