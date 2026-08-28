@@ -1220,6 +1220,52 @@ independently browser-verified against a real connected wallet + note
 (no live session available in this check) — logic mirrors
 `hasBorrowLiquidity`'s already-verified comparison exactly.
 
+### R30 — total_borrow_value was decremented at claim, never incremented anywhere [SHIPPED]
+
+Asked why "Utilization"/"Borrow APR" always read 0.0%/2.0% flat.
+`computeUtilization`/`computeBorrowApr` (`derive-metrics.ts`) short-
+circuit to 0 whenever `totalBorrowsValue === 0` — and `total_borrow_value`
+is 0 always, everywhere, because `withdraw_loan_shielded` (`lib.rs`) is
+the *only* place that ever touches it, and it was `saturating_sub`-ing
+from a counter that starts at 0 and is never incremented — a straight
+sign error, not a deeper structural gap this time.
+
+**Why it was never simply flipped to increment-then-decrement, the
+"obviously correct" fix**: `amount` is genuinely public at claim time
+(the real SAC transfer makes it so, same "reveal only when a transfer
+already reveals it" rule this whole codebase follows), so incrementing
+there costs no privacy. But `repay.circom` (v1 and v2) has no
+`loan_amount` public signal — repaying a loan without ever claiming it
+never reveals the amount anywhere, by design, and that's a real,
+deliberate privacy property this fix must not remove. So the counter
+can grow (at claim) but structurally can't shrink (at repay) without
+either a circuit change that reveals repay amounts too (rejected — a
+real privacy regression for the repay-without-claim path) or a proper
+ZK aggregate-opening scheme reading the R20 `RunningLoanCommit`/
+`RunningCollateralCommit` Pedersen commitments that already exist in
+storage but were never wired to anything (flagged as a possible future
+item, not attempted — genuinely another R20-scale design effort, not a
+quick fix).
+
+**Fix, scoped to what's honestly achievable now**: `saturating_sub` →
+`saturating_add` in `withdraw_loan_shielded`. `total_borrow_value` is
+now a real, honest counter — but its meaning changed: "total ever
+claimed" (monotonically increasing), not "current outstanding debt".
+**Deliberately NOT wired into `computeUtilization`/`computeBorrowApr`**
+— feeding a monotonic, never-decreasing counter into those formulas
+would make a market that was once heavily borrowed and is now fully
+repaid and idle show permanently inflated utilization/APR forever,
+which is worse than the honest static 0%/2.0% it replaces. The counter
+is correct and available for a future, clearly-labeled use (e.g.
+"lifetime borrow volume"), but `derive-metrics.ts` is untouched here.
+
+**Verification**: real on-chain round trip on a temp contract —
+deposit → borrow (confirmed `total_borrow_value` stays 0 through this
+step, correctly) → claim → confirmed `total_borrow_value` increased by
+exactly the claimed amount (23,750,000 stroops). `lint`/`typecheck`/
+`test` (281 passing) all green. WASM size unchanged (67818 vs 67819
+bytes — a one-operator swap, no budget concern).
+
 ### Small items (slot into sequence)
 
 - **Zero Rust contract tests** — blocked on soroban-sdk 23. One README line stating the block + stopgap (TS fixtures + R6 e2e). Re-check next sdk release.

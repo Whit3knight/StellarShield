@@ -1246,10 +1246,25 @@ impl BorrowPool {
             &asset,
             state::total_borrow(&env, &asset).saturating_sub(1),
         );
+        // R30: this used to `saturating_sub`, which was backwards —
+        // `total_borrow_value` starts at 0 and is never incremented
+        // anywhere (borrow_amount is a private witness at open time,
+        // R20), so subtracting from it every claim just floored it at
+        // 0 forever, regardless of real activity. `amount` here is
+        // already public (this is the real token payout), so counting
+        // it honestly costs no privacy — but repay never reveals its
+        // loan amount (`repay.circom` has no such public signal, by
+        // design), so this counter still can't decrement when a loan
+        // closes without claiming. It's therefore a monotonically
+        // increasing "total ever claimed", not "current outstanding
+        // debt" — deliberately NOT wired into utilization/APR
+        // (`derive-metrics.ts`), which would misrepresent a repaid,
+        // now-idle market as permanently high-utilization. See
+        // docs/REMEDIATION.md R30.
         state::set_total_borrow_value(
             &env,
             &asset,
-            state::total_borrow_value(&env, &asset).saturating_sub(amount as u128),
+            state::total_borrow_value(&env, &asset).saturating_add(amount as u128),
         );
 
         env.events().publish(
