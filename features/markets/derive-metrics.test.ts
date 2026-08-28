@@ -17,6 +17,7 @@ const stat = (overrides: Partial<MarketStat> = {}): MarketStat => ({
   totalRepays: 0,
   totalBorrowsValue: 0,
   totalDepositsValue: 0,
+  availableBalance: 0n,
   ...overrides,
 })
 

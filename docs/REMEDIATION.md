@@ -1118,6 +1118,51 @@ true: a real, currently-disabled feature, not dead code.
 No contract change shipped, so no live deploy for this item — the fix
 is entirely in the frontend guard.
 
+### R28 — "Available funds" always read as raw total deposits, never subtracted real outstanding loans [SHIPPED]
+
+Asked why a market card's liquidity figure looked off. `derive-metrics.ts`
+computed available liquidity as `totalDepositsValue - totalBorrowsValue`
+— sounds right, but `total_borrow_value` (`lib.rs`) is **only ever
+decremented**, in `withdraw_loan_shielded` (line ~1249), and **never
+incremented anywhere**. Same root cause as R25's "deliberately not
+built" borrow-time liquidity check: `borrow_amount` has been a private
+witness since R20, so `borrow_shielded` has no honest clear-text
+amount to add to the counter when a loan opens. The subtraction was
+therefore always `totalDepositsValue - 0`, silently degrading to "total
+ever deposited" and never reflecting a single outstanding loan, no
+matter how much was borrowed.
+
+**Fix**: stop deriving liquidity from a counter that can't be honest.
+New `features/markets/token-balance.ts` (`fetchTokenBalance`) reads the
+reserve SAC's own `balance(pool_address)` directly — raw cross-contract
+simulate call, no pre-generated bindings, mirroring `prices.ts`'s
+`fetchReflectorPrice` pattern exactly, since both are foreign contracts
+this repo doesn't control. This is ground truth: the SAC's ledger state
+can't drift the way a manually-maintained counter can. `market-stats.ts`
+resolves each asset's reserve address via the pool's own `reserve_of`
+view (already existed) and feeds the real balance into a new
+`MarketStat.availableBalance: bigint` field; `derive-metrics.ts`'s
+`availableFundsUsd` reads that instead of the old subtraction.
+
+**Not fixed here, flagged**: `features/borrow-flow/gates.ts`'s
+`hasBorrowLiquidity` has the identical bug (`totalDepositsValue -
+totalBorrowsValue >= DENOMINATION[asset]`, same always-0 subtraction) —
+it gates whether the borrow flow is even reachable for a market, a more
+consequential use of the same broken formula than a display figure.
+Its existing test suite (`gates.test.ts`) asserts the old
+deposits/borrows-pair behavior directly, so switching it to
+`availableBalance` needs those tests rewritten too — a real follow-up,
+not folded into this fix since it wasn't what was asked.
+
+**Verification**: real on-chain check — `fetchTokenBalance` against the
+live XLM reserve SAC returned `81000000n` (8.1 XLM), which happens to
+confirm something good in passing: the pool's real XLM balance dropped
+from 331,000,000 (right after the R25 top-up deposit) by exactly
+250,000,000 — the stuck loan's amount — meaning the claim this whole
+thread started from was successfully retried and completed.
+`lint`/`typecheck`/`test` (281 passing) all green. No contract change,
+no live deploy needed.
+
 ### Small items (slot into sequence)
 
 - **Zero Rust contract tests** — blocked on soroban-sdk 23. One README line stating the block + stopgap (TS fixtures + R6 e2e). Re-check next sdk release.

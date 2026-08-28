@@ -69,16 +69,18 @@ export function deriveMarketMetrics(
     rateParams
   )
 
-  // Available liquidity in the borrow asset's pool = `depositsValue -
-  // borrowsValue` (already RAW token units, no DENOMINATION multiply
-  // needed now that these are real value counters, not note counts),
-  // priced through Reflector so the tile reads in USD. Falls back to
-  // a 1-denomination floor so the card never shows `$0` when the pool
-  // is exactly balanced.
+  // R28: available liquidity is the pool's actual SAC balance for this
+  // asset (`availableBalance`, read directly off the reserve token
+  // contract — see `market-stats.ts`), not `depositsValue -
+  // borrowsValue`. `totalBorrowsValue` can never be honestly
+  // incremented (`borrow_amount` is a private witness since R20), so
+  // that subtraction always reduced to just `totalDepositsValue` and
+  // never reflected outstanding loans. Falls back to a 1-denomination
+  // floor so the card never shows `$0` when the pool is empty.
   const asset = pickShieldedAsset(borrowSymbol)
   const availableRaw = Math.max(
     asset ? Number(DENOMINATION[asset]) : 1,
-    totalDepositsValue - totalBorrowsValue
+    Number(stat?.availableBalance ?? 0n)
   )
   const availableFundsUsd = asset
     ? (availableRaw / 10 ** assets[asset].decimals) *

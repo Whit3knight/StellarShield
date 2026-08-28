@@ -7,6 +7,7 @@ import {
 } from "@/features/wallet/network"
 
 import { fetchMarketHistory, type CurrentTotals } from "./market-history"
+import { fetchTokenBalance } from "./token-balance"
 
 // Contract view-derived market stats. Reads
 // `total_deposit(asset)` + `total_borrow(asset)` +
@@ -35,10 +36,17 @@ export type MarketStat = {
   /** R17: real value deposited/borrowed, in the asset's RAW token
    * units — distinct from `totalDeposits`/`totalBorrows` above (note
    * counts, still used for `openPositions` and tree-indexing
-   * semantics). Utilization/APR/available-liquidity math should read
-   * these, not the counts, now that note amounts vary. */
+   * semantics). Utilization/APR read these, not the counts, now that
+   * note amounts vary. */
   totalDepositsValue: number
   totalBorrowsValue: number
+  /** R28: the pool's actual SAC balance for this asset, read directly
+   * off the reserve token contract — `totalBorrowsValue` can never be
+   * honestly incremented (borrow_amount is a private witness since
+   * R20), so `totalDepositsValue - totalBorrowsValue` silently reduces
+   * to just `totalDepositsValue` and never reflects outstanding loans.
+   * This is ground truth instead; see `derive-metrics.ts`. */
+  availableBalance: bigint
 }
 
 /**
@@ -71,7 +79,7 @@ export async function fetchMarketStats(
   const counters: Partial<Record<ShieldedAsset, AssetCounters>> = {}
   await Promise.all(
     SUPPORTED_ASSETS.map(async (asset) => {
-      const readCounters = readAssetCounters(client, asset)
+      const readCounters = readAssetCounters(client, asset, contractId, signal)
       const timeout = new Promise<null>((resolve) =>
         setTimeout(() => resolve(null), 10_000)
       )
@@ -118,6 +126,7 @@ export async function fetchMarketStats(
       totalRepays: 0,
       totalBorrowsValue: raced.totalBorrowsValue,
       totalDepositsValue: raced.totalDepositsValue,
+      availableBalance: raced.availableBalance,
     }
   }
 
@@ -130,6 +139,7 @@ type AssetCounters = {
   loanNextIndex: number
   totalDepositsValue: number
   totalBorrowsValue: number
+  availableBalance: bigint
 }
 
 async function readAssetCounters(
@@ -149,24 +159,35 @@ async function readAssetCounters(
     total_borrow_value: (
       args: { asset: string }
     ) => Promise<{ result: bigint | undefined }>
+    reserve_of: (
+      args: { asset: string }
+    ) => Promise<{ result: string | null | undefined }>
   },
-  asset: ShieldedAsset
+  asset: ShieldedAsset,
+  poolContractId: string,
+  signal?: AbortSignal
 ): Promise<AssetCounters | null> {
   try {
-    const [depositTx, borrowTx, loanIndexTx, depositValueTx, borrowValueTx] =
+    const [depositTx, borrowTx, loanIndexTx, depositValueTx, borrowValueTx, reserveTx] =
       await Promise.all([
         client.total_deposit({ asset }),
         client.total_borrow({ asset }),
         client.loan_next_index({ asset }),
         client.total_deposit_value({ asset }),
         client.total_borrow_value({ asset }),
+        client.reserve_of({ asset }),
       ])
+    const reserveAddress = reserveTx.result ?? null
+    const availableBalance = reserveAddress
+      ? ((await fetchTokenBalance(reserveAddress, poolContractId, signal)) ?? 0n)
+      : 0n
     return {
       totalDeposits: Number(depositTx.result ?? 0n),
       totalBorrows: Number(borrowTx.result ?? 0n),
       loanNextIndex: Number(loanIndexTx.result ?? 0n),
       totalDepositsValue: Number(depositValueTx.result ?? 0n),
       totalBorrowsValue: Number(borrowValueTx.result ?? 0n),
+      availableBalance,
     }
   } catch {
     return null
