@@ -123,7 +123,7 @@ export function BorrowTermsStep({
               }
               placeholder={
                 minimumCollateralAmount
-                  ? `${Math.ceil(minimumCollateralAmount)}`
+                  ? `${roundToNiceNumber(minimumCollateralAmount)}`
                   : "0.00"
               }
               value={flow.collateralAmount}
@@ -212,4 +212,18 @@ export function BorrowTermsStep({
       </div>
     </Form>
   )
+}
+
+// Placeholder-only rounding — the real minimum stays exact (see `min`
+// prop + validation error above). Snaps to the nearest 1/2/5 × a power
+// of ten so the suggested amount reads like a normal number regardless
+// of the collateral asset's live price (e.g. XLM's ~54.27 → 50, not an
+// oddly precise figure that looks like a real computed value).
+function roundToNiceNumber(value: number): number {
+  if (value <= 0) return 0
+  const magnitude = 10 ** Math.floor(Math.log10(value))
+  const normalized = value / magnitude
+  const niceNormalized =
+    normalized < 1.5 ? 1 : normalized < 3.5 ? 2 : normalized < 7.5 ? 5 : 10
+  return niceNormalized * magnitude
 }
