@@ -1144,15 +1144,16 @@ view (already existed) and feeds the real balance into a new
 `MarketStat.availableBalance: bigint` field; `derive-metrics.ts`'s
 `availableFundsUsd` reads that instead of the old subtraction.
 
-**Not fixed here, flagged**: `features/borrow-flow/gates.ts`'s
-`hasBorrowLiquidity` has the identical bug (`totalDepositsValue -
+**Follow-up, done same day**: `features/borrow-flow/gates.ts`'s
+`hasBorrowLiquidity` had the identical bug (`totalDepositsValue -
 totalBorrowsValue >= DENOMINATION[asset]`, same always-0 subtraction) —
-it gates whether the borrow flow is even reachable for a market, a more
-consequential use of the same broken formula than a display figure.
-Its existing test suite (`gates.test.ts`) asserts the old
-deposits/borrows-pair behavior directly, so switching it to
-`availableBalance` needs those tests rewritten too — a real follow-up,
-not folded into this fix since it wasn't what was asked.
+more consequential than a display figure, since it gates whether the
+borrow flow is even reachable for a market. Switched to
+`stat.availableBalance >= DENOMINATION[asset]`; `gates.test.ts`'s
+fixture rewritten from a `(depositsValue, borrowsValue)` pair to a
+single `availableBalance` (the subtraction it was testing no longer
+exists — the new tests assert the same denomination-floor behavior
+directly against a real balance).
 
 **Verification**: real on-chain check — `fetchTokenBalance` against the
 live XLM reserve SAC returned `81000000n` (8.1 XLM), which happens to

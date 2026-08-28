@@ -61,15 +61,20 @@ export function shouldShowTransaction({
  * stale (`useMarketStats`) and this is not a substitute for a
  * contract-side reservation check — it just moves the common "proof
  * succeeds, Claim fails later" case earlier than a wasted proving
- * cycle. R17: compares real value counters against `DENOMINATION` as
- * a "meaningfully more than zero" floor — comparing against a bare
- * `>= 1` (raw stroop) would make this check pass almost always once
- * `totalDeposits`/`totalBorrows` mean value instead of note counts.
+ * cycle. R28: reads `availableBalance` (the reserve SAC's real balance
+ * for this asset — see `market-stats.ts`), not
+ * `totalDepositsValue - totalBorrowsValue`. `total_borrow_value` is
+ * only ever decremented on-chain, never incremented (`borrow_amount`
+ * has been a private witness since R20), so that subtraction always
+ * reduced to just `totalDepositsValue` and never reflected outstanding
+ * loans — this gate would pass even when a market was fully drained.
+ * Compares against `DENOMINATION` as a "meaningfully more than zero"
+ * floor, same as before.
  */
 export function hasBorrowLiquidity(
   stat: MarketStat | undefined,
   asset: ShieldedAsset
 ): boolean {
   if (!stat) return true // no snapshot yet — don't block on missing data
-  return stat.totalDepositsValue - stat.totalBorrowsValue >= DENOMINATION[asset]
+  return stat.availableBalance >= DENOMINATION[asset]
 }
