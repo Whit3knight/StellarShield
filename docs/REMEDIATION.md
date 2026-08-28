@@ -1011,17 +1011,10 @@ zero-knowledge solvency proof at claim time) — flagged as a new item,
 not attempted here.
 
 - **`deposit_shielded_quad` now fails its own instruction budget on
-  the live contract** — confirmed independent of R25 (see above): 3/3
-  simulation attempts against the unmodified R24 wasm return
-  `Error(Budget, ExceededLimit)`. This function is already documented
-  as experimental/unwired/not a supported flow (README roadmap table,
-  `docs/PRD.md`), used only by `contracts/scripts/e2e-borrow.ts`, never
-  by the real app — so this doesn't block anything user-facing, but it
-  does mean `e2e-borrow.ts`'s own collateral-provisioning step (which
-  calls `deposit_shielded_quad`) is now unreliable against the live
-  contract's current state. Needs a decision: reduce the function's own
-  instruction cost, or formally deprecate/remove it (it has zero real
-  callers) — not decided here.
+  the live contract, for every asset — see R27, next.** This bullet
+  originally (wrongly) called it "experimental/unwired/not a supported
+  flow, used only by `e2e-borrow.ts`" — that claim was never checked
+  against the actual calling code and was false; corrected in R27.
 - **Borrow-time reserve-liquidity check** — deliberately not built;
   see R25's own "Deliberately not built" note above. Real item, real
   redesign, not a quick fix.
@@ -1066,11 +1059,77 @@ green. Real browser check (`bun run dev`, Playwright): dashboard's XLM
 price read live as $0.1873, not the frozen $0.12 default, confirming
 the refresher actually runs and the cache actually updates.
 
+### R27 — deposit_shielded_quad disabled for every asset; the "unwired" claim it carried was false [SHIPPED]
+
+R25's own writeup called `deposit_shielded_quad` "experimental,
+unwired, not a supported flow" — a claim the small-items list and
+README/PRD had carried for a while and R25 repeated without checking
+the actual calling code. **That claim is false.** `use-deposit.ts`
+exports a real `depositQuad` method, and
+`features/borrow-flow/hooks/use-shielded-borrow-flow.ts:206-207` calls
+it whenever a user opens a new borrow position with zero existing
+collateral notes — one Groth16 proof + one tx for all 4 fresh notes,
+instead of four separate deposit transactions. This is a real,
+intentional optimization, not dead code.
+
+**What was already known**: a `ponytail:` comment at that exact call
+site already documented that `deposit_shielded_quad` fails its own
+instruction budget for USDC/EURC (trustline-backed SEP-41 transfer
+overhead tips it over `Error(Budget, ExceededLimit)`), so the call site
+was already guarded to XLM-only as a stopgap.
+
+**What's new**: it now ALSO fails for XLM — the one asset the existing
+guard still allowed. Confirmed independent of any change in this repo:
+3/3 simulation attempts against the unmodified, currently-live R24
+wasm return `Error(Budget, ExceededLimit)`. The quad path is dead for
+every asset now, meaning **the `if (missing === 4 && collateralAsset
+=== "XLM")` branch fails every time it triggers** — a real,
+user-facing bug on the live dashboard for anyone opening a fresh
+position with no prior collateral.
+
+**Tried and rejected**: swapped `deposit_quad_verifier.rs`'s per-signal
+`g1_mul`+`g1_add` loop for a batched `g1_msm` call (same fix R21/R23
+already proved for `borrow_verifier.rs`/the repay-v2 helper — the
+verifier had never picked it up). Measured smaller WASM (67819→67696
+bytes) but **did not recover the budget** — reproduced
+`Error(Budget, ExceededLimit)` even after building up only 10 prior
+deposits' worth of state (the live contract has far more history than
+that). The verifier's own per-signal loop wasn't the dominant cost
+here; most likely the 4x sequential `merkle::append` calls are, and
+that cost doesn't shrink from batching. Reverted the verifier change —
+it wasn't shipped, and its own comment would have overclaimed a
+byte-identical-output verification that was never actually done for
+this circuit. A real fix needs profiling the append path, not a
+verifier micro-optimization; not attempted here.
+
+**Fix shipped**: `use-shielded-borrow-flow.ts` gets a new
+`QUAD_DEPOSIT_ENABLED = false` module constant, and the call site's
+condition becomes `QUAD_DEPOSIT_ENABLED && missing === 4 &&
+collateralAsset === "XLM"` — permanently false today, falls back to
+the proven-working singleton path (4× `deposit_shielded`) for every
+asset. Contract-side `deposit_shielded_quad`/`deposit_quad_verifier.rs`/
+the circuit are left in place, untouched — this is a real feature with
+existing fallback infrastructure, not something to delete; re-enabling
+it later is a one-line flip once the real cost is fixed. README/PRD's
+"experimental, unwired" wording corrected to describe what's actually
+true: a real, currently-disabled feature, not dead code.
+
+**Verification**: `lint`/`typecheck`/`test` (281 passing) all green.
+No contract change shipped, so no live deploy for this item — the fix
+is entirely in the frontend guard.
+
 ### Small items (slot into sequence)
 
 - **Zero Rust contract tests** — blocked on soroban-sdk 23. One README line stating the block + stopgap (TS fixtures + R6 e2e). Re-check next sdk release.
 - **`quote.ts` untested [DONE]** — `quote.test.ts` covers LTV/HF/liquidation-price edges: zero loan, zero collateral (including the health-factor-vs-liquidation-price distinction — the former reads 0, not null, when only collateral is zero), the max-LTV boundary (exactly at borrowing power passes, one cent over fails), and denomination-granularity truncation (an 8th fractional digit below the 7-decimal raw unit drops instead of rounding up).
-- **`shielded-deposit-quad` status [DONE, see R25 above for a new development]** — circuit + verifier + prover + artifacts exist, exercised only by `e2e-borrow.ts`, not wired into `use-deposit.ts`. README roadmap row exists ("experimental — ... not a supported flow"); `docs/PRD.md`'s stale `[STATUS UNCLEAR]` tag (claimed "in no roadmap track", no longer true) flipped to match. OQ-4 resolved. Its instruction budget has since gone from "documented as intermittently flaky" to "consistently fails on the live contract" — see R25.
+- **`shielded-deposit-quad` status [superseded by R27]** — this entry
+  originally said "exercised only by `e2e-borrow.ts`, not wired into
+  `use-deposit.ts`" — **false**, corrected in R27:
+  `use-shielded-borrow-flow.ts` calls it for real, and it's now
+  disabled (not removed) via `QUAD_DEPOSIT_ENABLED = false` after its
+  instruction budget was confirmed broken for every asset on the live
+  contract. OQ-4 (the original "is this on any roadmap" question)
+  stays resolved — it is, and it's real.
 
 ---
 

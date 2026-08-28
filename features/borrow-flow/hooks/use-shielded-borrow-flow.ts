@@ -48,6 +48,15 @@ type UseShieldedBorrowFlowParams = {
   market: MarketCardData
 }
 
+// R27: deposit_shielded_quad was already known-broken for USDC/EURC
+// (see the ponytail: comment below) and is now ALSO broken for XLM —
+// confirmed on-chain, Error(Budget, ExceededLimit) at simulation, same
+// class, independent of any change made in this repo this session.
+// The quad path is dead for every asset until its real per-tx cost is
+// fixed (contract/circuit work, needs profiling); the singleton
+// fallback below is the only working path for now.
+const QUAD_DEPOSIT_ENABLED = false
+
 /**
  * Shielded-pool replacement for the legacy `useBorrowFlow`. Preserves
  * the public interface the market drawer's step components read from
@@ -194,16 +203,19 @@ export function useShieldedBorrowFlow({
     // The circuit is fixed at 4 leaves, so any partial gap falls back
     // to the singleton path.
     //
-    // ponytail: quad only for XLM. Verified live: deposit_shielded_quad
+    // ponytail: quad only for XLM, and now disabled entirely
+    // (QUAD_DEPOSIT_ENABLED = false). Verified live: deposit_shielded_quad
     // for USDC/EURC (trustline-backed SEP-41 assets, unlike native XLM)
     // throws "HostError: Error(Budget, ExceededLimit)" at simulation —
     // reproduced with both a cold and a warmed deposit tree, so it's
     // not a first-write cost; most likely the trustline-asset transfer
     // path adds enough overhead on top of quad's 4x proof/write cost to
-    // tip over the simulation budget, while XLM's native transfer stays
-    // under it. Fix the real cost (contract/circuit work, needs
-    // profiling + redeploy) before re-enabling quad here for non-XLM.
-    if (missing === 4 && collateralAsset === "XLM") {
+    // tip over the simulation budget, while XLM's native transfer stayed
+    // under it — until R27, which found XLM now fails the same way as
+    // the contract has accumulated more state. Fix the real cost
+    // (contract/circuit work, needs profiling + redeploy) before
+    // flipping QUAD_DEPOSIT_ENABLED back on for any asset.
+    if (QUAD_DEPOSIT_ENABLED && missing === 4 && collateralAsset === "XLM") {
       const quadResult = await depositQuad(collateralAsset, perNoteAmount)
       if (!quadResult) {
         console.log("[verify] quad failed")

@@ -122,11 +122,13 @@ succeeds on-chain against a live Reflector price.
   accepts post-retention note loss; persisted local store + event scan is
   the recovery model.
 - Repay returns collateral notes to the deposit tree. `[IMPLEMENTED — R23, repay_shielded_v2; v1 stays the fallback for pre-Track-L loans]`
-- Multi-note deposit in one proof. `[EXPERIMENTAL, UNWIRED — decided, OQ-4
-  resolved]` `shielded-deposit-quad` circuit + `deposit-quad-prover.ts` exist
-  and are exercised by `contracts/scripts/e2e-borrow.ts`, but are not wired
-  into `use-deposit.ts` — not a supported user-facing flow. See README
-  roadmap table.
+- Multi-note deposit in one proof. `[DISABLED — R27, was never
+  "unwired": use-deposit.ts's depositQuad IS called by
+  use-shielded-borrow-flow.ts when opening a new position with no
+  existing collateral notes. Turned off via QUAD_DEPOSIT_ENABLED =
+  false after deposit_shielded_quad was confirmed to fail its own
+  instruction budget for every asset. Falls back to 4 singleton
+  deposits, which works.]` See README roadmap table, REMEDIATION.md R27.
 
 ### P2 — future
 

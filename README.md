@@ -66,7 +66,7 @@ keep them equal.
 | Autonomous liquidation loop (`scan:underwater --trigger`) | shipped, works (R22) |
 | Service keypair generator (`bun run gen:service-key`) | shipped |
 | Deployment runbook + lifecycle demo doc | shipped (`docs/deployment.md`, `docs/demo.md`) |
-| Multi-note deposit (`shielded-deposit-quad` circuit + `deposit-quad-prover.ts`) | experimental — circuit, verifier (`deposit_quad_verifier`), prover, and artifacts exist but are not wired into `use-deposit.ts`; not a supported flow |
+| Multi-note deposit (`shielded-deposit-quad` circuit + `deposit-quad-prover.ts`) | real feature, currently **disabled** (`QUAD_DEPOSIT_ENABLED = false` in `use-shielded-borrow-flow.ts`) — batches all 4 fresh collateral notes into one proof/tx when opening a new borrow position with none on hand yet; `deposit_shielded_quad` now fails its own instruction budget for every asset (was already broken for USDC/EURC, R27 found XLM broke too as the contract accumulated more state). Falls back to 4 singleton `deposit_shielded` calls, which works. See `docs/REMEDIATION.md` R27. |
 | Track F UI polish | opportunistic |
 | Track B FROST threshold | dropped — Track A closes the sk-drain, but the liquidation-service operator still decrypts every borrow position (see Trust model below); FROST was the only path to remove that operator trust |
 | Rust-side fixture reader | blocked on `soroban-sdk` 23 (testutils build fix) |
