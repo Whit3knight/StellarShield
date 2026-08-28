@@ -339,7 +339,12 @@ export function useShieldedBorrowFlow({
       return
     }
 
-    if (!hasBorrowLiquidity(stats[borrowAsset], borrowAsset)) {
+    const loanAmountRaw = fromString(
+      deferredLoanAmount,
+      getAsset(borrowAsset).decimals
+    ).value
+
+    if (!hasBorrowLiquidity(stats[borrowAsset], loanAmountRaw)) {
       const detail = `The ${borrowAsset} pool doesn't currently have enough reserve to cover this borrow. Try again shortly.`
       setFlow((currentFlow) => ({
         ...currentFlow,
@@ -359,10 +364,6 @@ export function useShieldedBorrowFlow({
       transaction: { status: "Signing", intent, payload },
     }))
 
-    const loanAmountRaw = fromString(
-      deferredLoanAmount,
-      getAsset(borrowAsset).decimals
-    ).value
     const result = await borrow({
       amount: loanAmountRaw,
       borrowAsset,

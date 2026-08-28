@@ -23,7 +23,12 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty"
-import { formatRawAmount, useAssetPrices } from "@/features/markets"
+import {
+  formatRawAmount,
+  useAssetPrices,
+  useMarketStats,
+  type MarketStat,
+} from "@/features/markets"
 import { useNotes, type ShieldedAsset, type ShieldedNote } from "@/features/notes"
 import { useRiskParams } from "@/features/protocol/risk-params"
 import {
@@ -54,6 +59,7 @@ export function PositionsDrawer({
   const { account, identity, isScanning, providerId } = useShieldedPoolContext()
   const notes = useNotes()
   const prices = useAssetPrices()
+  const { stats } = useMarketStats()
   const risk = useRiskParams()
 
   const {
@@ -130,6 +136,7 @@ export function PositionsDrawer({
                 onRepay={(loan, deposit) => void repay(loan, deposit)}
                 onWithdraw={(note) => void withdraw(note)}
                 prices={prices}
+                stats={stats}
               />
             ))
           )}
@@ -201,6 +208,7 @@ function AssetGroupCard({
   onRepay,
   onWithdraw,
   prices,
+  stats,
 }: {
   busyLiquidateIndex: number | null
   busyRepayIndex: number | null
@@ -212,6 +220,7 @@ function AssetGroupCard({
   onRepay: (loan: ShieldedNote, deposit: ShieldedNote) => void
   onWithdraw: (note: ShieldedNote) => void
   prices: Record<ShieldedAsset, number>
+  stats: Record<string, MarketStat>
 }): React.ReactElement {
   const underwaterCount = group.loans.reduce((count, loan) => {
     if (!loan.bond) return count
@@ -281,6 +290,7 @@ function AssetGroupCard({
           onWithdraw={onWithdraw}
           prices={prices}
           rows={[...group.deposits, ...group.loans]}
+          stats={stats}
         />
       }
       subtitle={group.asset}
@@ -300,6 +310,7 @@ function NoteList({
   onWithdraw,
   prices,
   rows,
+  stats,
 }: {
   busyLiquidateIndex: number | null
   busyRepayIndex: number | null
@@ -311,6 +322,7 @@ function NoteList({
   onWithdraw: (note: ShieldedNote) => void
   prices: Record<ShieldedAsset, number>
   rows: ShieldedNote[]
+  stats: Record<string, MarketStat>
 }): React.ReactElement {
   return (
     <div className="border-t pt-3">
@@ -345,6 +357,15 @@ function NoteList({
               thresholdBps: liquidationThresholdBps,
             })?.atRisk ??
               false)
+          // R29-adjacent: withdraw_shielded / withdraw_loan_shielded
+          // both check the pool's real reserve before paying out
+          // (R25) — advisory-only here too, `stats` can be stale and
+          // this isn't a substitute for that on-chain check, it just
+          // avoids a doomed click. Fails open when no snapshot has
+          // loaded yet, same convention as `hasBorrowLiquidity`.
+          const assetStat = stats[note.asset]
+          const hasLiquidity =
+            !assetStat || assetStat.availableBalance >= note.amount
           return (
             <div
               className="flex flex-col gap-1 rounded-md border bg-background/64 px-2 py-1.5 text-xs sm:flex-row sm:items-center sm:justify-between"
@@ -407,9 +428,14 @@ function NoteList({
                   </Button>
                 ) : null}
                 <Button
-                  disabled={isWithdrawBusy || anyBusy}
+                  disabled={isWithdrawBusy || anyBusy || !hasLiquidity}
                   onClick={() => onWithdraw(note)}
                   size="sm"
+                  title={
+                    hasLiquidity
+                      ? undefined
+                      : `The ${note.asset} pool doesn't currently have enough reserve for this ${note.tree === "loan" ? "claim" : "withdrawal"}. Try again shortly.`
+                  }
                   type="button"
                   variant="outline"
                 >

@@ -9,7 +9,7 @@ import { Frame, FrameHeader, FrameTitle } from "@/components/ui/frame"
 import {
   deriveMarketMetrics,
   formatPercent,
-  formatUsdCompact,
+  formatRawAmount,
   getAssetPriceUsd,
   getMarketPair,
   normalizeChart,
@@ -55,7 +55,10 @@ export function MarketCard({
         maximumFractionDigits: borrowPrice >= 10 ? 2 : 4,
       })}`,
     },
-    { label: "Available funds", value: formatUsdCompact(metrics.availableFundsUsd) },
+    {
+      label: "Available funds",
+      value: `${formatRawAmount(metrics.availableFundsRaw, market.symbol)} ${market.symbol}`,
+    },
     { label: "Utilization", value: formatPercent(metrics.utilization * 100) },
   ]
 

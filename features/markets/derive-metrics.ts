@@ -1,8 +1,6 @@
 import { DENOMINATION, type ShieldedAsset } from "@/features/notes"
 
-import { assets } from "./data"
 import type { MarketStat } from "./market-stats"
-import { getAssetPriceUsd } from "./utils"
 
 // Shared rate curve so market-card, market-detail-step, borrow-terms,
 // and command-search all show the same numbers for a given asset.
@@ -13,7 +11,12 @@ export const BASE_APR = 0.02
 export const SLOPE_APR = 0.15
 
 export type DerivedMarketMetrics = {
-  availableFundsUsd: number
+  /** Raw token units, in the borrow asset's own denomination — shown
+   * as-is (e.g. "8.1 XLM"), not converted to USD. A market's borrow
+   * asset is fixed, so the unit is never ambiguous, and the asset's
+   * own price is already shown right next to it on both cards that
+   * display this. */
+  availableFundsRaw: bigint
   borrowApr: number
   chart: { label: string; value: number }[]
   latestActivityAt: number | null
@@ -76,21 +79,21 @@ export function deriveMarketMetrics(
   // incremented (`borrow_amount` is a private witness since R20), so
   // that subtraction always reduced to just `totalDepositsValue` and
   // never reflected outstanding loans. Falls back to a 1-denomination
-  // floor so the card never shows `$0` when the pool is empty.
+  // floor so the card never shows `0` when the pool is empty. R28b:
+  // shown in the asset's own raw units, not USD — a market's borrow
+  // asset never changes, so "8.1 XLM" is unambiguous and more useful
+  // than a dollar figure that rounds away most of the real number at
+  // small pool sizes.
   const asset = pickShieldedAsset(borrowSymbol)
-  const availableRaw = Math.max(
-    asset ? Number(DENOMINATION[asset]) : 1,
-    Number(stat?.availableBalance ?? 0n)
-  )
-  const availableFundsUsd = asset
-    ? (availableRaw / 10 ** assets[asset].decimals) *
-      Math.max(0, getAssetPriceUsd(asset))
-    : availableRaw
+  const denominationFloor = asset ? DENOMINATION[asset] : 1n
+  const realBalance = stat?.availableBalance ?? 0n
+  const availableFundsRaw =
+    denominationFloor > realBalance ? denominationFloor : realBalance
   const chart = stat?.chart ?? []
   const latestActivityAt = stat?.latestActivityAt ?? null
 
   return {
-    availableFundsUsd,
+    availableFundsRaw,
     borrowApr,
     chart,
     latestActivityAt,

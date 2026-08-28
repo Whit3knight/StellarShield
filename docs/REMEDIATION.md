@@ -1164,6 +1164,62 @@ thread started from was successfully retried and completed.
 `lint`/`typecheck`/`test` (281 passing) all green. No contract change,
 no live deploy needed.
 
+### R29 — hasBorrowLiquidity's advisory gate ignored the actual requested amount [SHIPPED]
+
+Asked why the borrow UI let a 30 XLM request through against a pool
+that only showed 8.1 XLM available (R28's own fix, freshly confirmed
+correct). Root cause, confirmed by reading the call site directly:
+`hasBorrowLiquidity` compared the pool's balance against a flat
+`DENOMINATION[asset]` floor (10,000,000 stroops = 1 XLM) — not against
+the amount the user actually typed. Since 8.1 XLM clears the 1 XLM
+floor, the gate passed regardless of whether the request was for 1 XLM
+or 1,000 XLM.
+
+**Two separate things are true here, not one bug wearing two hats**:
+`borrow_shielded` itself has *never* checked reserve at all — can't,
+without revealing `borrow_amount` (a private witness since R20) — so a
+proof can succeed and mint an unpayable loan note no matter what any
+client-side gate does; that's R25's disclosed, deliberately-not-built
+limitation, unchanged by this fix. What *is* fixable, client-side, with
+no privacy cost: this specific gate wasn't even checking the right
+thing. Comparing the real balance against the real requested amount
+needs no on-chain data the client doesn't already have locally before
+ever generating a proof.
+
+**Fix**: `hasBorrowLiquidity(stat, requestedAmount: bigint)` — drops
+the `asset`/`DENOMINATION` floor entirely, compares
+`stat.availableBalance >= requestedAmount` directly. Call site
+(`use-shielded-borrow-flow.ts`) reordered so `loanAmountRaw` is
+computed once, before the gate, instead of after it (it already existed
+there for the proof-building step; nothing new to derive, just moved
+earlier). `gates.test.ts` rewritten to match — the old
+"asset's own denomination as the floor" test no longer applies (no
+per-asset floor left), replaced with a test reproducing the exact bug
+shape: 30 XLM request against an 8.1 XLM pool fails, 3 XLM against the
+same pool passes.
+
+**Verification**: `lint`/`typecheck`/`test` (281 passing) all green.
+No contract change, no live deploy needed — the fix is entirely in the
+client-side gate.
+
+**Follow-up, same day**: asked whether the positions drawer had the
+same gap. It did, and worse — no liquidity awareness at all, for
+*both* `withdraw_shielded` (deposit) and `withdraw_loan_shielded`
+(claim), since both got R25's on-chain check. `components/organisms/
+positions-drawer.tsx`'s Withdraw/Claim button was only ever disabled
+by busy-state, with zero awareness of pool reserve — clicking it on an
+underfunded note would reach R25's clean `InsufficientLiquidity`
+rejection, but only after a full proving cycle, with no warning
+beforehand. Threaded `useMarketStats()` through the same prop chain
+`prices` already uses (`PositionsDrawer` → `AssetGroupCard` →
+`NoteList`) and disabled the button (with a `title` tooltip explaining
+why) when `stats[note.asset].availableBalance < note.amount`, fails
+open when no snapshot has loaded yet — same convention as
+`hasBorrowLiquidity`. `lint`/`typecheck`/`test` all green; not
+independently browser-verified against a real connected wallet + note
+(no live session available in this check) — logic mirrors
+`hasBorrowLiquidity`'s already-verified comparison exactly.
+
 ### Small items (slot into sequence)
 
 - **Zero Rust contract tests** — blocked on soroban-sdk 23. One README line stating the block + stopgap (TS fixtures + R6 e2e). Re-check next sdk release.

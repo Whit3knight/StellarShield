@@ -1,5 +1,4 @@
 import type { MarketStat } from "@/features/markets"
-import { DENOMINATION, type ShieldedAsset } from "@/features/notes"
 
 import type {
   BorrowFlowMetrics,
@@ -55,26 +54,34 @@ export function shouldShowTransaction({
 }
 
 /**
- * Whether the borrow asset's pool has at least one denomination's
- * worth of real value as headroom before a user burns ~10-30s
- * generating a borrow proof. Advisory only: `stat` can be up to 60s
- * stale (`useMarketStats`) and this is not a substitute for a
- * contract-side reservation check — it just moves the common "proof
+ * Whether the borrow asset's pool actually holds enough to cover
+ * `requestedAmount` before a user burns ~10-30s generating a borrow
+ * proof. Advisory only: `stat` can be up to 60s stale
+ * (`useMarketStats`) and this is not a substitute for a contract-side
+ * reservation check — `borrow_shielded` itself has no reserve check at
+ * all (can't, without revealing `borrow_amount`, a private witness
+ * since R20 — see docs/REMEDIATION.md R25's "Deliberately not built"
+ * note), so a proof can still succeed and mint an unpayable loan note
+ * even when this gate passes. This just moves the common "proof
  * succeeds, Claim fails later" case earlier than a wasted proving
- * cycle. R28: reads `availableBalance` (the reserve SAC's real balance
- * for this asset — see `market-stats.ts`), not
- * `totalDepositsValue - totalBorrowsValue`. `total_borrow_value` is
- * only ever decremented on-chain, never incremented (`borrow_amount`
- * has been a private witness since R20), so that subtraction always
- * reduced to just `totalDepositsValue` and never reflected outstanding
- * loans — this gate would pass even when a market was fully drained.
- * Compares against `DENOMINATION` as a "meaningfully more than zero"
- * floor, same as before.
+ * cycle, for the common case where the requested amount alone already
+ * exceeds the pool.
+ *
+ * R28: reads `availableBalance` (the reserve SAC's real balance for
+ * this asset — see `market-stats.ts`), not
+ * `totalDepositsValue - totalBorrowsValue` (`total_borrow_value` is
+ * only ever decremented on-chain, never incremented, so that
+ * subtraction always reduced to just `totalDepositsValue`).
+ *
+ * R29: compares against the actual requested amount, not a flat
+ * one-denomination floor — the old floor let a 30 XLM request through
+ * against an 8.1 XLM pool as long as the pool cleared 1 XLM, which
+ * defeated the whole point of an advisory check.
  */
 export function hasBorrowLiquidity(
   stat: MarketStat | undefined,
-  asset: ShieldedAsset
+  requestedAmount: bigint
 ): boolean {
   if (!stat) return true // no snapshot yet — don't block on missing data
-  return stat.availableBalance >= DENOMINATION[asset]
+  return stat.availableBalance >= requestedAmount
 }

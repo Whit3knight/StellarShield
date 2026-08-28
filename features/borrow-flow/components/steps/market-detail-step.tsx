@@ -9,7 +9,7 @@ import { Card, CardPanel } from "@/components/ui/card"
 import {
   deriveMarketMetrics,
   formatPercent,
-  formatUsdCompact,
+  formatRawAmount,
   normalizeChart,
   useMarketStats,
   type MarketCardData,
@@ -64,7 +64,7 @@ export function MarketDetailStep({
         />
         <MetricTile
           label="Available"
-          value={formatUsdCompact(metrics.availableFundsUsd)}
+          value={`${formatRawAmount(metrics.availableFundsRaw, market.symbol)} ${market.symbol}`}
         />
         <MetricTile
           label="Utilization"
