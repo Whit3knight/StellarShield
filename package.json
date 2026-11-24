@@ -16,6 +16,7 @@
     "check:bundle": "bun scripts/check-bundle.ts",
     "gen:artifacts": "bun scripts/gen-artifact-manifest.ts",
     "check:artifacts": "bun scripts/gen-artifact-manifest.ts --check",
+    "check:circuits": "for d in contracts/circuits/shielded-*/src; do circomspect -c BLS12_381 -L node_modules $d || exit 1; done",
     "scan:underwater": "bun contracts/scripts/scan-underwater.ts",
     "gen:service-key": "bun contracts/scripts/gen-service-key.ts",
     "test:e2e": "bun contracts/scripts/e2e-borrow.ts"
