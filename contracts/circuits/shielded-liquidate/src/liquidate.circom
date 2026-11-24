@@ -51,6 +51,7 @@ pragma circom 2.1.9;
 
 include "circomlib/circuits/poseidon.circom";
 include "circomlib/circuits/comparators.circom";
+include "circomlib/circuits/bitify.circom";
 
 template Liquidate() {
     // Public.
@@ -109,6 +110,27 @@ template Liquidate() {
     //     < loan_amount * 10000 * borrow_price * PRICE_SCALE
     var PRICE_SCALE = 100000000000000; // 1e14, matches prices.ts PRICE_RATIO_SCALE
 
+    // Range bounds (circomspect `unconstrained-less-than`): `LessThan(200)`
+    // is only sound when both inputs are < 2^200. Bound every operand so
+    // lhs and rhs provably fit, instead of trusting the contract alone:
+    //   lhs = cn * cp * thr  < 2^100 * 2^64 * 2^16 = 2^180
+    //   rhs = la * bp * 1e18 < 2^64  * 2^64 * 2^60 = 2^188
+    // 2^64 on a 1e14-scaled ratio allows ~184000x, far above any real
+    // pair. current_price != 0 so a zero feed can never read as underwater.
+    component cpBits = Num2Bits(64);
+    cpBits.in <== current_price;
+    component cpZero = IsZero();
+    cpZero.in <== current_price;
+    cpZero.out === 0;
+    component bpBits = Num2Bits(64);
+    bpBits.in <== borrow_price;
+    component laBits = Num2Bits(64);
+    laBits.in <== loan_amount;
+    component cnBits = Num2Bits(100);
+    cnBits.in <== collateral_notional;
+    component thrBits = Num2Bits(16);
+    thrBits.in <== threshold_bps;
+
     signal cn_cp;
     cn_cp <== collateral_notional * current_price;
     signal lhs;
@@ -124,6 +146,14 @@ template Liquidate() {
     // not the field's own ~253-bit ceiling. Soundness against an
     // absurd current_price comes from the contract's live-price
     // cross-check, not an in-circuit bound.
+    // Explicit 200-bit bound on the comparator inputs themselves (implied by
+    // the operand bounds above; stated directly so the invariant is local
+    // to the comparison and visible to circomspect).
+    component lhsBits = Num2Bits(200);
+    lhsBits.in <== lhs;
+    component rhsBits = Num2Bits(200);
+    rhsBits.in <== rhs;
+
     component underwater = LessThan(200);
     underwater.in[0] <== lhs;
     underwater.in[1] <== rhs;

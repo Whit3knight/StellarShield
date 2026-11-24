@@ -15,10 +15,8 @@ clock.
 Verified on `development` (see `contracts/circuits/tests/liquidate.witness.test.ts`):
 
 - [x] `oracle_price` is a public borrow signal cross-checked against Reflector (R20); LTV/HF are scale-correct (R21); the liquidate-v2 circuit accepts underwater and rejects healthy positions, strict at the boundary (R22). A real Groth16 proof verifies against the shipped zkey/VK, and forging the public price after proving fails.
-- [ ] circomspect (`bun run check:circuits`) reports, and these are not yet triaged:
-  - `liquidate` / `liquidate-v2`: `LessThan(200)` inputs `lhs`/`rhs` are not range-bounded in-circuit. Soundness rests on `current_price` being cross-checked by the contract and the other operands being bound by the borrow-time Poseidon commitments. Add `Num2Bits` bounds as defence in depth (needs new zkey, VK and redeploy).
-  - `jubjub_pedersen.circom` `JubjubAdd`: unconstrained divisors `1 + d*tau`, `1 - d*tau`. Non-zero for on-curve points on a complete Edwards curve; confirm the argument and that every input point is on-curve.
-- [ ] `current_price = 0` is satisfiable by the circuit (it reads as "underwater"); the contract's live-Reflector cross-check is the only guard. Pinned by a test so a change is deliberate.
+- [x] liquidate and liquidate-v2 range-bound every operand (`current_price`, `borrow_price`, `loan_amount` < 2^64; `collateral_notional` < 2^100; `threshold_bps` < 2^16) plus explicit `Num2Bits(200)` on `lhs`/`rhs`, and reject `current_price = 0`. circomspect is clean on both. Covered by `liquidate.witness.test.ts`. New zkeys/VKs are single-contributor testnet keys and need a testnet redeploy of the VK bytes.
+- [ ] circomspect (`bun run check:circuits`) still reports `jubjub_pedersen.circom` `JubjubAdd`: unconstrained divisors `1 + d*tau`, `1 - d*tau`. Non-zero for on-curve points on a complete Edwards curve; confirm the argument and that every input point is on-curve.
 - [ ] The TS `isUnderwater` floors a division; the circuit cross-multiplies exactly. They can disagree by one unit exactly at the boundary.
 - [ ] Re-verify the claim vs liquidate nullifier namespaces on one loan (`LoanNullifierUsed`); not re-checked after the R-series changes.
 - [ ] No Rust unit tests (blocked on soroban-sdk 23); fixtures + testnet e2e stand in.
