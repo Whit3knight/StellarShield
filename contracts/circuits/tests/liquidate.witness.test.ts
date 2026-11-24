@@ -113,11 +113,27 @@ describe("liquidate-v2 circuit vs reference rule", () => {
     expect(await satisfiable(i)).toBe(false)
   })
 
-  it("rejects current_price = 0 (circuit alone; contract also guards)", async () => {
-    // 0 makes lhs = 0 < rhs, so it is "underwater" to the circuit. Pin the
-    // behaviour so a future change is deliberate: zero must be stopped by
-    // the contract's live-price cross-check, not by this circuit.
-    expect(await satisfiable(input(0n))).toBe(true)
+  it("rejects current_price = 0", async () => {
+    // A zero feed must never read as "underwater" (it makes lhs = 0).
+    expect(await satisfiable(input(0n))).toBe(false)
+  })
+
+  it("rejects out-of-range operands (comparator soundness)", async () => {
+    // Each of these would let lhs/rhs exceed the LessThan(200) domain.
+    expect(await satisfiable(input(1n << 64n))).toBe(false) // current_price
+    const bp = input(UNDERWATER)
+    bp.borrow_price = (1n << 64n).toString()
+    expect(await satisfiable(bp)).toBe(false)
+    const thr = input(UNDERWATER)
+    thr.threshold_bps = (1n << 16n).toString()
+    expect(await satisfiable(thr)).toBe(false)
+    const loan = input(UNDERWATER, 1n << 64n)
+    expect(await satisfiable(loan)).toBe(false)
+  })
+
+  it("rejects a field-wrapped price (p - 1)", async () => {
+    const p = 52435875175126190479447740508185965837690552500527637822603658699938581184513n
+    expect(await satisfiable(input(p - 1n))).toBe(false)
   })
 })
 
@@ -139,5 +155,60 @@ describe("shipped liquidate-v2 zkey + VK", () => {
     const forged = [...publicSignals]
     forged[3] = HEALTHY.toString()
     expect(await snarkjs.groth16.verify(vk, forged, proof)).toBe(false)
+  }, 120_000)
+})
+
+// v1 shares the underwater rule and the range bounds, plus a loan
+// commitment and nullifier. Tested against the shipped wasm/zkey/VK.
+describe("shipped liquidate (v1) circuit", () => {
+  const V1 = path.join(ROOT, "public/circuits-circom/shielded/liquidate")
+  const sk = 777n
+  const salt = 888n
+  const idx = 5n
+  const tag = 0n
+
+  function v1Input(currentPrice: bigint) {
+    return {
+      ...input(currentPrice),
+      loan_commitment: poseidon([LOAN, tag, sk, salt]).toString(),
+      loan_nullifier: poseidon([sk, idx]).toString(),
+      sk: sk.toString(),
+      loan_asset_tag: tag.toString(),
+      loan_salt: salt.toString(),
+      loan_index: idx.toString(),
+    }
+  }
+
+  async function sat(i: object) {
+    const out = path.join(mkdtempSync(path.join(tmpdir(), "wtns-")), "w.wtns")
+    try {
+      await snarkjs.wtns.calculate(i, path.join(V1, "liquidate.wasm"), out)
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  it("matches the rule, rejects zero and out-of-range prices", async () => {
+    expect(await sat(v1Input(UNDERWATER))).toBe(true)
+    expect(await sat(v1Input(HEALTHY))).toBe(false)
+    expect(await sat(v1Input(BOUNDARY))).toBe(false)
+    expect(await sat(v1Input(BOUNDARY - 1n))).toBe(true)
+    expect(await sat(v1Input(0n))).toBe(false)
+    expect(await sat(v1Input(1n << 64n))).toBe(false)
+  })
+
+  it("verifies a real proof with 7 public signals", async () => {
+    const vk = JSON.parse(readFileSync(path.join(V1, "verification_key.json"), "utf8"))
+    const { proof, publicSignals } = await snarkjs.groth16.fullProve(
+      v1Input(UNDERWATER),
+      path.join(V1, "liquidate.wasm"),
+      path.join(V1, "liquidate.zkey"),
+      undefined,
+      undefined,
+      { singleThread: true }
+    )
+    expect(publicSignals).toHaveLength(7)
+    expect(await snarkjs.groth16.verify(vk, publicSignals, proof)).toBe(true)
   }, 120_000)
 })
